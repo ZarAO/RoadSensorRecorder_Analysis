@@ -39,14 +39,14 @@ def main():
     results_dir = create_results_directory()
     print(f"Результати будуть збережені у: {results_dir}")
     
-    # 4. Обчислення RMSA
-    print("\n[4/7] Обчислення RMSA...")
-    rmsa = compute_rmsa(df, df['accel_z'])
+    # 4. Обчислення тривісного RMSA
+    print("\n[4/7] Обчислення тривісного RMSA...")
+    rmsa = compute_rmsa(df, df['accel_x_cal'], df['accel_y_cal'], df['accel_z_cal'])
     print(f"RMSA обчислено для {len(rmsa.dropna())} точок")
     
     # 5. Виявлення піків
     print("\n[5/7] Виявлення піків прискорення...")
-    peaks, _ = detect_peaks(df['accel_z'], threshold=1.5)
+    peaks, _ = detect_peaks(df['accel_z_cal'].fillna(0), threshold=0.5)
     print(f"Виявлено {len(peaks)} піків")
     
     # 6. Побудова графіків
@@ -60,7 +60,7 @@ def main():
     plot_rmsa(df['Time'], rmsa, results_dir)
     print("  ✓ Графік RMSA збережено")
     
-    plot_peaks(df['Time'], df['accel_z'], peaks, results_dir)
+    plot_peaks(df['Time'], df['accel_z_cal'], peaks, results_dir)
     print("  ✓ Графік піків збережено")
     
     # 7. Побудова GPS мапи та сегментація
