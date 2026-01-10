@@ -182,6 +182,14 @@ def create_segments_map_html(
     import matplotlib.cm as cm
     import matplotlib.colors as mcolors
     
+    # Візуальні константи для покращеної видимості
+    LINE_WEIGHT = 8          # Товщина кольорової лінії
+    OUTLINE_WEIGHT = 12      # Товщина чорної обводки
+    LINE_OPACITY = 1.0       # Непрозорість кольорової лінії
+    OUTLINE_OPACITY = 0.9    # Непрозорість обводки
+    GPS_TRACK_WEIGHT = 3     # Товщина фонової GPS траєкторії
+    GPS_TRACK_OPACITY = 0.4  # Непрозорість фонової траєкторії
+    
     # Інтерполювати GPS на time grid
     lat_interp = interp1d(gps_time, gps_lat, kind='linear', fill_value='extrapolate')
     lon_interp = interp1d(gps_time, gps_lon, kind='linear', fill_value='extrapolate')
@@ -200,15 +208,17 @@ def create_segments_map_html(
         tiles='OpenStreetMap'
     )
     
+    
     # Додати повну GPS траєкторію (сіра лінія)
     gps_track = [[float(lat), float(lon)] for lat, lon in zip(gps_lat, gps_lon)]
     folium.PolyLine(
         gps_track,
         color='gray',
-        weight=2,
-        opacity=0.5,
+        weight=GPS_TRACK_WEIGHT,
+        opacity=GPS_TRACK_OPACITY,
         popup='GPS Track'
     ).add_to(m)
+    
     
     # Кольорова шкала по IRI_multi
     if len(segments_df) > 0 and 'iri_multi' in segments_df.columns:
@@ -218,9 +228,28 @@ def create_segments_map_html(
             vmin = iri_values.min()
             vmax = iri_values.max()
             
+            # Контрастна палітра: від насиченого зеленого через синій та помаранчевий до червоного
+            # (уникаємо блідо-жовтих відтінків)
+            def get_contrast_color(normalized_value):
+                """
+                Повертає контрастний колір для normalized_value ∈ [0, 1]
+                0.0 = зелений (добра дорога), 1.0 = червоний (погана дорога)
+                """
+                if normalized_value < 0.33:
+                    # Добре: насичений зелений
+                    return '#1A9641'
+                elif normalized_value < 0.66:
+                    # Середнє: насичений синій
+                    return '#2C7BB6'
+                elif normalized_value < 0.85:
+                    # Погано: помаранчевий
+                    return '#FF7F00'
+                else:
+                    # Дуже погано: насичений червоний
+                    return '#D7191C'
+            
             # Нормалізувати
             norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
-            cmap = cm.get_cmap('RdYlGn_r')  # Червоний=високий IRI (поганий), зелений=низький (добрий)
             
             for _, row in segments_df.iterrows():
                 # Знайти індекси для сегменту
@@ -239,8 +268,8 @@ def create_segments_map_html(
                 # Колір по IRI_multi
                 iri_val = row['iri_multi']
                 if np.isfinite(iri_val):
-                    rgba = cmap(norm(iri_val))
-                    color = mcolors.to_hex(rgba)
+                    normalized = norm(iri_val)
+                    color = get_contrast_color(normalized)
                 else:
                     color = 'black'
                 
@@ -255,11 +284,24 @@ def create_segments_map_html(
                 Anomalies: {row['anomaly_count']}
                 """
                 
+                # Обводка (outline): спочатку малюємо товсту чорну лінію
+                folium.PolyLine(
+                    coordinates,
+                    color='#000000',
+                    weight=OUTLINE_WEIGHT,
+                    opacity=OUTLINE_OPACITY,
+                    line_cap='round',
+                    line_join='round'
+                ).add_to(m)
+                
+                # Кольорова лінія поверх обводки
                 folium.PolyLine(
                     coordinates,
                     color=color,
-                    weight=5,
-                    opacity=0.8,
+                    weight=LINE_WEIGHT,
+                    opacity=LINE_OPACITY,
+                    line_cap='round',
+                    line_join='round',
                     tooltip=tooltip_html
                 ).add_to(m)
     
