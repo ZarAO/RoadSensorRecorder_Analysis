@@ -1,64 +1,261 @@
-# 02 — Mathematics & Implementation Map (UNIFIED)
+# 02 — FORMULAS & IMPLEMENTATION MAP (UNIFIED)
 
-## Rules
-- Do not invent formulas. Use exactly the definitions below.
-- Default units:
-  - acceleration in **m/s²**
-  - distance in **m**
-  - speed in **m/s** and **km/h**
-  - IRI-like output in **m/km** (explicitly documented as estimate/proxy)
-- Every formula must have:
-  - implementation function,
-  - doc entry in `docs/formulas.md`,
-  - unit test(s).
+Цей файл — **єдине джерело істини** для:
+- формул/коефіцієнтів/порогів, які **прямо наведені в книзі** (“Book Canon”),
+- інженерної математики, яка потрібна для реалізації (наприклад, orientation-корекція), але **не є формулами книги** (“Engineering Additions”).
+
+> ВАЖЛИВО: агент не має права підвантажувати жодні інші формули ззовні.
 
 ---
 
-## Notation
-- time `t` in seconds after ingestion (CSV time may be ms)
-- latitude/longitude in degrees
-- distance `d`, cumulative distance `s` in meters
+## 0) Нотація і одиниці
+- час: `t` (секунди), `dt` (секунди)
+- GPS: `lat, lon` (градуси)
+- відстань: `s` (метри)
+- швидкість: `v` (м/с), `v_kmh = 3.6*v`
+- прискорення:
+  - `a_raw_phone(t) = [ax, ay, az]` у **м/с²** (як в CSV)
+  - `g0 = 9.80665 м/с²`
+  - `a_g = a / g0` — в **g**
+- IRI: **m/km** (метри на кілометр)
 
 ---
 
-## Formula map table (implement all REQUIRED IDs)
-> Additional IDs **G1/G2** and **R1** are included to preserve `v-ghc-1` logic (gravity compensation + RMSA_3D).
+# A) BOOK CANON (формули/коефіцієнти з книги)
 
-| ID | Formula (LaTeX) | Purpose | Units (in → out) | Code target (module::function) | Required test(s) |
-|---:|---|---|---|---|---|
-| **F1** | \(d=2R\arcsin(\sqrt{a})\), \(a=\sin^2(\Delta\varphi/2)+\cos\varphi_1\cos\varphi_2\sin^2(\Delta\lambda/2)\) | Haversine distance | deg,deg → m | `preprocessing/gps.py::haversine_m` | known coords distance ≈ reference |
-| **F2** | \(v=d/\Delta t\), \(v_{kmh}=3.6v\) | Speed from GPS | m,s → m/s, km/h | `preprocessing/gps.py::compute_speed` | constant motion → stable speed |
-| **F3** | \(s(t_k)=\sum_{i=1}^{k} d_i\) | Cumulative distance | m → m | `preprocessing/gps.py::cumulative_distance` | monotonic + total≈sum |
-| **F4** | \(f_s=\mathrm{median}(1/\Delta t)\) | Sample rate estimate | ms → Hz | `preprocessing/quality.py::estimate_fs` | synthetic dt → expected fs |
-| **F5** | \(\Delta x=v\Delta t\) | Distance step per sample | (m/s)*s → m | `preprocessing/quality.py::distance_step` | dx≈v/fs |
-| **F6** | \(v_{\max,kmh}=3.6\Delta x_{\max} f_s\) | Sampling class speed limit | m,Hz → km/h | `preprocessing/quality.py::max_speed_for_class` | numeric check |
-| **G1** | \(\vec g_{est}(t)=MA_w(\vec a(t))\) | Gravity estimate by moving average | m/s² → m/s² | `preprocessing/gravity.py::estimate_gravity_ma` | constant accel → gravity==that constant |
-| **G2** | \(\vec a_{lin}(t)=\vec a(t)-\vec g_{est}(t)\) | Linear accel (gravity-compensated) | m/s² → m/s² | `preprocessing/gravity.py::linear_accel` | if a==g constant ⇒ a_lin≈0 |
-| **F7** | Butterworth band-pass 0.5–6 Hz + `filtfilt` | Roughness filtering | m/s² → m/s² | `preprocessing/filters.py::bandpass` | in-band sinus passes |
-| **F8** | \(RMS=\sqrt{\frac{1}{n}\sum a_i^2}\) | RMS / RMSA | m/s² → m/s² | `metrics/rmsa.py::rms` | RMS(const)=abs(const) |
-| **R1** | \(RMSA\_3D=\sqrt{\frac{1}{n}\sum (a_x^2+a_y^2+a_z^2)}\) | 3D RMSA continuity metric | m/s² → m/s² | `metrics/rmsa.py::rmsa_3d` | isotropic const components check |
-| **F9** | Welch PSD | PSD curve | m/s² → (m/s²)²/Hz | `metrics/psd.py::welch_psd` | PSD integral ≈ variance (approx) |
-| **F10** | \(P=\int_{f_1}^{f_2}PSD(f)\,df\), \(\sqrt{P}\) | √PSD scalar (band power sqrt) | PSD → m/s² | `metrics/psd.py::psd_scalar_band_power_sqrt` | amplitude↑ ⇒ scalar↑ |
-| **F10b** | \(\sqrt{\mathrm{mean}(PSD)}\) | √PSD scalar mean | PSD → m/s² | `metrics/psd.py::psd_scalar_mean_sqrt` | stable on noise |
-| **F10c** | \(\sqrt{\mathrm{median}(PSD)}\) | √PSD scalar median | PSD → m/s² | `metrics/psd.py::psd_scalar_median_sqrt` | robust to outliers |
-| **F11** | \(IRI=A\sqrt{PSD}+B\) | PSD→IRI estimate | m/s² → m/km | `metrics/iri_models.py::iri_psd_linear` | linearity vs A,B |
-| **F12** | \(IRI=c_1G_{rms}+c_2Speed+\dots+c_0\) | Multi-linear IRI demo | mixed → m/km | `metrics/iri_models.py::iri_multi_linear` | synthetic expected output |
-| **F14** | STOP/SLOW/MOVING thresholds | Motion states | km/h,s → state | `preprocessing/traffic.py::classify_motion_states` | synthetic speed profile |
-| **F15** | `valid = MOVING ∧ ¬turn ∧ ¬hard_*` | Roughness mask | — | `preprocessing/quality.py::validity_mask` | braking/turn invalid |
-| **F17** | \(z=\frac{|x-\mathrm{median}|}{1.4826\cdot MAD}\) | Robust peaks | m/s² → events | `metrics/peaks.py::detect_peaks_mad` | spike detection |
-| **F18** | Interpolate \(a(t)\to a(s)\) | Distance-domain resample | time→distance | `segmentation/by_distance.py::resample_to_distance` | monotonic s |
-| **F19** | Segment metrics on \([s_0,s_1]\) | 100m segments | mixed → row | `segmentation/by_distance.py::compute_segment_metrics` | segment sum≈total |
+## A1) Eq.1 — Quarter-car IRI (визначення через швидкості мас)
+Книга дає формулу інтегрування (back-calculation у quarter-car підході):
+
+\[
+IRI = \frac{1}{L}\int_{0}^{L/V}\left|V_1(t) - V_2(t)\right| dt
+\]
+
+де:
+- \(V_1\) — вертикальна швидкість sprung mass (кузов),
+- \(V_2\) — вертикальна швидкість unsprung mass (колесо/вісь),
+- \(L\) — довжина виміру,
+- \(V\) — середня швидкість на відрізку.
+
+**Важливо для реалізації:** книга також пояснює, що quarter-car потребує **wheel track elevation як функцію часу** як вхід, тому з “чистого смартфонного акселя” прямий quarter-car шлях без профілю дороги — не гарантований. Тому в цьому проєкті quarter-car режим:
+- реалізувати як **опціональний**, якщо користувач надає профіль/висоти,
+- але IRI (m/km) обов’язково має виходити через PSD/регресії нижче.
+
+## A2) Eq.2–3 — IRI з PSD
+Книга дає “generic form”:
+
+\[
+IRI = A \cdot \sqrt{PSD}
+\]
+
+де `PSD` — power spectral density у \(g^2/Hz\), а \(A\) — коефіцієнт, який калібрується.
+
+Книга також дає приклад каліброваної залежності (після фільтрації major distresses):
+
+\[
+IRI = 0.774 \cdot \sqrt{PSD} - 0.825
+\]
+
+**Умови/пояснення з книги, які важливі для реалізації:**
+- використовують акселерометр смартфона,
+- перед регресією/калібруванням вказано “after removing the effect of distress”.
+
+### Як трактувати \(\sqrt{PSD}\) в реалізації (конкретизація для коду)
+Щоб зробити реалізацію однозначною (і тестованою), у цьому проєкті \(\sqrt{PSD}\) визначаємо як:
+
+1) Беремо вертикальну складову прискорення в **g** (після orientation-корекції та фільтрації).
+2) Обчислюємо PSD через Welch (див. Engineering Additions F_PSD_WELCH).
+3) Обчислюємо **band power** на діапазоні частот `f_low..f_high`:
+   \[
+   P = \int_{f_{low}}^{f_{high}} PSD(f)\,df
+   \]
+4) Тоді:
+   \[
+   \sqrt{PSD} := \sqrt{P}
+   \]
+Це дає скаляр, сумісний з одиницями \(g^2/Hz\) інтегрованими по Hz → \(g^2\), корінь → \(g\).
+Після цього застосовуємо Eq.3 для отримання IRI (m/km).
+
+> Примітка: книга не формалізує кроки 1–4 як “рівняння”, але це необхідна конкретизація для коду (і це не суперечить книзі).
+
+## A3) Eq.4–6 — Мультиваріантна лінійна регресія IRI (книга)
+Книга наводить моделі:
+
+**Eq.4 (LEV — large European van):**
+\[
+IRI = 55.25 \cdot Grms - 0.07 \cdot Speed + 0.19 \cdot Npeop - 2.93 \cdot Stif - 1.09 \cdot DampF - 1.44 \cdot TyreS + 7.66
+\]
+
+**Eq.5 (DSD — D-class sedan):**
+\[
+IRI = 54.43 \cdot Grms - 0.06 \cdot Speed + 0.18 \cdot Npeop - 0.87 \cdot Stif - 0.89 \cdot DampF - 0.27 \cdot TyreS + 5.75
+\]
+
+**Eq.6 (без типу авто):**
+\[
+IRI = 50.32 \cdot Grms - 0.06 \cdot Speed + 0.17 \cdot Npeop - 1.86 \cdot Stif - 0.90 \cdot DampF - 0.78 \cdot TyreS + 6.68
+\]
+
+де (з книги, діапазони змінних були в симуляції):
+- `Speed` (км/год): 30, 50, 80
+- `Npeop`: 1..4 (70 кг/людина)
+- `Stif`: 0.8, 1.0, 1.2
+- `DampF`: 0.8, 1.0, 1.2
+- `TyreS`: 0.7, 0.9, 1.0
+- `vehicle type`: LEV, DSD
+
+> Важливо: у книзі **немає** формули, яка використовує “розмір колеса”. Wheel size можна зберігати як метадані, але **не використовувати** у формулах IRI без окремого калібрування.
+
+## A4) Sampling constraints (книга)
+Книга каже:
+- sampling frequency **80–120 Hz** рекомендовано,
+- якщо `fs < 80 Hz`, авто має їхати на нижчій/сталій швидкості,
+- для urban speed limit < 50 km/h — sampling interval уздовж відстані **не більше 300 мм**.
+
+У реалізації:
+- `dx(t) = v(t) / fs_accel`
+- “Class 3 distance compliance”: `dx ≤ 0.3 m`
+
+А також необхідно побудувати звіт, що відсоток часу/відстані відповідає `dx≤0.3`.
+
+## A5) Anomaly baseline (книга)
+Книга наводить threshold baseline:
+- аномалія, якщо **вертикальне прискорення > 10 м/с²**.
+
+\[
+anomaly(t) = [a_{vertical}(t) > 10]
+\]
 
 ---
 
-## Minimal test suite mapping (recommended)
-- `tests/test_geo.py` → F1, F2, F3
-- `tests/test_sampling_quality.py` → F4, F5, F6
-- `tests/test_gravity.py` → G1, G2
-- `tests/test_filters.py` → F7
-- `tests/test_metrics.py` → F8, R1, F9, F10, F11, F12
-- `tests/test_traffic.py` → F14
-- `tests/test_quality_masks.py` → F15
-- `tests/test_peaks.py` → F17
-- `tests/test_segmentation_distance.py` → F18, F19
+# B) ENGINEERING ADDITIONS (математика для реалізації; НЕ формули книги)
 
+## B1) Перетворення lat/lon → локальні метри (ENU-апроксимація)
+Для малих ділянок (міські проїзди) використовуємо equirectangular approximation:
+
+Нехай `lat0` — опорна широта (радіани), `R = 6371000 м`.
+\[
+x = R \cdot \cos(lat0)\cdot (\lambda - \lambda_0), \quad y = R \cdot (\varphi - \varphi_0)
+\]
+
+де \(\varphi\) — lat, \(\lambda\) — lon (в радіанах).
+
+Це потрібно, щоб отримати:
+- вектор швидкості по землі \(\vec{v}_{xy}\),
+- напрямок руху (heading) у горизонтальній площині.
+
+(Для cumulative distance `s` допускається haversine, але для heading зручніше ENU.)
+
+## B2) Heading із GPS
+На кроці `t_i`:
+- обчислити \(\Delta x, \Delta y\) між сусідніми GPS точками,
+- \(\hat{h} = normalize([\Delta x, \Delta y, 0])\).
+- якщо швидкість дуже мала (stop-and-go), heading вважаємо невизначеним → фічі, що залежать від heading, маскуємо.
+
+## B3) Orientation-корекція (обов’язково) — gravity alignment + GPS-heading
+### Ціль
+Отримати:
+- `a_world(t)` — прискорення в “world” координатах,
+- `a_vertical(t)` — вертикальна компонента (вздовж гравітації),
+- `a_perp(t)` — горизонтальна компонента, **перпендикулярна напрямку руху** (для ML/аномалій).
+
+### B3.1 Оцінка гравітації з акселерометра
+Акселерометр вимірює:
+\[
+a_{raw}(t) \approx a_{lin}(t) + g(t)
+\]
+Оцінимо \(g(t)\) як low-pass фільтр `a_raw`:
+
+- застосувати low-pass (наприклад Butterworth 2–4 порядку) з cutoff `f_g` ~ 0.25–0.5 Hz
+- позначимо результат `g_hat(t)` (в м/с²)
+
+Далі:
+\[
+\hat{z}(t) = - normalize(g\_hat(t))
+\]
+(знак “-” щоб \(\hat{z}\) був “вгору”, якщо `g_hat` вказує “вниз”)
+
+### B3.2 Обчислення обертання, яке вирівнює gravity
+Потрібно знайти обертання \(R(t)\), таке що:
+\[
+R(t)\cdot \hat{z}_{phone}(t) = [0,0,1]
+\]
+де \(\hat{z}_{phone}(t) = \hat{z}(t)\).
+
+Один із надійних способів: quaternion “from-to” між двома векторами:
+- `u = z_phone`, `v = z_world=[0,0,1]`
+- \(\vec{w} = u \times v\)
+- \(c = u \cdot v\)
+- якщо \(c \approx -1\) (майже протилежні), вибрати будь-яку ортогональну вісь і зробити 180°.
+
+Загальний випадок:
+\[
+q = [1 + c,\ w_x,\ w_y,\ w_z], \quad q := normalize(q)
+\]
+Потім отримати матрицю \(R\) з quaternion.
+
+### B3.3 Віднімання гравітації та перехід у world
+\[
+a_{lin,phone}(t) = a_{raw,phone}(t) - g\_hat(t)
+\]
+\[
+a_{lin,world}(t) = R(t)\cdot a_{lin,phone}(t)
+\]
+Тоді:
+- `a_vertical = a_lin_world.z` (м/с²)
+- `a_vertical_g = a_vertical / g0` (g)
+
+> Примітка: це “tilt correction”. Вона стабільно працює при жорсткому кріпленні та відносно невеликих прискореннях.
+
+### B3.4 Горизонтальна перпендикулярна до руху
+Нехай:
+- `h_hat(t)` — heading unit vector у world XY (з GPS),
+- `z_world = [0,0,1]`,
+тоді перпендикуляр у горизонтальній площині:
+\[
+p\_hat(t) = normalize(z\_{world} \times h\_hat(t))
+\]
+і
+\[
+a_{perp}(t) = a_{lin,world}(t)\cdot p\_hat(t)
+\]
+
+Це саме те, що потрібно для “horizontal accel (perpendicular to travel direction)”.
+
+## B4) Grms (RMS вертикального прискорення в g)
+Для сегмента/вікна:
+\[
+Grms = \sqrt{\frac{1}{N}\sum_{i=1}^{N} a_{vertical,g}(t_i)^2}
+\]
+
+## B5) Welch PSD (деталізація)
+Для рівномірно дискретизованого сигналу `x[n]` (в g) з `fs`:
+- параметри: `nperseg`, `noverlap`, вікно Hann.
+- отримати `freqs[k]`, `psd[k]` (g²/Hz)
+
+Band power:
+\[
+P=\sum_{k: f_{low}\le f_k \le f_{high}} psd[k]\cdot \Delta f
+\]
+\[
+sqrtPSD = \sqrt{P}
+\]
+
+## B6) Band-pass 0.5–6 Hz (підтримка)
+Книга/огляди часто використовують band-pass 0.5–6 Hz для roughness сигналів.
+У реалізації:
+- застосувати band-pass Butterworth (4 order, zero-phase якщо можливо) до `a_vertical_g`
+- частоти за замовчуванням: `0.5..6 Hz`, але конфігуровані.
+
+## B7) 100 м сегментація
+Нехай `s` — cumulative distance на кожному семплі. Сегменти:
+- `seg_id = floor(s / 100)`
+- межі: `[100*seg_id, 100*(seg_id+1))`
+- агрегувати метрики по семплах, що потрапили в сегмент.
+
+## B8) Distress removal перед PSD (для узгодження з Eq.3)
+Оскільки Eq.3 наведено “after removing the effect of distress”, робимо детермінований підхід:
+- знайти distress timestamps через `threshold_10ms2` (Book Canon)
+- виключити вікно ±`w` секунд (наприклад 0.5–1.0 s) навколо кожного distress
+- на очищеному сигналі рахувати PSD.
+
+(Параметри `w` — конфіг, але за замовчуванням фіксовані для детермінізму.)
