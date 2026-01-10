@@ -1,4 +1,15 @@
-pandas
-matplotlib
-folium
-scipy
+# Road Quality Analyzer - Production Dependencies
+
+# Core data processing
+numpy>=2.3.0
+pandas>=2.3.0
+
+# Signal processing and numerical computations
+scipy>=1.16.0
+
+# Visualization and plotting
+matplotlib>=3.10.0
+folium>=0.20.0
+
+# Testing (optional, for development)
+pytest>=7.0.0
