@@ -17,10 +17,10 @@
 
 ```powershell
 # 1. Activate environment
-c:\Users\antoh\source\RoadSensorRecorder_Analysis\.venv\Scripts\Activate.ps1
+.\.venv\Scripts\Activate.ps1
 
 # 2. Run analysis
-python c:\Users\antoh\source\RoadSensorRecorder_Analysis\main.py analyze --input "c:\Users\antoh\source\RoadSensorRecorder_Analysis\data\sensor_data_20250729_163334.csv"
+python main.py analyze --input "data\sensor_data_20250729_163334.csv"
 ```
 
 **Output:**
@@ -46,7 +46,7 @@ results/results_<timestamp>/
 ### Step 1: Clone/Download
 
 ```powershell
-cd c:\Users\<username>\source
+cd <your_workspace_directory>
 git clone <repository_url> RoadSensorRecorder_Analysis
 cd RoadSensorRecorder_Analysis
 ```
@@ -302,10 +302,10 @@ FileNotFoundError: [Errno 2] No such file or directory: 'data/sensor_data.csv'
 **Solution:**
 ```powershell
 # Option A: Use absolute path
-python main.py analyze --input "C:\Users\antoh\source\RoadSensorRecorder_Analysis\data\sensor_data_20250729_163334.csv"
+python main.py analyze --input "<full_path_to_data>\sensor_data_20250729_163334.csv"
 
-# Option B: Change directory first
-cd C:\Users\antoh\source\RoadSensorRecorder_Analysis
+# Option B: Change directory first (recommended)
+cd <workspace_root>
 python main.py analyze --input "data\sensor_data_20250729_163334.csv"
 ```
 

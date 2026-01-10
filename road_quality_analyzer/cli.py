@@ -243,7 +243,7 @@ def analyze(input_path: str, output_dir: str, config_path: str = None):
         
         # Configuration
         f.write("## Configuration\n\n")
-        f.write("Параметри аналізу згідно з `agent_prompt_pack/02_FORMULAS_TEST_MAP_UNIFIED.md`:\n\n")
+        f.write("Параметри аналізу:\n\n")
         f.write("**Segmentation:**\n")
         f.write("- Segment length: 100 m\n")
         f.write("- Method: cumulative distance grid (B7)\n\n")

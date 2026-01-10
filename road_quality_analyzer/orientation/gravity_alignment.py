@@ -1,6 +1,6 @@
 """
 Gravity alignment and orientation correction
-Згідно з agent_prompt_pack/02_FORMULAS_TEST_MAP_UNIFIED.md розділ B3
+Розділ B3 - Gravity estimation
 """
 
 import numpy as np

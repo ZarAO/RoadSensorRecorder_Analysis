@@ -1,6 +1,6 @@
 """
 GPS heading and perpendicular acceleration
-Згідно з agent_prompt_pack/02_FORMULAS_TEST_MAP_UNIFIED.md розділи B1, B2, B3.4
+Розділи B1, B2, B3.4 - GPS-based heading
 """
 
 import numpy as np

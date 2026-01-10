@@ -1,6 +1,6 @@
 """
 Grms computation (RMS вертикального прискорення в g)
-Згідно з agent_prompt_pack/02_FORMULAS_TEST_MAP_UNIFIED.md розділ B4
+Розділ B4 - RMS acceleration
 """
 
 import numpy as np

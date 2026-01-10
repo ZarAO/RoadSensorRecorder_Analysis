@@ -1,8 +1,6 @@
 """
 Road Quality Analyzer - Thin wrapper for road_quality_analyzer package
 
-LEGACY REMOVED: This file now only supports the new pipeline.
-For legacy code, see archive/legacy_snapshot/
 
 Використання:
   python main.py --input <csv_file> --out <output_dir>

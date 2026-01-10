@@ -1,6 +1,6 @@
 """
 IRI computation (PSD and multi-linear regression)
-Згідно з agent_prompt_pack/02_FORMULAS_TEST_MAP_UNIFIED.md розділи A2-A3, B5
+Розділи A2-A3, B5 - IRI calculation
 """
 
 import numpy as np

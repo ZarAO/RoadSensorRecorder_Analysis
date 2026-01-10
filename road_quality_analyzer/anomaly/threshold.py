@@ -1,6 +1,6 @@
 """
 Anomaly detection (threshold)
-Згідно з agent_prompt_pack/02_FORMULAS_TEST_MAP_UNIFIED.md розділ A5
+Розділ A5 - Threshold-based detection
 """
 
 import numpy as np

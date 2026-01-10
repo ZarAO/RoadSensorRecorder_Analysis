@@ -1,0 +1,2 @@
+distance_m,duration_s,fs_hz,mean_speed_kmh,dx_mean_m,dx_p95_m,share_dx_le_0_3m,legacy_segments_count,new_segments_count,legacy_rmsa_mean,legacy_rmsa_median,new_grms_mean,new_grms_median,new_iri_multi_mean,new_iri_multi_median,legacy_peaks_total,new_threshold_anomalies_total
+15140.68858140516,,,41.65765774715434,,,,1799,153,0.3335329925846166,0.2777847411972521,0.059034939696366605,0.0544398653844142,3.781178700691909,3.6033869855979983,1799,0

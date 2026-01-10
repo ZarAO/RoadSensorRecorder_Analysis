@@ -1,6 +1,6 @@
 """
 Segmentation into 100m segments
-Згідно з agent_prompt_pack/02_FORMULAS_TEST_MAP_UNIFIED.md розділ B7
+Розділ B7 - Distance-based segmentation
 """
 
 import numpy as np
