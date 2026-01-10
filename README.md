@@ -88,22 +88,22 @@ RoadSensorRecorder_Analysis/
 
 ### Для наукової публікації:
 
-1. **[IMPROVEMENTS_DOCUMENTATION.md](IMPROVEMENTS_DOCUMENTATION.md)**
+1. **[IMPROVEMENTS_DOCUMENTATION.md](docs/IMPROVEMENTS_DOCUMENTATION.md)**
    - Повний опис покращень
    - Формули та математичний апарат
    - Обґрунтування методів
 
-2. **[TECHNICAL_PARAMETERS.md](TECHNICAL_PARAMETERS.md)**
+2. **[TECHNICAL_PARAMETERS.md](docs/TECHNICAL_PARAMETERS.md)**
    - Технічні параметри та константи
    - Формули для LaTeX
    - Рекомендації для експериментів
 
-3. **[RESEARCH_RESULTS.md](RESEARCH_RESULTS.md)**
+3. **[RESEARCH_RESULTS.md](docs/RESEARCH_RESULTS.md)**
    - Порівняльний аналіз
    - Статистика та графіки
    - Висновки для статті
 
-4. **[CHANGES_SUMMARY.md](CHANGES_SUMMARY.md)**
+4. **[CHANGES_SUMMARY.md](docs/CHANGES_SUMMARY.md)**
    - Короткий опис змін
    - Що, як і навіщо
 
