@@ -18,6 +18,41 @@ lib/
 lib64/
 parts/
 sdist/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+Lib/
+Scripts/
+share/
+pyvenv.cfg
+
+# Generated outputs (analysis results)
+out/
+results/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Large datasets (keep only sample)
+# data/*.csv  # Uncomment if you want to exclude all CSVs
+!data/sensor_data_20250729_163334.csv  # Keep sample dataset
+
+# Pytest
+.pytest_cache/
+
+# Legacy snapshot (tracked, but mark as archived)
+# archive/legacy_snapshot/  # Uncomment to exclude from repo
 var/
 wheels/
 share/python-wheels/
