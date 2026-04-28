@@ -170,7 +170,7 @@ Thumbs.db
 # === Project-specific ===
 # Generated outputs (analysis results)
 out/
-#results/
+results/
 
 # Temporary files
 *.tmp
