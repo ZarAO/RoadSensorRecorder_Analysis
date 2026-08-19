@@ -9,6 +9,7 @@ scipy>=1.16.0
 
 # Visualization and plotting
 matplotlib>=3.10.0
+scienceplots>=2.1.0
 folium>=0.20.0
 
 # Testing (optional, for development)

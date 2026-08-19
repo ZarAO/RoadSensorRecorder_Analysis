@@ -4,6 +4,7 @@ Time grid and distance grid utilities
 
 import numpy as np
 from scipy.interpolate import interp1d
+from scipy.ndimage import uniform_filter1d
 from typing import Tuple
 
 
@@ -14,25 +15,25 @@ def build_uniform_time_grid(
     accel_z: np.ndarray,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
-    Побудувати uniform time grid для акселя на базі median dt
-    
+    Build a uniform time grid for the accelerometer based on the median dt
+
     Args:
-        accel_time: час семплів акселя (секунди)
-        accel_x, accel_y, accel_z: компоненти акселя (м/с²)
-        
+        accel_time: accelerometer sample times (seconds)
+        accel_x, accel_y, accel_z: accelerometer components (m/s²)
+
     Returns:
-        (t_grid, ax_grid, ay_grid, az_grid) - інтерпольовані на t_grid
+        (t_grid, ax_grid, ay_grid, az_grid) - interpolated onto t_grid
     """
-    # Обчислити median dt
+    # Compute the median dt
     dt_samples = np.diff(accel_time)
     dt_median = np.median(dt_samples)
-    
-    # Побудувати uniform grid
+
+    # Build the uniform grid
     t_start = accel_time[0]
     t_end = accel_time[-1]
     t_grid = np.arange(t_start, t_end, dt_median)
-    
-    # Інтерполяція (linear)
+
+    # Interpolation (linear)
     interp_x = interp1d(accel_time, accel_x, kind='linear', 
                         bounds_error=False, fill_value='extrapolate')
     interp_y = interp1d(accel_time, accel_y, kind='linear',
@@ -49,21 +50,21 @@ def build_uniform_time_grid(
 
 def compute_gps_distance(lat: np.ndarray, lon: np.ndarray) -> np.ndarray:
     """
-    Обчислити cumulative distance з GPS (haversine)
-    
+    Compute cumulative distance from GPS (haversine)
+
     Args:
-        lat, lon: широта/довгота (градуси)
-        
+        lat, lon: latitude/longitude (degrees)
+
     Returns:
-        s: cumulative distance (метри)
+        s: cumulative distance (meters)
     """
-    R = 6371000.0  # радіус Землі в метрах
-    
-    # Конвертувати в радіани
+    R = 6371000.0  # Earth radius in meters
+
+    # Convert to radians
     lat_rad = np.deg2rad(lat)
     lon_rad = np.deg2rad(lon)
-    
-    # Обчислити відстані між сусідніми точками
+
+    # Compute distances between neighboring points
     dlat = np.diff(lat_rad)
     dlon = np.diff(lon_rad)
     
@@ -86,35 +87,41 @@ def build_distance_grid(
     t_grid: np.ndarray
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Побудувати cumulative distance s(t) та швидкість v(t) на t_grid
-    
+    Build cumulative distance s(t) and speed v(t) on t_grid
+
+    No extrapolation is done outside the GPS time span: s and v are NaN there
+    (linear extrapolation produced negative s and a spurious seg_id=-1 segment).
+
     Args:
-        gps_time: час GPS семплів (секунди)
-        gps_lat, gps_lon: координати (градуси)
-        t_grid: uniform time grid (секунди)
-        
+        gps_time: time of GPS samples (seconds)
+        gps_lat, gps_lon: coordinates (degrees)
+        t_grid: uniform time grid (seconds)
+
     Returns:
-        (s_grid, v_grid) - відстань (м) та швидкість (м/с) на t_grid
+        (s_grid, v_grid) - distance (m) and speed (m/s) on t_grid,
+        NaN outside GPS coverage
     """
-    # Обчислити cumulative distance на GPS семплах
+    # Compute cumulative distance at GPS samples
     s_gps = compute_gps_distance(gps_lat, gps_lon)
-    
-    # Інтерполювати на t_grid
+
+    # Interpolate onto t_grid (no extrapolation)
     interp_s = interp1d(gps_time, s_gps, kind='linear',
-                        bounds_error=False, fill_value='extrapolate')
+                        bounds_error=False, fill_value=np.nan)
     s_grid = interp_s(t_grid)
-    
-    # Обчислити швидкість v = ds/dt
+
     dt = np.median(np.diff(t_grid))
-    v_grid = np.gradient(s_grid, dt)
-    
-    # Згладжування швидкості (moving average, вікно 1 секунда)
-    window_size = max(1, int(1.0 / dt))
-    if window_size > 1:
-        kernel = np.ones(window_size) / window_size
-        v_grid = np.convolve(v_grid, kernel, mode='same')
-    
-    # Обрізати негативні швидкості
-    v_grid = np.maximum(v_grid, 0.0)
-    
+    window_size = max(1, int(round(1.0 / dt)))
+
+    # Smoothing BEFORE differentiating (numeric gradient amplifies GPS noise);
+    # mode='nearest' does not pull the edges to zero like zero-padded convolve.
+    # s is a cumulative sum of haversine magnitudes, so it is monotone and the
+    # speed derived from it is non-negative without any clipping.
+    v_grid = np.full_like(s_grid, np.nan)
+    covered = np.isfinite(s_grid)
+    if np.sum(covered) > 1:
+        s_covered = s_grid[covered]
+        if window_size > 1:
+            s_covered = uniform_filter1d(s_covered, size=window_size, mode='nearest')
+        v_grid[covered] = np.gradient(s_covered, dt)
+
     return s_grid, v_grid

@@ -1,5 +1,5 @@
 """
-Entry point для запуску як модуль: python -m road_quality_analyzer
+Entry point for running as a module: python -m road_quality_analyzer
 """
 
 from .cli import main

@@ -1,6 +1,6 @@
 """
 Road Quality Analyzer Package
-Відтворюваний пайплайн аналізу дорожнього полотна зі смартфонних сенсорів
+Reproducible pipeline for road surface analysis from smartphone sensors
 """
 
 __version__ = "0.1.0"

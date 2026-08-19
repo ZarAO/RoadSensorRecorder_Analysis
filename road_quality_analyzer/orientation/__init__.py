@@ -7,15 +7,11 @@ from .gravity_alignment import (
     compute_rotation_matrix,
     transform_to_world
 )
-from .heading import (
-    compute_gps_heading,
-    compute_perpendicular_accel
-)
+from .heading import compute_gps_heading
 
 __all__ = [
     "estimate_gravity",
     "compute_rotation_matrix",
     "transform_to_world",
-    "compute_gps_heading",
-    "compute_perpendicular_accel"
+    "compute_gps_heading"
 ]
