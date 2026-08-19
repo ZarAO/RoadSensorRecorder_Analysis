@@ -36,13 +36,13 @@
 **New default:**
 - `main.py` — thin wrapper → `python -m road_quality_analyzer analyze`
 - Auto-detects latest CSV if `--input` not specified
-- Auto-generates `results/results_<timestamp>` if `--out` not specified
+- Auto-generates `storage/results/results_<timestamp>` if `--out` not specified
 
 **Preserved:**
-- `road_quality_analyzer/` package (new pipeline)
-- `tests/` (163 unit tests у 11 файлах, all PASS)
+- `analyzer/src/road_quality_analyzer/` package (new pipeline)
+- `analyzer/tests/` (163 unit tests у 11 файлах, all PASS)
 - `docs/` (документація STAGE 3, файли 00-09)
-- Sample dataset: `data/sensor_data_20250729_163334.csv`
+- Sample dataset: `storage/data/sensor_data_20250729_163334.csv`
 
 `tools/compare_runs_v2.py` не збережений — його теж видалено.
 
@@ -116,7 +116,7 @@ python main.py
 python main.py --use-new-pipeline
 
 # Direct analyzer call
-python -m road_quality_analyzer analyze --input data/sensor_data.csv --out results/
+python -m road_quality_analyzer analyze --input storage/data/sensor_data.csv --out storage/results/
 ```
 
 **After (STAGE 4+):**
@@ -125,10 +125,10 @@ python -m road_quality_analyzer analyze --input data/sensor_data.csv --out resul
 python main.py
 
 # With explicit input/output
-python main.py --input data/sensor_data_20250729.csv --out results/my_run
+python main.py --input storage/data/sensor_data_20250729.csv --out storage/results/my_run
 
 # Direct analyzer call (unchanged)
-python -m road_quality_analyzer analyze --input data/sensor_data.csv --out results/
+python -m road_quality_analyzer analyze --input storage/data/sensor_data.csv --out storage/results/
 ```
 
 ---
@@ -137,7 +137,7 @@ python -m road_quality_analyzer analyze --input data/sensor_data.csv --out resul
 
 **Legacy outputs:**
 ```
-results/results_<timestamp>/
+storage/results/results_<timestamp>/
 ├── accel_z.png              (z-axis acceleration plot)
 ├── gyro_y.png               (gyroscope plot)
 ├── rmsa.png                 (RMSA time series)
@@ -148,7 +148,7 @@ results/results_<timestamp>/
 
 **New pipeline outputs:**
 ```
-results/results_<timestamp>/
+storage/results/results_<timestamp>/
 ├── road_segments.csv        (distance-based, 24 колонки з IRI метриками)
 ├── roughness.geojson        (LineString на сегмент)
 ├── events.geojson           (Point на кожну аномалію)
@@ -205,22 +205,22 @@ Grms = 0.06 g, Speed = 40 km/h
 python main.py
 
 # Or specify input
-python main.py --input data/sensor_data_20250729_163334.csv
+python main.py --input storage/data/sensor_data_20250729_163334.csv
 ```
 
-**Output:** `results/results_<timestamp>/`
+**Output:** `storage/results/results_<timestamp>/`
 
 ### Full CLI Options
 
 ```powershell
 python -m road_quality_analyzer analyze `
-  --input data/sensor_data_20250729_163334.csv `
-  --out results/my_analysis
+  --input storage/data/sensor_data_20250729_163334.csv `
+  --out storage/results/my_analysis
 ```
 
 Інших прапорців немає: `--dx`, `--gravity_cutoff`, `--anomaly_abs`, `--min_speed`,
 `--npeop`, `--stif`, `--damp_f`, `--tyre_s`, `--config` **не реалізовані**.
-Ці величини — константи в `road_quality_analyzer/cli.py` та
+Ці величини — константи в `analyzer/src/road_quality_analyzer/cli.py` та
 `segmentation/segment_100m.py`; фактичні значення кожного прогону друкуються
 у секцію `Configuration` файлу `report.md`.
 
@@ -236,12 +236,12 @@ python -m road_quality_analyzer analyze `
 
 1. **Run new pipeline only:**
    ```powershell
-   python main.py --input data/sensor_data_20250729_163334.csv --out results/new_only
+   python main.py --input storage/data/sensor_data_20250729_163334.csv --out storage/results/new_only
    ```
 
 2. **Check outputs:**
    ```
-   results/new_only/
+   storage/results/new_only/
    ├── road_segments.csv   (152 segments, 100 m each; 2 з них partial)
    ├── roughness.geojson
    ├── events.geojson
@@ -254,13 +254,13 @@ python -m road_quality_analyzer analyze `
    ```python
    import pandas as pd
    
-   df = pd.read_csv('results/new_only/road_segments.csv')
+   df = pd.read_csv('storage/results/new_only/road_segments.csv')
    full = df[~df['partial']]          # неповні сегменти не входять у середні
    print(f"Mean IRI: {full['iri_multi'].mean():.2f} m/km")
    print(f"Mean Grms: {full['grms'].mean():.4f} g")
    ```
 
-**Expected (поточний пайплайн на `data/sensor_data_20250729_163334.csv`):**
+**Expected (поточний пайплайн на `storage/data/sensor_data_20250729_163334.csv`):**
 - Distance у вікні аналізу: 15123.7 m
 - Segments: 152 (2 partial)
 - Mean IRI_multi: 2.99 m/km (лише повні сегменти)
@@ -381,7 +381,7 @@ python main.py
 import pandas as pd
 import matplotlib.pyplot as plt
 
-df = pd.read_csv('results/new_run/road_segments.csv')
+df = pd.read_csv('storage/results/new_run/road_segments.csv')
 
 plt.figure(figsize=(12, 4))
 plt.plot(df['distance_start_m'], df['grms'], label='Grms (g)')

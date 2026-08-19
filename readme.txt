@@ -8,14 +8,15 @@ PURPOSE
 
 HOW TO RUN
 ----------
-1. Встановити залежності:
+1. Встановити залежності (analyzer ставиться в editable-режимі з ./analyzer):
    pip install -r requirements.txt
+   (еквівалент напряму: pip install -e ./analyzer)
 
 2. Запустити аналіз:
-   python -m road_quality_analyzer analyze --input data/sensor_data_20250729_163334.csv --out results/my_analysis
+   python -m road_quality_analyzer analyze --input storage/data/sensor_data_20250729_163334.csv --out storage/results/my_analysis
 
    Або через wrapper:
-   python main.py --input data/sensor_data_20250729_163334.csv --out results/my_analysis
+   python main.py --input storage/data/sensor_data_20250729_163334.csv --out storage/results/my_analysis
 
 INPUT FORMAT
 ------------
@@ -36,7 +37,7 @@ OUTPUTS
 
 TESTS
 -----
-.venv\Scripts\python.exe -m pytest tests -q   (114 passed)
+.venv\Scripts\python.exe -m pytest analyzer/tests -q   (114 passed)
 
 DOCUMENTATION
 -------------

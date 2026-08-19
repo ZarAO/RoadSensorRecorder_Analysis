@@ -20,15 +20,15 @@
 .\.venv\Scripts\Activate.ps1
 
 # 2. Run analysis
-python main.py --input "data\sensor_data_20250729_163334.csv" --out results\my_run
+python main.py --input "storage\data\sensor_data_20250729_163334.csv" --out storage\results\my_run
 ```
 
 `main.py` — тонка обгортка: без `--input` він бере найновіший
-`data/sensor_data_*.csv`, без `--out` створює `results/results_<timestamp>/`.
+`storage/data/sensor_data_*.csv`, без `--out` створює `storage/results/results_<timestamp>/`.
 
 **Output:**
 ```
-results/my_run/
+storage/results/my_run/
 ├── road_segments.csv       (метрики на 100 м сегмент, 24 колонки)
 ├── roughness.geojson       (LineString на сегмент)
 ├── events.geojson          (Point на кожну аномалію)
@@ -69,9 +69,22 @@ python -m venv .venv
 
 ```powershell
 pip install -r requirements.txt
+
+# Еквівалент напряму (без pytest):
+pip install -e ./analyzer
 ```
 
-**Contents of `requirements.txt`:**
+**Contents of `requirements.txt`** (workspace-форма — ставить analyzer editable):
+```
+-e ./analyzer
+pytest>=7.0.0
+```
+
+Пакет `road_quality_analyzer` лежить у `analyzer/src/` (src-layout), тому
+editable-встановлення обов'язкове: саме воно робить `import road_quality_analyzer`
+і `python -m road_quality_analyzer` доступними з будь-якої робочої директорії.
+
+**Runtime-залежності (нижні межі з `analyzer/pyproject.toml`):**
 ```
 numpy>=2.3.0
 pandas>=2.3.0
@@ -79,7 +92,6 @@ scipy>=1.16.0
 matplotlib>=3.10.0
 scienceplots>=2.1.0
 folium>=0.20.0
-pytest>=7.0.0
 ```
 
 **Verification:**
@@ -87,7 +99,7 @@ pytest>=7.0.0
 python -c "import numpy, pandas, scipy, matplotlib, scienceplots, folium; print('OK')"
 # Expected: OK
 
-python -m pytest tests -q
+python -m pytest analyzer/tests -q
 # Expected: 163 passed
 ```
 
@@ -109,7 +121,7 @@ python main.py --input <csv_path> --out <dir>
 **`--out <dir>`** — Output directory (створюється за потреби)
 
 Обидва обов'язкові для `python -m road_quality_analyzer analyze`; у `main.py`
-обидва мають fallback (останній CSV у `data/`, `results/results_<timestamp>/`).
+обидва мають fallback (останній CSV у `storage/data/`, `storage/results/results_<timestamp>/`).
 
 **Format requirements (рівно 7 колонок):**
 ```csv
@@ -164,7 +176,7 @@ python -m road_quality_analyzer analyze --input <csv_path> --out <dir> `
 
 Інших параметрів немає: `--config`, `--dx`, `--gravity_cutoff`, `--npeop`,
 `--rf_threshold` тощо **не існують**. Решта параметрів пайплайну — константи у
-`road_quality_analyzer/cli.py`, і кожен прогін друкує їхні фактичні значення
+`analyzer/src/road_quality_analyzer/cli.py`, і кожен прогін друкує їхні фактичні значення
 у секцію `Configuration` файлу `report.md`:
 
 | Константа | Значення | Призначення |
@@ -189,7 +201,7 @@ python -m road_quality_analyzer analyze --input <csv_path> --out <dir> `
 **Example 1: явні вхід і вихід**
 ```powershell
 python -m road_quality_analyzer analyze `
-  --input data\sensor_data_20250729_163334.csv `
+  --input storage\data\sensor_data_20250729_163334.csv `
   --out out\run1
 ```
 
@@ -200,13 +212,13 @@ python main.py
 
 **Example 3: обгортка з іменованою текою результатів**
 ```powershell
-python main.py --input data\sensor_data_20250729_163334.csv --out results\official_run
+python main.py --input storage\data\sensor_data_20250729_163334.csv --out storage\results\official_run
 ```
 
 **Example 4: позначити низькошвидкісні ділянки як «дуже погані»**
 ```powershell
 python -m road_quality_analyzer analyze `
-  --input data\sensor_data_20250729_163334.csv `
+  --input storage\data\sensor_data_20250729_163334.csv `
   --out out\run_very_poor `
   --low-speed-policy very-poor
 ```
@@ -216,7 +228,7 @@ python -m road_quality_analyzer analyze `
 **Example 5: прибрати низькошвидкісні ділянки з карти й таблиць**
 ```powershell
 python -m road_quality_analyzer analyze `
-  --input data\sensor_data_20250729_163334.csv `
+  --input storage\data\sensor_data_20250729_163334.csv `
   --out out\run_ignore `
   --low-speed-policy ignore
 ```
@@ -373,7 +385,7 @@ PNG (150 DPI) + PDF (вектор, стиль SciencePlots) для кожног�
 
 **Symptom:**
 ```
-FileNotFoundError: [Errno 2] No such file or directory: 'data/sensor_data.csv'
+FileNotFoundError: [Errno 2] No such file or directory: 'storage/data/sensor_data.csv'
 ```
 
 **Cause:** відносний шлях, але поточна директорія — не корінь проєкту
@@ -385,7 +397,7 @@ python main.py --input "<full_path_to_data>\sensor_data_20250729_163334.csv" --o
 
 # Option B: Change directory first (recommended)
 cd <workspace_root>
-python main.py --input "data\sensor_data_20250729_163334.csv" --out out\run1
+python main.py --input "storage\data\sensor_data_20250729_163334.csv" --out out\run1
 ```
 
 ---
@@ -571,13 +583,13 @@ IRI_multi = 50.32*Grms - 0.06*Speed_kmh + 0.17*Npeop
 
 ```powershell
 python main.py `
-  --input data\sensor_data_20250729_163334.csv `
-  --out results\official_run_2025_07_29
+  --input storage\data\sensor_data_20250729_163334.csv `
+  --out storage\results\official_run_2025_07_29
 ```
 
 **Structure:**
 ```
-results/
+storage/results/
 ├── official_run_2025_07_29/    ← named output
 │   ├── road_segments.csv
 │   ├── roughness.geojson
@@ -623,7 +635,7 @@ results/
 **A:** Included in repo:
 
 ```
-data/
+storage/data/
 └── sensor_data_20250729_163334.csv
 ```
 
@@ -635,7 +647,7 @@ data/
 - Distance у вікні аналізу: 15123.7 м, 152 сегменти (2 `partial`)
 - Файл записаний до контракту v2 → без `#`-преамбули (читається так само)
 
-Синтетичні CSV для тестів генерує `tests/conftest.py::write_drive_csv`.
+Синтетичні CSV для тестів генерує `analyzer/tests/conftest.py::write_drive_csv`.
 
 ---
 
@@ -669,7 +681,7 @@ Layer → Add Layer → Add Vector Layer → roughness.geojson
 2. **Smartphone Class III:** ASTM E950-09, "Classification of Devices"
 3. **Formulas:** зовнішній довідник `02_FORMULAS_TEST_MAP_UNIFIED.md`
    (у репозиторії його немає). Коефіцієнти, що виконуються, — у
-   `road_quality_analyzer/metrics/iri.py`
+   `analyzer/src/road_quality_analyzer/metrics/iri.py`
 
 ### Support
 
@@ -679,7 +691,7 @@ Layer → Add Layer → Add Vector Layer → roughness.geojson
 
 **Наступні кроки:**
 - Run analysis: `python main.py --input <path> --out <dir>`
-- Explore results у `results/` directory
+- Explore results у `storage/results/` directory
 - Review [00_index.md](00_index.md) для navigation
 
 ---

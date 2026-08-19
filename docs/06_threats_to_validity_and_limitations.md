@@ -305,7 +305,7 @@ IRI_psd = 0.774 * 0.5 - 0.825 = -0.438 m/km  (invalid)
 → Negative IRI physically meaningless
 ```
 
-**Quantification** (поточний прогін на `data/sensor_data_20250729_163334.csv`):
+**Quantification** (поточний прогін на `storage/data/sensor_data_20250729_163334.csv`):
 - **% повних сегментів з `iri_psd_raw` < 0:** 100% (mean `iri_psd_raw` = -0.81 m/km)
 - `iri_psd` кліпається до 0, сире значення зберігається окремою колонкою;
   частка негативних також друкується у `report.md`
@@ -409,7 +409,7 @@ Total uncertainty: ±0.5 m/km (for mean IRI = 3.78 → ±13% error)
 
 5. **Deterministic pipeline:**
    - Fixed parameters, unit tests (163/163 PASS, 11 файлів)
-   - Seed зафіксовано в `tests/conftest.py` (фікстура `rng`); наскрізний тест порівнює
+   - Seed зафіксовано в `analyzer/tests/conftest.py` (фікстура `rng`); наскрізний тест порівнює
      `road_segments.csv` двох прогонів побайтово
    - **Impact:** Reproducible results
 

@@ -16,7 +16,7 @@ from datetime import datetime
 
 from road_quality_analyzer.cli import analyze
 
-# Default data/ and results/ are tied to the project, not to the current directory
+# Default storage/data/ and storage/results/ are tied to the project, not to the current directory
 PROJECT_ROOT = Path(__file__).resolve().parent
 
 
@@ -34,7 +34,7 @@ def run_analysis(input_file: str = None, output_dir: str = None):
 
     # Auto-detect latest CSV if not provided
     if input_file is None:
-        data_dir = PROJECT_ROOT / "data"
+        data_dir = PROJECT_ROOT / "storage" / "data"
         csv_files = list(data_dir.glob("sensor_data_*.csv"))
         if not csv_files:
             print(f"ERROR: Немає CSV файлів у папці {data_dir}")
@@ -53,7 +53,7 @@ def run_analysis(input_file: str = None, output_dir: str = None):
     # Auto-generate output directory if not provided
     if output_dir is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_dir = PROJECT_ROOT / "results" / f"results_{timestamp}"
+        output_dir = PROJECT_ROOT / "storage" / "results" / f"results_{timestamp}"
         print(f"[Auto-generated] Output: {output_dir}")
     else:
         print(f"[User-specified] Output: {output_dir}")
@@ -82,8 +82,8 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python main.py --input data/sensor_data_20250729.csv
-  python main.py --input data/sensor_data_20250729.csv --out results/my_run
+  python main.py --input storage/data/sensor_data_20250729.csv
+  python main.py --input storage/data/sensor_data_20250729.csv --out storage/results/my_run
   python main.py  # Auto-detect latest CSV
 
 For full CLI options:

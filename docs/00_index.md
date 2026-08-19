@@ -10,7 +10,7 @@
 ### Аналіз даних
 ```bash
 python -m road_quality_analyzer analyze \
-  --input data/sensor_data_20250729_163334.csv \
+  --input storage/data/sensor_data_20250729_163334.csv \
   --out out/new_analysis
 ```
 
@@ -46,7 +46,7 @@ CLI має два обов'язкові параметри — `--input` і `--o
   - Детальний алгоритм: ingestion → uniform grid → GPS → orientation → filters → metrics → segmentation
   - Orientation correction: gravity alignment + GPS heading + a_perp
   - Формули із зовнішнього довідника `02_FORMULAS_TEST_MAP_UNIFIED.md`
-    (коефіцієнти в коді — `road_quality_analyzer/metrics/iri.py`):
+    (коефіцієнти в коді — `analyzer/src/road_quality_analyzer/metrics/iri.py`):
     - Eq.1: Quarter-car IRI (опціонально)
     - Eq.2-3: IRI з PSD (основний метод)
     - Eq.4-6: Мультиваріантна регресія IRI (vehicle-specific)
@@ -192,7 +192,7 @@ CLI має два обов'язкові параметри — `--input` і `--o
 - Version/commit: main branch, дата 2025-01-10
 - Python: >= 3.11 (перевірено на 3.14.4)
 - Key libraries: версії з `pip freeze` вашого середовища
-- Test coverage: 163/163 PASS (`pytest tests -q`, 11 файлів)
+- Test coverage: 163/163 PASS (`pytest analyzer/tests -q`, 11 файлів)
 - Validation: Spearman ρ = 0.783 (IRI_multi vs legacy RMSA, p < 0.0001)
 
 **Ключові покращення для цитування:**
@@ -212,8 +212,8 @@ CLI має два обов'язкові параметри — `--input` і `--o
 - Методологія: див. [02_methods_new_pipeline.md](02_methods_new_pipeline.md)
 - Формули: посилання `agent_prompt_pack/02_FORMULAS_TEST_MAP_UNIFIED.md` у документації
   вказує на зовнішній довідник із рівняннями (у репозиторії його немає). Фактичні
-  коефіцієнти, які виконуються, — у `road_quality_analyzer/metrics/iri.py`
-- Тести: `tests/` (163 unit tests у 11 файлах)
+  коефіцієнти, які виконуються, — у `analyzer/src/road_quality_analyzer/metrics/iri.py`
+- Тести: `analyzer/tests/` (163 unit tests у 11 файлах)
 - Результати: [05_results_legacy_vs_new.md](05_results_legacy_vs_new.md)
 
 **Репозиторій:** https://github.com/ZarAO/RoadSensorRecorder_Analysis

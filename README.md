@@ -20,18 +20,25 @@ python -m venv .venv
 # Активувати (Linux/macOS)
 source .venv/bin/activate
 
-# Встановити залежності
+# Встановити залежності (встановлює пакет analyzer у editable-режимі)
 pip install -r requirements.txt
+
+# Еквівалент напряму (без pytest):
+pip install -e ./analyzer
 ```
+
+Пакет `road_quality_analyzer` живе в `analyzer/src/` (src-layout), тому
+editable-встановлення обов'язкове — саме воно робить імпорти й CLI доступними
+з будь-якої робочої директорії.
 
 ### 2. Запуск аналізу
 
 ```bash
 # Основна команда
-python -m road_quality_analyzer analyze --input data/sensor_data_20250729_163334.csv --out results/my_analysis
+python -m road_quality_analyzer analyze --input storage/data/sensor_data_20250729_163334.csv --out storage/results/my_analysis
 
 # Або через main.py wrapper
-python main.py --input data/sensor_data_20250729_163334.csv --out results/my_analysis
+python main.py --input storage/data/sensor_data_20250729_163334.csv --out storage/results/my_analysis
 ```
 
 **Опція `--low-speed-policy`** — що робити із сегментами, пройденими повільніше
@@ -48,7 +55,7 @@ python main.py --input data/sensor_data_20250729_163334.csv --out results/my_ana
 мітку, а не вигадуємо число (Eq.4/5/6 не визначені поза 20–100 км/год).
 
 ```bash
-python -m road_quality_analyzer analyze --input data/drive.csv --out results/run --low-speed-policy poor
+python -m road_quality_analyzer analyze --input storage/data/drive.csv --out storage/results/run --low-speed-policy poor
 ```
 
 ### 3. Результати
@@ -56,7 +63,7 @@ python -m road_quality_analyzer analyze --input data/drive.csv --out results/run
 Після завершення аналізу у вказаній директорії будуть створені:
 
 ```
-results/my_analysis/
+storage/results/my_analysis/
 ├── road_segments.csv          # Метрики по 100м сегментах
 ├── roughness.geojson          # Сегменти з геометрією (GeoJSON)
 ├── events.geojson             # Виявлені аномалії (точки)
@@ -168,7 +175,7 @@ Time,Type,X,Y,Z,Latitude,Longitude
 .venv\Scripts\activate  # Windows
 source .venv/bin/activate  # Linux/macOS
 
-# Перевстановити залежності
+# Перевстановити залежності (разом з editable-пакетом analyzer)
 pip install -r requirements.txt
 ```
 
@@ -192,7 +199,7 @@ pip install -r requirements.txt
 
 - **Sampling rate:** рекордер запитує 100 Hz (`SAMPLING_PERIOD_US = 10000`); фактична
   частота плаває, тому пайплайн виводить `fs` з `median(diff(t))`. Датасет
-  `data/sensor_data_20250729_163334.csv` записаний старішою версією застосунку і дає
+  `storage/data/sensor_data_20250729_163334.csv` записаний старішою версією застосунку і дає
   fs ≈ 52.6 Hz. Рекомендація для dx ≤ 0.3 м — 80–120 Hz
 - **GPS frequency:** 1 Hz (`LocationRequest` interval 1000 мс, min 500 мс)
 - **Gravity correction:** Lowpass Butterworth 4-го порядку, cutoff 0.3 Hz
@@ -203,11 +210,11 @@ pip install -r requirements.txt
 ## Тести
 
 ```bash
-.venv\Scripts\python.exe -m pytest tests -q
-# 163 passed (11 файлів у tests/, ~23 с)
+.venv\Scripts\python.exe -m pytest analyzer/tests -q
+# 163 passed (11 файлів у analyzer/tests/, ~23 с)
 ```
 
-Синтетичні CSV для тестів генерує `tests/conftest.py::write_drive_csv`; реальний
+Синтетичні CSV для тестів генерує `analyzer/tests/conftest.py::write_drive_csv`; реальний
 11-мегабайтний запис у тестах не використовується. Seed зафіксовано
 (`np.random.default_rng(20260101)` у фікстурі `rng`).
 

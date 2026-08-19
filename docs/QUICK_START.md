@@ -26,13 +26,13 @@
 python main.py
 ```
 
-Програма автоматично обробить найновіший файл з папки `data/`
+Програма автоматично обробить найновіший файл з папки `storage/data/`
 
 ---
 
 ## Крок 2: Результати
 
-Дивіться у папці `results/results_YYYYMMDD_HHMMSS/`:
+Дивіться у папці `storage/results/results_YYYYMMDD_HHMMSS/`:
 
 ### Графіки (PNG):
 - `accelerometer.png` - Порівняння оригінал/калібровані дані
@@ -165,7 +165,7 @@ RMSA = √(RMS_x² + RMS_y² + RMS_z²)
 Якщо щось не працює:
 1. Перевір, чи встановлені всі залежності: `pip install -r requirements.txt`
 2. Перевір формат CSV файлу (колонки: Time, Type, X, Y, Z, Latitude, Longitude)
-3. Переконайся, що файли є у папці `data/`
+3. Переконайся, що файли є у папці `storage/data/`
 
 ---
 

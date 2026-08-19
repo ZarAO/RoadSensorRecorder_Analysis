@@ -188,14 +188,15 @@ RoadSensorRecorder_Analysis/
 ├── TECHNICAL_PARAMETERS.md              ← СТВОРЕНО
 ├── RESEARCH_RESULTS.md                  ← СТВОРЕНО
 ├── CHANGES_SUMMARY.md                   ← СТВОРЕНО
-├── data/
-│   └── *.csv                           (без змін)
+├── storage/
+│   ├── data/
+│   │   └── *.csv                       (без змін)
+│   └── results/                        (без змін)
 ├── modules/
 │   ├── io_utils.py                     (без змін)
 │   ├── preprocessing.py                 ← ОНОВЛЕНО (+60 рядків)
 │   ├── analysis.py                      ← ОНОВЛЕНО (+50 рядків)
 │   └── visualization.py                 ← ОНОВЛЕНО (+30 рядків)
-├── results/                            (без змін)
 └── Lib/                                (без змін)
 ```
 

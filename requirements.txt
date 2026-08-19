@@ -1,16 +1,12 @@
-# Road Quality Analyzer - Production Dependencies
+# Road Quality Analyzer - Workspace Dependencies
+#
+# Installs the analyzer package from ./analyzer in editable mode, which pulls in
+# its runtime dependencies (numpy, pandas, scipy, matplotlib, scienceplots, folium)
+# declared in analyzer/pyproject.toml. Version pins live there — not here.
+#
+#   pip install -r requirements.txt
 
-# Core data processing
-numpy>=2.3.0
-pandas>=2.3.0
+-e ./analyzer
 
-# Signal processing and numerical computations
-scipy>=1.16.0
-
-# Visualization and plotting
-matplotlib>=3.10.0
-scienceplots>=2.1.0
-folium>=0.20.0
-
-# Testing (optional, for development)
+# Testing (development)
 pytest>=7.0.0

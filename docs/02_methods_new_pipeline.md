@@ -17,7 +17,7 @@
 
 ## Загальна архітектура
 
-**Новий пайплайн:** `road_quality_analyzer/` — оркеструє `cli.py::analyze()`
+**Новий пайплайн:** `analyzer/src/road_quality_analyzer/` — оркеструє `cli.py::analyze()`
 
 ```
                 ┌─────────────────┐
@@ -69,7 +69,7 @@
 
 ## Крок 1: Ingestion
 
-**Файл:** `road_quality_analyzer/io/ingestion.py`
+**Файл:** `analyzer/src/road_quality_analyzer/io/ingestion.py`
 
 **Функція:** `load_sensor_csv(filepath) -> SensorData`
 
@@ -131,7 +131,7 @@ df = df.ffill().bfill()  # Forward/backward fill NaN
 
 ## Крок 2: Uniform Time Grid
 
-**Файл:** `road_quality_analyzer/preprocessing/time_grid.py`
+**Файл:** `analyzer/src/road_quality_analyzer/preprocessing/time_grid.py`
 
 **Функція:** `build_uniform_time_grid(accel_time, accel_x, accel_y, accel_z)`
 
@@ -180,7 +180,7 @@ def build_uniform_time_grid(accel_time, accel_x, accel_y, accel_z):
 
 ## Крок 3: GPS Distance and Speed
 
-**Файл:** `road_quality_analyzer/preprocessing/time_grid.py`
+**Файл:** `analyzer/src/road_quality_analyzer/preprocessing/time_grid.py`
 
 **Функції:**
 - `compute_gps_distance(lat, lon)` — cumulative distance
@@ -274,8 +274,8 @@ def build_distance_grid(gps_time, gps_lat, gps_lon, t_grid):
 ## Крок 4: Orientation Correction
 
 **Файли:**
-- `road_quality_analyzer/orientation/gravity_alignment.py`
-- `road_quality_analyzer/orientation/heading.py`
+- `analyzer/src/road_quality_analyzer/orientation/gravity_alignment.py`
+- `analyzer/src/road_quality_analyzer/orientation/heading.py`
 
 **Функції:**
 - `estimate_gravity(accel_x, accel_y, accel_z, fs, cutoff_hz=0.3)` → g_hat(t)
@@ -476,7 +476,7 @@ def compute_gps_heading(gps_time, gps_lat, gps_lon, t_grid,
 
 ## Крок 5: Filtering
 
-**Файл:** `road_quality_analyzer/filtering.py`
+**Файл:** `analyzer/src/road_quality_analyzer/filtering.py`
 
 **Функція:** `apply_bandpass(a_vertical_g, fs_hz, f_low=0.5, f_high=6.0)`
 
@@ -525,8 +525,8 @@ filtfilt-транзієнти всередині аналітичного вік
 ## Крок 6: Metrics Computation
 
 **Файли:**
-- `road_quality_analyzer/metrics/grms.py` — `compute_grms(a_vertical_g)`
-- `road_quality_analyzer/metrics/iri.py` — `compute_psd_band_power(...)`,
+- `analyzer/src/road_quality_analyzer/metrics/grms.py` — `compute_grms(a_vertical_g)`
+- `analyzer/src/road_quality_analyzer/metrics/iri.py` — `compute_psd_band_power(...)`,
   `compute_iri_psd(...)`, `compute_iri_multi(...)`
 
 **Метрики:**
@@ -693,7 +693,7 @@ Eq.4/5/6 містять speed-член і калібровані лише для
 
 ## Крок 7: Anomaly Detection
 
-**Файл:** `road_quality_analyzer/anomaly/threshold.py`
+**Файл:** `analyzer/src/road_quality_analyzer/anomaly/threshold.py`
 
 **Функції:**
 - `detect_threshold_anomalies(a_vertical, threshold_ms2=10.0)`
@@ -770,7 +770,7 @@ CLI-прапорця для його зміни немає.
 
 ## Крок 8: 100m Segmentation
 
-**Файл:** `road_quality_analyzer/segmentation/segment_100m.py`
+**Файл:** `analyzer/src/road_quality_analyzer/segmentation/segment_100m.py`
 
 **Функції:**
 - `create_segments(s_grid, segment_length_m=100.0)` → `{seg_id: indices}`
@@ -886,7 +886,7 @@ seg_id,s_start,s_end,length_m,partial,n_samples,mean_speed_mps,mean_speed_kmh,sp
 
 ## Крок 9: Artifacts Export
 
-**Файл:** `road_quality_analyzer/artifacts.py`
+**Файл:** `analyzer/src/road_quality_analyzer/artifacts.py`
 
 **Функції:**
 - `export_segments_geojson(...)` → roughness.geojson (LineString на сегмент)
@@ -977,11 +977,11 @@ if bool(row['needs_class12_survey']):
 
 ## Determinism & Testing
 
-**Файл:** `tests/` (163 unit tests у 11 файлах)
+**Файл:** `analyzer/tests/` (163 unit tests у 11 файлах)
 
 ### Фіксований seed
 
-Єдине джерело випадковості в тестах — фікстура `rng` у `tests/conftest.py`:
+Єдине джерело випадковості в тестах — фікстура `rng` у `analyzer/tests/conftest.py`:
 явно засіяний `default_rng`, незалежний від глобального стану NumPy (глобальний
 `np.random` не використовує ні пакет, ні тести):
 
@@ -999,7 +999,7 @@ def rng():
 
 ### Test coverage
 
-Тестові дані синтезуються в `tmp_path` (`tests/conftest.py::write_drive_csv`);
+Тестові дані синтезуються в `tmp_path` (`analyzer/tests/conftest.py::write_drive_csv`);
 11-мегабайтний реальний запис у тестах не використовується.
 
 1. **test_ingestion.py** (13 tests) — контракт CSV v2: розділення потоків,
@@ -1059,7 +1059,7 @@ def rng():
 
 ### Determinism checklist
 
-- [x] Fixed random seed (`tests/conftest.py`, фікстура `rng`)
+- [x] Fixed random seed (`analyzer/tests/conftest.py`, фікстура `rng`)
 - [x] Reproducible filters (filtfilt, zero-phase)
 - [x] No external API calls (offline обробка)
 - [x] Fixed parameters (f_low, f_high, threshold)

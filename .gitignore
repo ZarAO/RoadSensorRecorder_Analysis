@@ -170,7 +170,7 @@ Thumbs.db
 # === Project-specific ===
 # Generated outputs (analysis results)
 out/
-results/
+storage/results/
 
 # Temporary files
 *.tmp
@@ -178,12 +178,12 @@ results/
 # === Data ===
 # Large datasets (keep only sample)
 # Uncomment to exclude all CSVs:
-# data/*.csv
+# storage/data/*.csv
 
 # Keep sample dataset (override previous rule)
-!data/sensor_data_20250729_163334.csv
+!storage/data/sensor_data_20250729_163334.csv
 
 # === Notes for large files ===
 # To ignore large CSVs locally without committing .gitignore changes,
 # add them to .git/info/exclude instead:
-#   echo "data/large_dataset.csv" >> .git/info/exclude
+#   echo "storage/data/large_dataset.csv" >> .git/info/exclude

@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "road-quality-analyzer"
+version = "1.1.0"
+description = "Smartphone-based road surface quality analyzer (IRI / Grms estimation from accelerometer + GPS)"
+requires-python = ">=3.11"
+dependencies = [
+    # Core data processing
+    "numpy>=2.3.0",
+    "pandas>=2.3.0",
+    # Signal processing and numerical computations
+    "scipy>=1.16.0",
+    # Visualization and plotting
+    "matplotlib>=3.10.0",
+    "scienceplots>=2.1.0",
+    "folium>=0.20.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

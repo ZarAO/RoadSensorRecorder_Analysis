@@ -341,7 +341,7 @@ a_perp = dot(a_linear_world, p_hat)
 
 ### Вхідний CSV (sensor log)
 
-**Приклад:** `data/sensor_data_20250729_163334.csv`
+**Приклад:** `storage/data/sensor_data_20250729_163334.csv`
 
 **Формат (контракт v2, рівно 7 колонок):**
 ```
@@ -367,7 +367,7 @@ Time,Type,X,Y,Z,Latitude,Longitude
 пропускається при читанні (`pandas.read_csv(..., comment='#')`), тому старіші
 файли без преамбули парсяться так само.
 
-**Характеристики нашого датасету** (`data/sensor_data_20250729_163334.csv`):
+**Характеристики нашого датасету** (`storage/data/sensor_data_20250729_163334.csv`):
 - **Distance:** 15.09 km (за поточним пайплайном, після обрізання країв)
 - **Duration:** ~30 хвилин (1799 с)
 - **Accelerometer rows:** 93399 (fs ≈ 52.6 Hz за median dt)

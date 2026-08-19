@@ -269,9 +269,9 @@ and legacy RMSA, despite fundamental methodological differences
 **Генерація:**
 ```powershell
 python tools/compare_runs_v2.py \
-  --legacy results/legacy_20250729/ \
-  --new results/new_20250729/ \
-  --input data/sensor_data_20250729_163334.csv \
+  --legacy storage/results/legacy_20250729/ \
+  --new storage/results/new_20250729/ \
+  --input storage/data/sensor_data_20250729_163334.csv \
   --out out/comparison
 ```
 
@@ -284,7 +284,7 @@ python tools/compare_runs_v2.py \
 ## Ліцензія
 
 **Assets:** CC BY 4.0 (Creative Commons Attribution)  
-**Data:** Sensor data збережено у `data/sensor_data_20250729_163334.csv`  
+**Data:** Sensor data збережено у `storage/data/sensor_data_20250729_163334.csv`  
 **Code:** MIT License (see repository root)
 
 ---

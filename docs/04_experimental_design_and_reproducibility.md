@@ -30,11 +30,24 @@ python -m venv .venv
 .venv\Scripts\activate  # Windows
 # або: source .venv/bin/activate  # Linux/Mac
 
-# Install dependencies
+# Install dependencies (ставить пакет analyzer у editable-режимі)
 pip install -r requirements.txt
+
+# Еквівалент напряму (без pytest):
+pip install -e ./analyzer
 ```
 
-**Requirements (нижні межі з `requirements.txt`; мінімум Python 3.11 через numpy>=2.3):**
+Пакет `road_quality_analyzer` лежить у `analyzer/src/` (src-layout), тому
+editable-встановлення обов'язкове — без нього імпорт працює лише з кореня
+репозиторію.
+
+**Кореневий `requirements.txt` (workspace-форма):**
+```
+-e ./analyzer
+pytest>=7.0.0
+```
+
+**Requirements (нижні межі з `analyzer/pyproject.toml`; мінімум Python 3.11 через numpy>=2.3):**
 ```
 numpy>=2.3.0
 pandas>=2.3.0
@@ -42,18 +55,18 @@ scipy>=1.16.0
 matplotlib>=3.10.0
 scienceplots>=2.1.0
 folium>=0.20.0
-pytest>=7.0.0
+pytest>=7.0.0   # extras: dev
 ```
 
 ### Крок 3: Verify input data
 
 ```bash
 # Check CSV integrity
-md5sum data/sensor_data_20250729_163334.csv
+md5sum storage/data/sensor_data_20250729_163334.csv
 # Expected: <hash> (якщо надано)
 
 # Check structure
-head -5 data/sensor_data_20250729_163334.csv
+head -5 storage/data/sensor_data_20250729_163334.csv
 ```
 
 **Expected output** (файл 2025-07-29 записаний до контракту v2, тому без `#`-преамбули):
@@ -68,7 +81,7 @@ Time,Type,X,Y,Z,Latitude,Longitude
 
 ```bash
 python -m road_quality_analyzer analyze \
-  --input data/sensor_data_20250729_163334.csv \
+  --input storage/data/sensor_data_20250729_163334.csv \
   --out out/new_run
 ```
 
@@ -80,7 +93,7 @@ python -m road_quality_analyzer analyze \
 
 ## Input Dataset
 
-**Файл:** `data/sensor_data_20250729_163334.csv`
+**Файл:** `storage/data/sensor_data_20250729_163334.csv`
 
 ### Характеристики
 
@@ -144,14 +157,14 @@ Time,Type,X,Y,Z,Latitude,Longitude
 ### Legacy Pipeline (історично)
 
 Legacy-прогін виконувався `python main.py` зі старим пакетом `modules/` і давав
-`results/results_YYYYMMDD_HHMMSS/` з 1799 time-based сегментами,
+`storage/results/results_YYYYMMDD_HHMMSS/` з 1799 time-based сегментами,
 `road_quality_map.html` та діагностичними PNG. Цей код видалено
 (див. [09](09_migration_notes.md)); зараз `main.py` — обгортка над новим `analyze()`
-з автовизначенням останнього CSV у `data/` та автогенерацією теки результатів:
+з автовизначенням останнього CSV у `storage/data/` та автогенерацією теки результатів:
 
 ```bash
-python main.py --input data/sensor_data_20250729_163334.csv --out results/my_run
-python main.py                # auto-detect останній CSV + results/results_<timestamp>
+python main.py --input storage/data/sensor_data_20250729_163334.csv --out storage/results/my_run
+python main.py                # auto-detect останній CSV + storage/results/results_<timestamp>
 ```
 
 ### New Pipeline
@@ -160,7 +173,7 @@ python main.py                # auto-detect останній CSV + results/resul
 
 ```bash
 python -m road_quality_analyzer analyze \
-  --input data/sensor_data_20250729_163334.csv \
+  --input storage/data/sensor_data_20250729_163334.csv \
   --out out/new_run
 ```
 
@@ -203,7 +216,7 @@ python -m road_quality_analyzer analyze \
 ### Legacy Run Directory Structure
 
 ```
-results/results_20260110_182841/
+storage/results/results_20260110_182841/
 ├── road_segments.csv           (1799 rows, 6 columns)
 ├── road_quality_map.html       (Folium map, ~500 KB)
 ├── grms_plot.png               (RMSA vs time)
@@ -283,11 +296,12 @@ Commit: <commit hash from 2025-01-10>
 Date: 2025-01-10
 
 Key files:
-- road_quality_analyzer/ (io, preprocessing, orientation, filtering,
+- analyzer/pyproject.toml (road-quality-analyzer 1.1.0, src-layout)
+- analyzer/src/road_quality_analyzer/ (io, preprocessing, orientation, filtering,
   anomaly, metrics, segmentation, artifacts, cli)
 - main.py (тонка обгортка над cli.analyze)
-- tests/ (163 unit tests, 11 файлів)
-- data/sensor_data_20250729_163334.csv
+- analyzer/tests/ (163 unit tests, 11 файлів)
+- storage/data/sensor_data_20250729_163334.csv
 ```
 
 **Як отримати commit hash:**
@@ -297,7 +311,7 @@ git rev-parse HEAD
 
 ### Configuration Snapshot
 
-**New pipeline (константи в `road_quality_analyzer/cli.py::analyze`):**
+**New pipeline (константи в `analyzer/src/road_quality_analyzer/cli.py::analyze`):**
 ```python
 # time grid
 fs: auto-detect (1 / median dt); допустима смуга 5-1000 Hz, інакше ValueError
@@ -432,7 +446,7 @@ cat out/your_analysis/report.md
 ### Фіксовані параметри
 
 - [x] **Random seed:** `np.random.default_rng(20260101)` через фікстуру `rng`
-  у `tests/conftest.py` — єдине джерело випадковості в тестах (сам пайплайн
+  у `analyzer/tests/conftest.py` — єдине джерело випадковості в тестах (сам пайплайн
   стохастичних операцій не має)
 - [x] **Filter parameters:** f_low=0.5, f_high=6.0, order=4 (фіксовані)
 - [x] **Threshold:** 10.0 m/s² (константа)

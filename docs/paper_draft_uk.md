@@ -169,7 +169,7 @@ $$
 
 ### 3.1 Dataset
 
-**Input data:** `data/sensor_data_20250729_163334.csv`
+**Input data:** `storage/data/sensor_data_20250729_163334.csv`
 
 **Характеристики:**
 - **Route type:** Urban mixed-traffic (Kyiv region, Ukraine)
@@ -235,7 +235,7 @@ $$
 
 **Determinism:**
 - Fixed parameters (no hyperparameter tuning)
-- Random seed 20260101 (фікстура `rng` у `tests/conftest.py`); сам пайплайн
+- Random seed 20260101 (фікстура `rng` у `analyzer/tests/conftest.py`); сам пайплайн
   стохастичних операцій не має
 - 163 unit test (pytest, 11 файлів), all PASS
 
@@ -251,8 +251,8 @@ $$
 
 **100m-aligned comparison:**
 
-1. Legacy pipeline → `results/legacy_20250729/road_segments.csv` (1799 time-based segments)
-2. New pipeline → `results/new_20250729/road_segments.csv` (153 distance-based segments)
+1. Legacy pipeline → `storage/results/legacy_20250729/road_segments.csv` (1799 time-based segments)
+2. New pipeline → `storage/results/new_20250729/road_segments.csv` (153 distance-based segments)
 3. Re-bin legacy to 100m grid using GPS coordinates
 4. Spatial join: segments overlap if distance match within ±5m
 5. Compute rank correlation на overlap segments
@@ -580,28 +580,33 @@ Segment 102 (10.2-10.3 km) демонструє найгіршу шорсткі�
 **Structure:**
 ```
 RoadSensorRecorder_Analysis/
-├── road_quality_analyzer/    (main pipeline package)
-│   ├── io/
-│   ├── preprocessing/
-│   ├── orientation/
-│   ├── metrics/
-│   ├── anomaly/
-│   └── segmentation/
-├── tests/                     (163 unit tests, pytest, 11 файлів)
-├── docs/                      (01-09 documentation files)
-└── data/
-    └── sensor_data_20250729_163334.csv  (sample dataset)
+├── analyzer/                            (installable package, src-layout)
+│   ├── pyproject.toml                   (name road-quality-analyzer, v1.1.0)
+│   ├── src/road_quality_analyzer/       (main pipeline package)
+│   │   ├── io/
+│   │   ├── preprocessing/
+│   │   ├── orientation/
+│   │   ├── metrics/
+│   │   ├── anomaly/
+│   │   └── segmentation/
+│   └── tests/                           (163 unit tests, pytest, 11 файлів)
+├── docs/                                (01-09 documentation files)
+├── main.py                              (тонка обгортка над cli.analyze)
+└── storage/
+    ├── data/
+    │   └── sensor_data_20250729_163334.csv  (sample dataset)
+    └── results/                         (прогони аналізу)
 ```
 
 **Version:** v1.0-paper-ready (commit hash: `<буде додано>`)
 
 **License:** MIT License (open-source)
 
-**Dependencies:** `requirements.txt` (Python >= 3.11; numpy, pandas, scipy, matplotlib, scienceplots, folium)
+**Dependencies:** `analyzer/pyproject.toml` (Python >= 3.11; numpy, pandas, scipy, matplotlib, scienceplots, folium); кореневий `requirements.txt` ставить `-e ./analyzer` + `pytest`
 
 ### 9.2 Dataset
 
-**Primary dataset:** `data/sensor_data_20250729_163334.csv`
+**Primary dataset:** `storage/data/sensor_data_20250729_163334.csv`
 
 **Characteristics:**
 - Format: CSV, 7 колонок: `Time,Type,X,Y,Z,Latitude,Longitude`
@@ -626,12 +631,13 @@ cd RoadSensorRecorder_Analysis
 python3 -m venv .venv   # >= 3.11
 source .venv/bin/activate  # Linux/Mac
 # або: .venv\Scripts\Activate.ps1  # Windows
-pip install -r requirements.txt
+pip install -r requirements.txt   # ставить ./analyzer у editable-режимі
+# еквівалент напряму: pip install -e ./analyzer
 
 # 3. Run new pipeline
 python -m road_quality_analyzer analyze \
-  --input data/sensor_data_20250729_163334.csv \
-  --out results/new_run
+  --input storage/data/sensor_data_20250729_163334.csv \
+  --out storage/results/new_run
 
 ```
 
@@ -639,13 +645,13 @@ python -m road_quality_analyzer analyze \
 > і legacy-код видалені з репозиторію. Результати того прогону збережені як
 > стабільні копії у `docs/paper_assets/`.
 
-**Expected outputs:** `results/new_run/` — `road_segments.csv` (152 сегменти,
+**Expected outputs:** `storage/results/new_run/` — `road_segments.csv` (152 сегменти,
 24 колонки), `roughness.geojson`, `events.geojson`, `segments_map.html`,
 `report.md`, `plots/` (4 графіки, PNG + PDF)
 
 **Verification:**
 ```bash
-pytest tests -q  # 163 passed
+pytest analyzer/tests -q  # 163 passed
 ```
 
 **Detailed protocol:** `docs/04_experimental_design_and_reproducibility.md`
@@ -715,7 +721,7 @@ pytest tests -q  # 163 passed
 | test_cli.py | 16 | наскрізний analyze(), обрізання країв після фільтрів, distress removal, детермінізм |
 | test_low_speed_policy.py | 42 | поріг 20 км/год, 4 політики, iri_multi завжди NaN, events_per_km, ignore-виключення |
 
-**Command:** `pytest tests -q`
+**Command:** `pytest analyzer/tests -q`
 
 **Output verification:** 163 passed за ~23 с
 
