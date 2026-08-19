@@ -1,5 +1,12 @@
 # 🚀 Швидкий старт - Покращена версія 2.0
 
+
+> ⚠ **Історичний документ (legacy).** Описує пайплайн `modules/` версії 2.0,
+> який видалено з репозиторію (див. [09_migration_notes.md](09_migration_notes.md)).
+> Актуальні параметри, команди та формат виходів — у
+> [02_methods_new_pipeline.md](02_methods_new_pipeline.md) та
+> [08_user_guide_and_cli_reference.md](08_user_guide_and_cli_reference.md).
+
 ## Що нового?
 
 ✨ **5 великих покращень:**

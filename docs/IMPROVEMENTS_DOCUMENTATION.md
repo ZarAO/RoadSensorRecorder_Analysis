@@ -1,5 +1,12 @@
 # Документація покращень алгоритму аналізу якості дорожнього покриття
 
+
+> ⚠ **Історичний документ (legacy).** Описує пайплайн `modules/` версії 2.0,
+> який видалено з репозиторію (див. [09_migration_notes.md](09_migration_notes.md)).
+> Актуальні параметри, команди та формат виходів — у
+> [02_methods_new_pipeline.md](02_methods_new_pipeline.md) та
+> [08_user_guide_and_cli_reference.md](08_user_guide_and_cli_reference.md).
+
 **Дата:** 9 січня 2026 р.  
 **Проект:** RoadSensorRecorder_Analysis  
 **Автор документації:** Наукова документація для публікації

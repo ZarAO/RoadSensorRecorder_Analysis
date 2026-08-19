@@ -2,6 +2,13 @@
 
 **Призначення:** Копії таблиць та графіків з STAGE 2 comparison для вставки у наукову публікацію.
 
+> ⚠ **Історичний зріз.** Це вихід прогону STAGE 2 (скрипт `tools/compare_runs_v2.py`
+> та legacy-код, обидва видалені з репозиторію). Поточний пайплайн на тому самому
+> CSV дає інші числа (152 сегменти, 15123.7 м, mean Grms 0.0467 g, mean IRI_multi
+> 2.99 m/km) — див. [../05_results_legacy_vs_new.md](../05_results_legacy_vs_new.md).
+> Таблиці містять і службовий сегмент `seg_id = -1`, який поточний код більше не
+> створює.
+
 ---
 
 ## Структура
@@ -21,13 +28,17 @@ paper_assets/
 
 **Файл:** `tables/table_metrics_overall.csv`
 
-**Зміст:**
-- `total_distance_m`: 15140.7 м (сумарна довжина маршруту)
-- `legacy_num_segments`: 1799 (time-based)
-- `new_num_segments`: 153 (100m distance-based)
-- `legacy_rmsa_mean`: 0.3335 m/s² (body-frame, gravity-contaminated)
-- `new_grms_mean`: 0.0590 g (world-frame, gravity-corrected)
-- `new_iri_multi_mean`: 3.78 m/km (multivariable IRI, GOOD classification)
+**Зміст** (реальні назви колонок файлу):
+- `distance_m`: 15140.7 м (сумарна довжина маршруту)
+- `mean_speed_kmh`: 41.66
+- `legacy_segments_count`: 1799 (time-based)
+- `new_segments_count`: 153 (100m distance-based)
+- `legacy_rmsa_mean` / `legacy_rmsa_median`: 0.3335 / 0.2778 m/s² (body-frame)
+- `new_grms_mean` / `new_grms_median`: 0.0590 / 0.0544 g (world-frame)
+- `new_iri_multi_mean` / `new_iri_multi_median`: 3.78 / 3.60 m/km
+- `legacy_peaks_total`: 1799, `new_threshold_anomalies_total`: 0
+- колонки `duration_s`, `fs_hz`, `dx_mean_m`, `dx_p95_m`, `share_dx_le_0_3m`
+  присутні у заголовку, але порожні
 
 **Використання у статті:**
 ```markdown
@@ -46,12 +57,10 @@ paper_assets/
 
 **Файл:** `tables/table_rank_correlation.csv`
 
-**Зміст:**
-- `pair`: metric pairs ("iri_multi_vs_legacy_rmsa", "grms_vs_legacy_rmsa")
-- `spearman_rho`: 0.7828, 0.9420
-- `p_value`: 1.01e-32, 4.80e-73
-- `n_overlap`: 152, 152
-- `interpretation`: "strong positive", "very strong positive"
+**Зміст** (колонки `comparison, spearman_rho, p_value, n_segments`):
+- `IRI_multi vs Legacy_RMSA`: ρ = 0.7829, p = 1.01e-32, n = 152
+- `Grms vs Legacy_RMSA`: ρ = 0.9421, p = 4.80e-73, n = 152
+- `IRI_multi_ranks vs RMSA_ranks`: ρ = 0.7829 (той самий показник на рангах)
 
 **Використання у статті:**
 ```markdown
@@ -69,12 +78,13 @@ paper_assets/
 
 **Файл:** `tables/table_metrics_per_100m.csv`
 
-**Зміст:** 153 рядки (по одному на 100m сегмент)
+**Зміст:** 153 рядки (включно зі службовим `seg_id = -1`)
 
 **Columns:**
-- `segment_id`, `distance_start_m`, `distance_end_m`
-- `legacy_rmsa`, `new_grms`, `new_iri_multi`
-- `legacy_valid_ratio`, `new_valid_ratio`
+- `seg_id`, `s_start`, `s_end`
+- `iri_multi`, `grms`, `mean_speed_kmh`, `valid_ratio`, `anomaly_count`
+- `legacy_rmsa_mean`, `legacy_samples_count`
+- `rank_new_iri_multi`, `rank_legacy_rmsa`
 
 **Використання:** Детальні дані для додатків (Appendix A) або online repository
 
@@ -87,7 +97,9 @@ paper_assets/
 **Зміст:** 10 найгірших сегментів за IRI_multi
 
 **Columns:**
-- `segment_id`, `distance_start_m`, `iri_multi`, `grms`, `speed_median_kmh`
+- `seg_id`, `s_start`, `s_end`, `iri_multi`, `grms`, `mean_speed_kmh`,
+  `legacy_rmsa_mean`, `legacy_samples_count`
+  (медіанної швидкості в жодній таблиці немає — рахується лише середня)
 
 **Використання:**
 ```markdown
@@ -95,8 +107,11 @@ paper_assets/
 
 | Segment | Distance (m) | IRI (m/km) | Grms (g) | Speed (km/h) |
 |---------|--------------|------------|----------|--------------|
-| 102 | 10200-10300 | 8.12 | 0.108 | 35.2 |
+| 91 | 9100-9200 | 7.91 | 0.109 | 15.1 |
+| 0 | 0-100 | 7.67 | 0.128 | 34.9 |
 | ... | ... | ... | ... | ... |
+
+(перший рядок файлу — службовий `seg_id = -1`, у статтю не йде)
 ```
 
 ---
@@ -156,8 +171,8 @@ Grms captures same vibration patterns as RMSA, but gravity-corrected
 
 **Зміст:**
 - X-axis: Distance (m)
-- Y-axis: Median speed (km/h) per 100m segment
-- Line plot showing speed variability (15-67 km/h range)
+- Y-axis: швидкість на 100 м сегмент (у таблицях збережено `mean_speed_kmh`)
+- Line plot showing speed variability
 - Context for dx compliance (high speed → dx > 0.3m)
 
 **Підпис для статті:**
@@ -185,9 +200,9 @@ affecting sampling compliance (dx ≤ 0.3m requirement at fs = 52.6 Hz).
 **Підпис для статті:**
 ```markdown
 **Figure 4.** Top 10 roughest road segments (by IRI_multi).  
-Segment 102 (10.2-10.3 km) shows worst roughness: IRI = 8.12 m/km  
-(WorldBank classification: POOR, approaching VERY POOR threshold).  
-Segments concentrated around 10-11 km mark suggest localized distress zone.
+Segment 91 (9.1-9.2 km) shows worst roughness among real segments:  
+IRI = 7.91 m/km (WorldBank classification: POOR).  
+Segments concentrated around the 9 km mark suggest a localized distress zone.
 ```
 
 ---
@@ -248,7 +263,8 @@ and legacy RMSA, despite fundamental methodological differences
 
 ## Версія даних
 
-**Джерело:** STAGE 2 comparison output (`out/comparison/analysis/`)
+**Джерело:** STAGE 2 comparison output (`out/comparison/analysis/`; каталог і скрипт
+у репозиторії відсутні — ці копії єдині, що лишились)
 
 **Генерація:**
 ```powershell

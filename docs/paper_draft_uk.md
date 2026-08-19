@@ -2,6 +2,14 @@
 
 **ЧЕРНЕТКА НАУКОВОЇ СТАТТІ** (Draft Manuscript)
 
+> ⚠ **Числа результатів — зріз STAGE 2.** Порівняння з legacy виконувалось
+> скриптом `tools/compare_runs_v2.py`, який разом із legacy-кодом видалено;
+> сам новий пайплайн відтоді виправлено (обрізання країв ±1 с, відкидання
+> семплів поза покриттям GPS, прапорці `partial` / `speed_valid`, NaN замість
+> вигаданих значень). Перед подачею статті числа треба переобчислити:
+> поточний прогін на тому самому CSV дає 152 сегменти, 15123.7 м,
+> mean Grms 0.0467 g, mean IRI_multi 2.99 m/km.
+
 ---
 
 ## Анотація
@@ -10,7 +18,7 @@
 
 **Мета.** Розробити та валідувати методологічні покращення для підвищення точності смартфон-based оцінки International Roughness Index (IRI) через world-frame orientation correction та distance-domain сегментацію.
 
-**Методи.** Ми реалізували 9-step pipeline: (1) ingestion mixed-rate sensor streams (акселерометр 52.6 Hz, GPS 1 Hz), (2) uniform time grid interpolation, (3) distance computation via Haversine, (4) gravity estimation через Butterworth low-pass filter (0.25 Hz), (5) quaternion-based rotation до world-frame, (6) GPS heading та perpendicular acceleration extraction, (7) anomaly detection (absolute threshold 10 m/s² + Random Forest classifier), (8) distance-based сегментація (100 м bins), (9) IRI computation через PSD-based (Eq.3) та multivariable regression (Eq.6) моделі. Валідація проведена порівнянням з legacy body-frame RMSA pipeline на реальному маршруті 15.14 км (urban mixed-traffic).
+**Методи.** Ми реалізували 9-step pipeline: (1) ingestion mixed-rate sensor streams (акселерометр 52.6 Hz, GPS 1 Hz), (2) uniform time grid interpolation, (3) distance computation via Haversine, (4) gravity estimation через Butterworth low-pass filter (0.3 Hz), (5) quaternion-based rotation до world-frame, (6) GPS heading та perpendicular acceleration extraction, (7) anomaly detection (absolute threshold 10 m/s² на gravity-removed вертикалі), (8) distance-based сегментація (100 м bins), (9) IRI computation через PSD-based (Eq.3) та multivariable regression (Eq.6) моделі. Валідація проведена порівнянням з legacy body-frame RMSA pipeline на реальному маршруті 15.14 км (urban mixed-traffic).
 
 **Результати.** New pipeline продукує 153 distance-based segments (100 м кожен) vs 1799 time-based segments у legacy. Gravity-corrected Grms (0.059 g) на 5.6× нижчий за body-frame RMSA (0.334 m/s²), що підтверджує усунення gravity contamination. Попри методологічні відмінності, rank correlation збережено: Spearman ρ = 0.783 (IRI_multi vs legacy RMSA, p < 10⁻³¹, n=152), ρ = 0.942 (Grms vs RMSA, p < 10⁻⁷²). Mean IRI_multi = 3.78 m/km (WorldBank classification: GOOD).
 
@@ -51,7 +59,7 @@ GPS оновлення 1 Hz (кожну секунду) недостатньо �
 Ця робота пропонує:
 1. **Методологічні покращення:** (a) gravity alignment через low-pass filter + quaternion rotation, (b) GPS heading-based perpendicular acceleration extraction, (c) distance-based сегментацію з 100 м bins, (d) dual IRI estimation (PSD-based Eq.3 + multivariable Eq.6)
 2. **Validation framework:** comparison з legacy body-frame approach на real-world dataset (15.14 км, 94k+ samples), 100m-aligned overlap (152 segments)
-3. **Open-source implementation:** deterministic pipeline з 22 unit tests, reproducible results
+3. **Open-source implementation:** deterministic pipeline зі 163 unit tests, reproducible results
 
 ---
 
@@ -113,7 +121,7 @@ $$
 \vec{g}_{\text{est}}(t) = \text{LPF}_{0.25\text{ Hz}}(\vec{a}_{\text{body}}(t))
 $$
 
-Припущення: phone rotates slower than 0.25 Hz, так що low-frequency component є gravity.
+Припущення: phone rotates slower than 0.3 Hz, так що low-frequency component є gravity.
 
 **Quaternion rotation (Eq.B2):**
 
@@ -150,10 +158,10 @@ $$
 \end{cases}
 $$
 
-**Random Forest classifier (Eq.B7):**
-
-Features: $[a_{\text{vertical}}, a_{\perp}, \text{speed}, \Delta a_{\text{vertical}}]$  
-Threshold: $P(\text{anomaly}) > 0.63$
+> **Статус реалізації.** Класифікатор аномалій (Eq.B7, Random Forest над
+> ознаками a_vertical, a_perp, speed, delta a_vertical з порогом P > 0.63)
+> у коді **не реалізований** — використовується лише абсолютний поріг вище;
+> ML-класифікатор залишається у roadmap.
 
 ---
 
@@ -166,7 +174,7 @@ Threshold: $P(\text{anomaly}) > 0.63$
 **Характеристики:**
 - **Route type:** Urban mixed-traffic (Kyiv region, Ukraine)
 - **Total distance:** 15140.7 м (via GPS Haversine)
-- **Duration:** ~22 min
+- **Duration:** ~30 min (1799 с)
 - **Accelerometer:** 93,399 samples @ 52.6 Hz (mean sampling rate)
 - **GPS:** 1,799 points @ 1 Hz
 - **Speed range:** 15-67 km/h (mean: 41.7 km/h)
@@ -198,12 +206,14 @@ Threshold: $P(\text{anomaly}) > 0.63$
 
 **Step details (див. `docs/02_methods_new_pipeline.md` для pseudocode):**
 
-1. **Ingestion:** Load CSV, separate ACCEL (52.6 Hz) and GPS (1 Hz) streams
+1. **Ingestion:** Load CSV, separate Accelerometer (52.6 Hz), Gyroscope та Location (1 Hz) streams
 2. **Time grid:** Build uniform grid @ 52.6 Hz, interpolate GPS linearly
-3. **Distance:** Haversine cumulative distance, velocity smoothing (Savitzky-Golay 2-sec window)
-4. **Gravity alignment:** LPF 0.25 Hz → quaternion → world-frame $[a_x', a_y', a_{\text{vertical}}]$
+3. **Distance:** Haversine cumulative distance; відстань згладжується рівномірним
+   ковзним середнім (`uniform_filter1d`, вікно ≈ 1 с) **до** диференціювання,
+   швидкість = `np.gradient(s, dt)`
+4. **Gravity alignment:** LPF 0.3 Hz → quaternion → world-frame $[a_x', a_y', a_{\text{vertical}}]$
 5. **Heading:** GPS $\theta$ → $a_{\perp}$ (masked at low speed)
-6. **Anomalies:** Absolute threshold 10 m/s² + RF classifier (prob > 0.63)
+6. **Anomalies:** Absolute threshold 10 m/s² на gravity-removed вертикалі
 7. **Metrics:** Grms (Eq.B5), PSD (Eq.B6), IRI_psd (Eq.3), IRI_multi (Eq.6)
 8. **Segmentation:** Bin into 100m segments, aggregate mean/median metrics
 9. **Export:** `road_segments.csv` (153 rows), `segments_map.html` (IRI heatmap)
@@ -219,14 +229,15 @@ Threshold: $P(\text{anomaly}) > 0.63$
 ### 3.3 Implementation
 
 **Software stack:**
-- Python 3.13.5
+- Python >= 3.11 (перевірено на 3.14.4)
 - numpy 2.3.0, pandas 2.3.0, scipy 1.16.0
 - matplotlib 3.10.0 (visualizations), folium 0.20.0 (maps)
 
 **Determinism:**
 - Fixed parameters (no hyperparameter tuning)
-- Random seed=42 для RF classifier
-- 22 unit tests (pytest), all PASS
+- Random seed 20260101 (фікстура `rng` у `tests/conftest.py`); сам пайплайн
+  стохастичних операцій не має
+- 163 unit test (pytest, 11 файлів), all PASS
 
 **Reproducibility:** Full protocol у `docs/04_experimental_design_and_reproducibility.md`
 
@@ -253,7 +264,7 @@ Threshold: $P(\text{anomaly}) > 0.63$
 | Roughness proxy | RMSA (m/s²) | Grms (g), IRI_multi (m/km) |
 | Segmentation | Time (10 sec) | Distance (100 m) |
 | Orientation | Body-frame | World-frame |
-| Anomalies | Peak detection | Threshold + RF |
+| Anomalies | Peak detection | Absolute threshold 10 m/s² |
 
 ### 4.2 Validation Criteria
 
@@ -401,12 +412,12 @@ Segment 102 (10.2-10.3 km) демонструє найгіршу шорсткі�
 - Reduction factor: 0.334 / 0.058 ≈ 5.76×
 
 **Mechanism:**
-1. Low-pass filter (0.25 Hz) ізолює gravity vector
+1. Low-pass filter (0.3 Hz) ізолює gravity vector
 2. Quaternion rotation aligns phone's Z-axis з true vertical
 3. Vertical acceleration $a_{\text{vertical}}$ → gravity-free
 
 **Limitations:**
-- Припущення: phone rotates slower than 0.25 Hz → fails при sharp turns (residual gravity possible)
+- Припущення: phone rotates slower than 0.3 Hz → fails при sharp turns (residual gravity possible)
 - No gyroscope fusion → orientation errors у high-dynamics scenarios
 - Mounting variability (dashboard vs pocket) → 20-40% variance (див. `docs/06_threats_to_validity_and_limitations.md` §Phone Mount Variability)
 
@@ -450,14 +461,14 @@ Segment 102 (10.2-10.3 km) демонструє найгіршу шорсткі�
 ### 6.4 Limitations and Threats to Validity
 
 **Internal validity (reproducibility):** ✅ HIGH
-- Deterministic pipeline (22 unit tests, fixed params)
+- Deterministic pipeline (163 unit test, fixed params)
 - Documented protocol (`docs/04`)
 
-**External validity (generalizability):** ⚠️ MODERATE
+**External validity (generalizability):** ⚠ MODERATE
 - Single phone model, single vehicle, single route → cannot generalize без multi-device validation
 - Urban route only → highway/rural conditions untested
 
-**Construct validity (do we measure what we claim):** ⚠️ MODERATE-HIGH
+**Construct validity (do we measure what we claim):** ⚠ MODERATE-HIGH
 - Grms measures vibrations ✅ (ρ = 0.942 vs legacy)
 - IRI_multi correlates з roughness ✅ (ρ = 0.783)
 - **BUT:** No ground-truth IRI (profilometer) → absolute accuracy unverified
@@ -534,7 +545,7 @@ Segment 102 (10.2-10.3 km) демонструє найгіршу шорсткі�
    - **Expected impact:** 5-10% Grms reduction у sharp turns (less residual gravity)
 
 5. **Quality filters:**
-   - Auto-detect bad segments (low GPS valid_ratio, high speed variance)
+   - Auto-detect bad segments (low GPS coverage, high speed variance)
    - Quality score 0-1 → mask segments < 0.6
    - **Expected impact:** Improved correlation після filtering (ρ > 0.80)
 
@@ -570,15 +581,13 @@ Segment 102 (10.2-10.3 km) демонструє найгіршу шорсткі�
 ```
 RoadSensorRecorder_Analysis/
 ├── road_quality_analyzer/    (main pipeline package)
-│   ├── ingestion/
+│   ├── io/
 │   ├── preprocessing/
 │   ├── orientation/
 │   ├── metrics/
 │   ├── anomaly/
 │   └── segmentation/
-├── tools/
-│   └── compare_runs_v2.py    (comparison script)
-├── tests/                     (22 unit tests, pytest)
+├── tests/                     (163 unit tests, pytest, 11 файлів)
 ├── docs/                      (01-09 documentation files)
 └── data/
     └── sensor_data_20250729_163334.csv  (sample dataset)
@@ -588,17 +597,18 @@ RoadSensorRecorder_Analysis/
 
 **License:** MIT License (open-source)
 
-**Dependencies:** `requirements.txt` (Python 3.13+, numpy, pandas, scipy, matplotlib, folium)
+**Dependencies:** `requirements.txt` (Python >= 3.11; numpy, pandas, scipy, matplotlib, scienceplots, folium)
 
 ### 9.2 Dataset
 
 **Primary dataset:** `data/sensor_data_20250729_163334.csv`
 
 **Characteristics:**
-- Format: CSV (9 columns: timestamp, accel_x/y/z, lat, lon, speed, accuracy)
-- Size: ~12 MB (94,702 rows)
+- Format: CSV, 7 колонок: `Time,Type,X,Y,Z,Latitude,Longitude`
+  (`Type` = `Accelerometer` | `Gyroscope` | `Location`)
+- Size: ~11 MB (11,891,449 байт; 188,596 рядків: 93,399 accel + 93,398 gyro + 1,799 location)
 - Route: 15.14 km urban mixed-traffic (Kyiv region, Ukraine)
-- Sampling: ACCEL 52.6 Hz, GPS 1 Hz
+- Sampling: Accelerometer 52.6 Hz, Location 1 Hz
 - Privacy: GPS coordinates rounded до 4 decimal places (±10m precision), no personal identifiers
 
 **License:** CC BY 4.0 (Creative Commons Attribution)
@@ -613,7 +623,7 @@ git clone [URL]
 cd RoadSensorRecorder_Analysis
 
 # 2. Setup environment
-python3.13 -m venv .venv
+python3 -m venv .venv   # >= 3.11
 source .venv/bin/activate  # Linux/Mac
 # або: .venv\Scripts\Activate.ps1  # Windows
 pip install -r requirements.txt
@@ -623,22 +633,19 @@ python -m road_quality_analyzer analyze \
   --input data/sensor_data_20250729_163334.csv \
   --out results/new_run
 
-# 4. Run comparison (requires legacy results, див. archive/)
-python tools/compare_runs_v2.py \
-  --legacy results/legacy_run/road_segments.csv \
-  --new results/new_run/road_segments.csv \
-  --input data/sensor_data_20250729_163334.csv \
-  --out out/comparison_reproduced
 ```
 
-**Expected outputs:**
-- `results/new_run/road_segments.csv` (153 rows, 11 columns)
-- `out/comparison_reproduced/tables/table_rank_correlation.csv` (ρ values)
-- `out/comparison_reproduced/plots/*.png` (4 figures)
+> Крок порівняння з legacy більше не відтворюється: `tools/compare_runs_v2.py`
+> і legacy-код видалені з репозиторію. Результати того прогону збережені як
+> стабільні копії у `docs/paper_assets/`.
+
+**Expected outputs:** `results/new_run/` — `road_segments.csv` (152 сегменти,
+24 колонки), `roughness.geojson`, `events.geojson`, `segments_map.html`,
+`report.md`, `plots/` (4 графіки, PNG + PDF)
 
 **Verification:**
 ```bash
-pytest tests/ -v  # All 22 tests should PASS
+pytest tests -q  # 163 passed
 ```
 
 **Detailed protocol:** `docs/04_experimental_design_and_reproducibility.md`
@@ -685,26 +692,32 @@ pytest tests/ -v  # All 22 tests should PASS
 - Eq.B3: GPS heading
 - Eq.B5: Grms (gravity-corrected RMS)
 - Eq.B6: PSD (Welch's method)
-- Eq.B7: Random Forest anomaly classifier
+- Eq.B7: Random Forest anomaly classifier (не реалізований у коді)
 - Eq.B8: Absolute threshold anomaly
 
 **Детальні derivations:** `docs/02_methods_new_pipeline.md`
 
 ### Appendix C: Unit Test Coverage
 
-**22 tests (pytest), all PASS:**
+**163 tests (pytest, 11 файлів), all PASS:**
 
-| Module | Tests | Coverage |
-|--------|-------|----------|
-| Ingestion | 3 | Stream separation, time conversion, no ffill |
-| Orientation | 5 | Gravity alignment, heading, a_perp, masking |
-| Preprocessing | 5 | Time/distance grids, velocity smoothing |
-| Units | 4 | Grms units (g), threshold (m/s²), PSD modes |
-| Comparison | 5 | Haversine, GPS distance, binning, correlation |
+| Файл | Tests | Coverage |
+|------|-------|----------|
+| test_ingestion.py | 13 | контракт CSV v2, розділення потоків, no ffill, одиниці Time |
+| test_preprocessing.py | 12 | uniform grid (median dt), haversine, згладжування перед похідною |
+| test_orientation.py | 11 | gravity alignment, ортонормальність R, ENU, heading masking |
+| test_filtering.py | 12 | межі смуги 0.5-6 Гц, zero-phase, guard смуги та довжини входу |
+| test_grms.py | 6 | Grms проти аналітичних еталонів, NaN/порожній вхід |
+| test_iri.py | 17 | коефіцієнти Eq.3 та Eq.4/5/6, raw-vs-clipped, NaN-контракт, режими scalar |
+| test_anomaly.py | 9 | поріг, distress-вікна ±0.5 с, поширення NaN |
+| test_segmentation.py | 14 | seg_id = floor(s/100), guard n >= fs*2, найдовший чистий run, dx_le_03_share, partial |
+| test_artifacts.py | 11 | GeoJSON: [lon, lat], null замість NaN; карта: #FF00FF і товща лінія для low-speed, легенда лише за потреби |
+| test_cli.py | 16 | наскрізний analyze(), обрізання країв після фільтрів, distress removal, детермінізм |
+| test_low_speed_policy.py | 42 | поріг 20 км/год, 4 політики, iri_multi завжди NaN, events_per_km, ignore-виключення |
 
-**Command:** `pytest tests/ -v`
+**Command:** `pytest tests -q`
 
-**Output verification:** All tests complete у <5 sec, no warnings
+**Output verification:** 163 passed за ~23 с
 
 ---
 

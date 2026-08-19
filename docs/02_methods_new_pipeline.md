@@ -17,42 +17,50 @@
 
 ## Загальна архітектура
 
-**Новий пайплайн:** `road_quality_analyzer/` (8 модулів)
+**Новий пайплайн:** `road_quality_analyzer/` — оркеструє `cli.py::analyze()`
 
 ```
                 ┌─────────────────┐
                 │  sensor CSV     │
                 └────────┬────────┘
                          ↓
-                ┌────────────────────┐
-            (1) │  ingestion.py      │  Завантаження, розділення ACCEL/GPS
-                └────────┬───────────┘
+                ┌──────────────────────────┐
+            (1) │ io/ingestion.py          │  Завантаження, розділення потоків
+                │                          │  Accelerometer/Gyroscope/Location
+                └────────┬─────────────────┘
                          ↓
-                ┌────────────────────┐
-            (2) │ preprocessing.py   │  Uniform time grid (акселерометр)
-                │                    │  GPS distance (Haversine)
-                └────────┬───────────┘
+                ┌──────────────────────────┐
+            (2) │ preprocessing/time_grid  │  Uniform time grid (акселерометр)
+                │                          │  GPS distance (Haversine) + speed
+                └────────┬─────────────────┘
                          ↓
-                ┌────────────────────┐
-            (3) │ orientation.py     │  Gravity alignment + GPS heading
-                │                    │  a_vertical, a_perp
-                └────────┬───────────┘
+                ┌──────────────────────────┐
+            (3) │ orientation/             │  gravity_alignment.py: g_hat, R,
+                │                          │  a_vertical; heading.py: GPS heading
+                └────────┬─────────────────┘
                          ↓
-                ┌────────────────────┐
-            (4) │ filtering.py       │  Band-pass 0.5-6 Hz
-                └────────┬───────────┘
+                ┌──────────────────────────┐
+            (4) │ filtering.py             │  Band-pass 0.5-6 Hz (filtfilt)
+                └────────┬─────────────────┘
                          ↓
-                ┌────────────────────┐
-            (5) │ analysis.py        │  Grms, PSD, IRI_psd, IRI_multi
-                └────────┬───────────┘
+                ┌──────────────────────────┐
+            (5) │ anomaly/threshold.py     │  |a_vertical| > 10 m/s²,
+                │                          │  distress removal для PSD
+                └────────┬─────────────────┘
                          ↓
-                ┌────────────────────┐
-            (6) │ segmentation.py    │  100m bins, aggregate metrics
-                └────────┬───────────┘
+                ┌──────────────────────────┐
+            (6) │ metrics/grms.py, iri.py  │  Grms, PSD, IRI_psd, IRI_multi
+                └────────┬─────────────────┘
                          ↓
-                ┌────────────────────┐
-            (7) │ artifacts.py       │  CSV, GeoJSON, plots, HTML, report.md
-                └────────────────────┘
+                ┌──────────────────────────┐
+            (7) │ segmentation/            │  100m bins, aggregate metrics
+                │ segment_100m.py          │
+                └────────┬─────────────────┘
+                         ↓
+                ┌──────────────────────────┐
+            (8) │ artifacts.py             │  GeoJSON, plots, HTML
+                │ cli.py                   │  road_segments.csv, report.md
+                └──────────────────────────┘
 ```
 
 **Всі формули:** `agent_prompt_pack/02_FORMULAS_TEST_MAP_UNIFIED.md`
@@ -61,37 +69,46 @@
 
 ## Крок 1: Ingestion
 
-**Файл:** `road_quality_analyzer/ingestion.py`
+**Файл:** `road_quality_analyzer/io/ingestion.py`
 
-**Функція:** `load_sensor_csv(filepath)`
+**Функція:** `load_sensor_csv(filepath) -> SensorData`
 
 ### Псевдокод
 
 ```python
+EXPECTED_COLUMNS = ['Time', 'Type', 'X', 'Y', 'Z', 'Latitude', 'Longitude']
+
 def load_sensor_csv(filepath):
-    # 1. Завантажити CSV
-    df_raw = pd.read_csv(filepath)
-    
-    # 2. Розділити за Type
-    accel_mask = (df_raw['Type'] == 'ACCEL')
-    gps_mask = (df_raw['Type'] == 'GPS')
-    
-    df_accel = df_raw[accel_mask][['Time', 'X', 'Y', 'Z']].copy()
-    df_gps = df_raw[gps_mask][['Time', 'Latitude', 'Longitude']].copy()
-    
-    # 3. Перетворити Time: ms → seconds
-    df_accel['t_sec'] = df_accel['Time'] / 1000.0
-    df_gps['t_sec'] = df_gps['Time'] / 1000.0
-    
-    # 4. Видалити NaN (якщо є)
-    df_accel = df_accel.dropna(subset=['X', 'Y', 'Z'])
-    df_gps = df_gps.dropna(subset=['Latitude', 'Longitude'])
-    
-    # 5. НЕ використовувати ffill/bfill (на відміну від legacy)
-    # → GPS інтерполюється пізніше на uniform grid
-    
-    return df_accel, df_gps
+    # 1. Завантажити CSV; comment='#' пропускає metadata-преамбулу контракту v2,
+    #    index_col=False — рядок із зайвим полем падає, а не зсуває колонки
+    df = pd.read_csv(filepath, comment='#', index_col=False)
+    if list(df.columns) != EXPECTED_COLUMNS:
+        raise ValueError(...)          # заголовок фіксований контрактом
+
+    # 2. Перевести Time у секунди від початку запису.
+    #    Одиниця визначається за величиною (_detect_time_unit): epoch-ms ~1.7e12,
+    #    epoch-s ~1.7e9; підтримується також ISO-рядок
+    df['time_sec'] = (df['Time'] - df['Time'].min()) / divisor
+
+    # 3. Розділити за Type (порівняння без урахування регістру)
+    accel = _prepare_stream(df[type_lower == 'accelerometer'], ['x', 'y', 'z'])
+    gyro  = _prepare_stream(df[type_lower == 'gyroscope'],     ['x', 'y', 'z'])
+    loc   = _prepare_stream(df[type_lower == 'location'], ['latitude', 'longitude'])
+
+    # _prepare_stream: dropna → стабільне сортування (mergesort) за часом →
+    # згортання дублікатів timestamp у середнє (interp1d вимагає строго зростаючий x)
+
+    # 4. НЕ використовувати ffill/bfill (на відміну від legacy)
+    #    → GPS інтерполюється пізніше на uniform grid
+
+    if len(accel) == 0:
+        raise ValueError(...)          # перелічує знайдені значення Type
+
+    return SensorData(accel_time=..., accel_x=..., ..., time_unit=time_unit)
 ```
+
+`SensorData` містить окремі потоки акселерометра, гіроскопа та локації;
+`gyro_*` і `gps_*` дорівнюють `None`, якщо відповідних рядків у файлі немає.
 
 ### Ключові відмінності від legacy
 
@@ -103,7 +120,7 @@ df = df.ffill().bfill()  # Forward/backward fill NaN
 ```
 
 **Проблема legacy:**
-- `ffill()` propagates GPS coordinates на ACCEL rows → неточна прив'язка
+- `ffill()` propagates GPS coordinates на рядки акселерометра → неточна прив'язка
 - `bfill()` використовує майбутні значення → non-causal
 
 **New:**
@@ -114,9 +131,9 @@ df = df.ffill().bfill()  # Forward/backward fill NaN
 
 ## Крок 2: Uniform Time Grid
 
-**Файл:** `road_quality_analyzer/preprocessing.py`
+**Файл:** `road_quality_analyzer/preprocessing/time_grid.py`
 
-**Функція:** `build_uniform_time_grid(df_accel, df_gps)`
+**Функція:** `build_uniform_time_grid(accel_time, accel_x, accel_y, accel_z)`
 
 ### Навіщо?
 
@@ -125,7 +142,8 @@ df = df.ffill().bfill()  # Forward/backward fill NaN
 Original timestamps:
 [100.023, 100.043, 100.062, 100.081, 100.105, ...]  (Δt варіюється!)
 
-Median Δt = 0.019 s → fs ≈ 52.6 Hz
+Median Δt = 0.019 s → fs ≈ 52.6 Hz (для датасету 2025-07-29;
+рекордер зараз запитує 100 Hz, але фактична частота теж плаває)
 ```
 
 **PSD (Welch) потребує рівномірної сітки** для FFT.
@@ -133,52 +151,40 @@ Median Δt = 0.019 s → fs ≈ 52.6 Hz
 ### Алгоритм
 
 ```python
-def build_uniform_time_grid(df_accel, df_gps):
-    # 1. Визначити fs з median delta
-    dt_median = np.median(np.diff(df_accel['t_sec']))
-    fs_hz = 1.0 / dt_median
-    
+def build_uniform_time_grid(accel_time, accel_x, accel_y, accel_z):
+    # 1. Визначити крок з median delta (медіана, не середнє: стійка до пропусків)
+    dt_median = np.median(np.diff(accel_time))
+
     # 2. Створити uniform grid
-    t_start = df_accel['t_sec'].min()
-    t_end = df_accel['t_sec'].max()
-    t_uniform = np.arange(t_start, t_end, dt_median)
-    
-    # 3. Resample акселерометр (linear interpolation)
-    ax_uniform = np.interp(t_uniform, df_accel['t_sec'], df_accel['X'])
-    ay_uniform = np.interp(t_uniform, df_accel['t_sec'], df_accel['Y'])
-    az_uniform = np.interp(t_uniform, df_accel['t_sec'], df_accel['Z'])
-    
-    # 4. Resample GPS (linear interpolation)
-    lat_uniform = np.interp(t_uniform, df_gps['t_sec'], df_gps['Latitude'])
-    lon_uniform = np.interp(t_uniform, df_gps['t_sec'], df_gps['Longitude'])
-    
-    # 5. Створити DataFrame
-    df_uniform = pd.DataFrame({
-        't': t_uniform,
-        'ax': ax_uniform,
-        'ay': ay_uniform,
-        'az': az_uniform,
-        'lat': lat_uniform,
-        'lon': lon_uniform
-    })
-    
-    return df_uniform, fs_hz
+    t_grid = np.arange(accel_time[0], accel_time[-1], dt_median)
+
+    # 3. Resample акселерометр (linear interpolation, scipy interp1d)
+    ax_grid = interp1d(accel_time, accel_x, kind='linear')(t_grid)
+    ay_grid = interp1d(accel_time, accel_y, kind='linear')(t_grid)
+    az_grid = interp1d(accel_time, accel_z, kind='linear')(t_grid)
+
+    return t_grid, ax_grid, ay_grid, az_grid
 ```
 
+`fs = 1 / median(diff(t_grid))` обчислюється в `cli.py::analyze()`; якщо результат
+поза смугою 5–1000 Hz, аналіз падає з `ValueError` (ознака неправильної одиниці
+колонки `Time`).
+
 **Результат:**
-- `df_uniform` має рівномірну сітку (fs ≈ 52.6 Hz для нашого датасету)
-- GPS interpolated на кожен акселерометр timestamp
+- рівномірна сітка часу для акселерометра
+- GPS **не** інтерполюється тут — відстань і швидкість будує окрема
+  `build_distance_grid(gps_time, gps_lat, gps_lon, t_grid)` (крок 3)
 - Ready для PSD та orientation correction
 
 ---
 
 ## Крок 3: GPS Distance and Speed
 
-**Файл:** `road_quality_analyzer/preprocessing.py`
+**Файл:** `road_quality_analyzer/preprocessing/time_grid.py`
 
 **Функції:**
 - `compute_gps_distance(lat, lon)` — cumulative distance
-- `build_distance_grid(df_uniform, fs_hz)` — відстань + швидкість
+- `build_distance_grid(gps_time, gps_lat, gps_lon, t_grid)` — відстань + швидкість
 
 ### Haversine Formula (Eq.B1 з `02_FORMULAS`)
 
@@ -224,48 +230,61 @@ s (m):       [0.0,  0.27,  0.55,  0.82,  ...]  (cumulative)
 ### Speed Estimation
 
 ```python
-def build_distance_grid(df_uniform, fs_hz):
-    # 1. Cumulative distance
-    df_uniform['s'] = compute_gps_distance(df_uniform['lat'], df_uniform['lon'])
-    
-    # 2. Speed (smooth derivative)
-    # v = ds/dt, але з kernel smoothing для GPS noise reduction
-    kernel_size = int(fs_hz * 2.0)  # 2-second window
-    df_uniform['v_ms'] = savgol_filter(
-        np.gradient(df_uniform['s'], df_uniform['t']),
-        window_length=kernel_size,
-        polyorder=2
-    )
-    
-    # 3. Convert to km/h
-    df_uniform['v_kmh'] = df_uniform['v_ms'] * 3.6
-    
-    return df_uniform
+def build_distance_grid(gps_time, gps_lat, gps_lon, t_grid):
+    # 1. Cumulative distance у точках GPS
+    s_gps = compute_gps_distance(gps_lat, gps_lon)
+
+    # 2. Інтерполяція на t_grid БЕЗ екстраполяції:
+    #    поза часовим діапазоном GPS відстань невідома → NaN
+    s_grid = interp1d(gps_time, s_gps, kind='linear',
+                      bounds_error=False, fill_value=np.nan)(t_grid)
+
+    # 3. Швидкість: згладжування ДО диференціювання (~1 с ковзне середнє)
+    dt = np.median(np.diff(t_grid))
+    window_size = max(1, int(round(1.0 / dt)))
+
+    v_grid = np.full_like(s_grid, np.nan)
+    covered = np.isfinite(s_grid)
+    if np.sum(covered) > 1:
+        s_covered = s_grid[covered]
+        if window_size > 1:
+            s_covered = uniform_filter1d(s_covered, size=window_size,
+                                         mode='nearest')
+        v_grid[covered] = np.gradient(s_covered, dt)
+
+    return s_grid, v_grid
 ```
 
 **Навіщо smoothing:**
 - GPS має noise ±3-10 м → `ds` має jumps
-- `np.gradient()` amplifies noise
-- Savitzky-Golay filter (polyorder=2) зглажує, зберігаючи trends
+- `np.gradient()` amplifies noise, тому рівномірне ковзне середнє (`uniform_filter1d`,
+  вікно ≈ 1 с) застосовується **до відстані й до диференціювання**, а не до готової
+  похідної
+- `mode='nearest'` не «притягує» краї до нуля, як згортка з нульовим доповненням
+- `s` — кумулятивна сума модулів haversine, тобто монотонна, тому похідна
+  невід'ємна без додаткового clipping
 
-**Результат:**
-```csv
-t,s,v_ms,v_kmh
-0.0,0.0,12.5,45.0
-0.019,0.27,12.6,45.4
-...
-```
+**Результат:** `(s_grid, v_grid)` на `t_grid` — відстань у метрах і швидкість у м/с.
+Поза покриттям GPS обидва масиви дорівнюють `NaN`; ці семпли `cli.py::analyze()`
+відкидає перед сегментацією. Переведення в км/год відбувається пізніше, у
+`segmentation/segment_100m.py` (`mean_speed_kmh = mean_speed_mps * 3.6`).
 
 ---
 
 ## Крок 4: Orientation Correction
 
-**Файл:** `road_quality_analyzer/orientation.py`
+**Файли:**
+- `road_quality_analyzer/orientation/gravity_alignment.py`
+- `road_quality_analyzer/orientation/heading.py`
 
 **Функції:**
-- `align_gravity(ax, ay, az, fs_hz)` → rotation matrix R(t)
-- `compute_gps_heading(lat, lon)` → heading unit vector h_hat(t)
-- `compute_perpendicular_accel(a_world, heading)` → a_perp(t)
+- `estimate_gravity(accel_x, accel_y, accel_z, fs, cutoff_hz=0.3)` → g_hat(t)
+- `compute_rotation_matrix(g_hat_x, g_hat_y, g_hat_z)` → R(t), масив (N, 3, 3)
+- `transform_to_world(accel_x, accel_y, accel_z, g_hat_x, g_hat_y, g_hat_z, R_matrices)`
+  → `(a_world_x, a_world_y, a_world_z, a_vertical)`; далі використовується лише
+  `a_vertical`
+- `compute_gps_heading(gps_time, gps_lat, gps_lon, t_grid, heading_min_speed_mps=1.0)`
+  → `(heading_x, heading_y, heading_valid)`
 
 ### 4.1 Gravity Alignment (Eq.B3.1-B3.3 з `02_FORMULAS`)
 
@@ -274,12 +293,12 @@ t,s,v_ms,v_kmh
 #### Крок 1: Оцінити гравітацію (low-pass filter)
 
 ```python
-def estimate_gravity(ax, ay, az, fs_hz, f_cutoff=0.25):
+def estimate_gravity(ax, ay, az, fs_hz, cutoff_hz=0.3):
     # Butterworth low-pass filter (4th order)
     from scipy.signal import butter, filtfilt
     
     nyquist = fs_hz / 2.0
-    b, a = butter(4, f_cutoff / nyquist, btype='low')
+    b, a = butter(4, cutoff_hz / nyquist, btype='low')
     
     # Zero-phase filtering (filtfilt)
     gx = filtfilt(b, a, ax)
@@ -290,7 +309,8 @@ def estimate_gravity(ax, ay, az, fs_hz, f_cutoff=0.25):
 ```
 
 **Параметри:**
-- **f_cutoff = 0.25 Hz:** gravity змінюється повільно (phone rotation < 1 Hz)
+- **cutoff_hz = 0.3 Hz** (значення, яке передає `cli.py`; сам аргумент має
+  замовчування 0.3): gravity змінюється повільно (phone rotation < 1 Hz)
 - **4th order Butterworth:** steep rolloff, flat passband
 - **filtfilt:** zero-phase (no lag)
 
@@ -411,60 +431,46 @@ def align_gravity(ax, ay, az, fs_hz):
 **Мета:** визначити напрямок руху у горизонтальній площині
 
 ```python
-def compute_gps_heading(lat, lon):
-    # ENU approximation (equirectangular)
-    R = 6371000  # meters
-    lat0 = np.radians(np.mean(lat))
-    
-    # Convert to local meters
-    x = R * np.cos(lat0) * np.radians(lon)
-    y = R * np.radians(lat)
-    
-    # Heading = normalize(Δx, Δy)
-    dx = np.gradient(x)
-    dy = np.gradient(y)
-    
-    magnitude = np.sqrt(dx**2 + dy**2)
-    
-    # Avoid division by zero (stop-and-go)
-    magnitude = np.maximum(magnitude, 1e-6)
-    
-    heading_x = dx / magnitude
-    heading_y = dy / magnitude
-    
-    return heading_x, heading_y
+def compute_gps_heading(gps_time, gps_lat, gps_lon, t_grid,
+                        heading_min_speed_mps=1.0):
+    # 1. ENU approximation (equirectangular) навколо першої точки
+    x_gps, y_gps = latlon_to_enu(gps_lat, gps_lon)
+
+    # 2. Інтерполяція на uniform time grid
+    x_grid = interp1d(gps_time, x_gps, kind='linear',
+                      bounds_error=False, fill_value='extrapolate')(t_grid)
+    y_grid = interp1d(gps_time, y_gps, kind='linear',
+                      bounds_error=False, fill_value='extrapolate')(t_grid)
+
+    # 3. Згладжування позиції ДО диференціювання (~1 с ковзне середнє):
+    #    np.gradient підсилює GPS-шум
+    dt = np.median(np.diff(t_grid))
+    window_size = max(1, int(round(1.0 / dt)))
+    if window_size > 1:
+        x_grid = uniform_filter1d(x_grid, size=window_size, mode='nearest')
+        y_grid = uniform_filter1d(y_grid, size=window_size, mode='nearest')
+
+    # 4. Heading = normalize(Δx, Δy)
+    dx = np.gradient(x_grid, dt)
+    dy = np.gradient(y_grid, dt)
+    speed = np.hypot(dx, dy)
+
+    # 5. Stop-and-go masking: heading невизначений при v < 1 м/с
+    heading_x = np.zeros_like(dx)
+    heading_y = np.zeros_like(dy)
+    heading_valid = speed >= heading_min_speed_mps
+
+    normalizable = heading_valid & (speed > 1e-6)
+    heading_x[normalizable] = dx[normalizable] / speed[normalizable]
+    heading_y[normalizable] = dy[normalizable] / speed[normalizable]
+
+    return heading_x, heading_y, heading_valid
 ```
 
-**Stop-and-go masking:**
-```python
-# Mask heading where speed < 1 m/s
-valid_heading = (v_ms >= 1.0)
-heading_x[~valid_heading] = np.nan
-heading_y[~valid_heading] = np.nan
-```
-
-### 4.3 Perpendicular Acceleration (Eq.B3.4 з `02_FORMULAS`)
-
-**Мета:** horizontal accel perpendicular to travel direction
-
-```python
-def compute_perpendicular_accel(a_horiz_x, a_horiz_y, heading_x, heading_y):
-    # Perpendicular vector: p_hat = z_world × h_hat
-    # z_world = [0, 0, 1], h_hat = [heading_x, heading_y, 0]
-    # → p_hat = [-heading_y, heading_x, 0]
-    
-    perp_x = -heading_y
-    perp_y = heading_x
-    
-    # Projection: a_perp = a_horiz · p_hat
-    a_perp = a_horiz_x * perp_x + a_horiz_y * perp_y
-    
-    return a_perp
-```
-
-**Застосування:**
-- ML features: `[a_vertical, a_perp, speed]` → anomaly classifier
-- Lateral distress detection (potholes викликають lateral jolt)
+`heading_valid` використовується лише як показник якості GPS (кількість валідних
+семплів друкується у `report.md`). Горизонтальні компоненти світового прискорення
+та перпендикулярна складова `a_perp` у поточному пайплайні не обчислюються і не
+експортуються — метрики рахуються тільки з `a_vertical`.
 
 ---
 
@@ -505,13 +511,23 @@ def apply_bandpass(signal, fs_hz, f_low=0.5, f_high=6.0):
 - `f_high = 6.0 Hz`
 - `order = 4`
 
-**Конфігуровані через CLI:** `--filter-low 0.5 --filter-high 6.0`
+**Задані константами в `cli.py`** (`BAND_LOW_HZ`, `BAND_HIGH_HZ`); CLI-прапорців
+для їх зміни немає — фактичні значення друкуються у `report.md`.
+
+**Edge trim:** `cli.py::analyze()` відкидає по 3 с (`EDGE_TRIM_SEC = 3.0`, тобто
+158 семплів при fs ≈ 52.6 Hz) з кожного кінця **після** того, як усі фільтри
+відпрацювали на повному вікні покриття GPS. Розмір задає найповільніший фільтр
+ланцюга — gravity low-pass 0.3 Hz; обрізання входу замість виходу лише залишило б
+filtfilt-транзієнти всередині аналітичного вікна.
 
 ---
 
 ## Крок 6: Metrics Computation
 
-**Файл:** `road_quality_analyzer/analysis.py`
+**Файли:**
+- `road_quality_analyzer/metrics/grms.py` — `compute_grms(a_vertical_g)`
+- `road_quality_analyzer/metrics/iri.py` — `compute_psd_band_power(...)`,
+  `compute_iri_psd(...)`, `compute_iri_multi(...)`
 
 **Метрики:**
 1. **Grms** — RMS вертикального прискорення (g)
@@ -542,31 +558,39 @@ grms = sqrt(mean([0.0025, 0.0009, 0.0049, 0.0016, 0.0036, ...])) ≈ 0.053 g
 ```python
 from scipy.signal import welch
 
-def compute_psd_scalar(a_vertical_g, fs_hz, f_low=0.5, f_high=6.0):
-    # Welch PSD
-    freqs, psd = welch(
-        a_vertical_g,
-        fs=fs_hz,
-        window='hann',
-        nperseg=min(256, len(a_vertical_g) // 4),
-        noverlap=None,  # Default: nperseg // 2
-        scaling='density'  # g² / Hz
-    )
-    
+def compute_psd_band_power(signal_g, fs, f_low=0.5, f_high=6.0,
+                           nperseg=None, scalar_mode='mean_psd_sqrt'):
+    # Welch потребує щонайменше 2 с сигналу; інакше NaN, а не вигадане число
+    if len(signal_g) < fs * 2:
+        return np.nan, _nan_psd_debug(scalar_mode, len(signal_g), 0, 0)
+
+    if nperseg is None:
+        nperseg = min(len(signal_g), int(fs * 4))
+
+    freqs, psd = welch(signal_g, fs=fs, window='hann',
+                       nperseg=nperseg, noverlap=nperseg // 2)
+
     # Band power
-    mask = (freqs >= f_low) & (freqs <= f_high)
-    df = freqs[1] - freqs[0]  # Frequency resolution
-    
-    band_power = np.sum(psd[mask]) * df  # g²
-    sqrt_psd = np.sqrt(band_power)  # g
-    
-    return sqrt_psd
+    idx_band = (freqs >= f_low) & (freqs <= f_high)
+    df = freqs[1] - freqs[0]          # frequency resolution
+    psd_band = psd[idx_band]
+    band_power = np.sum(psd_band) * df  # g²
+
+    # Eq.3 бере корінь із густини PSD (g/√Hz), а не з інтегральної потужності,
+    # тому режим за замовчуванням — 'mean_psd_sqrt'
+    sqrtPSD = np.sqrt(np.mean(psd_band))
+
+    return sqrtPSD, debug_info
 ```
 
 **Параметри:**
 - **window='hann':** Hanning window (гладке згладжування)
-- **nperseg=256:** segment length для FFT (trade-off: frequency resolution vs variance)
-- **scaling='density':** PSD у g²/Hz (power per Hz)
+- **nperseg = fs*4** (≈ 210 семплів при fs ≈ 52.6 Hz), `noverlap = nperseg // 2`
+- **scaling:** `welch` за замовчуванням повертає густину, тобто g²/Hz
+- **Guard `n >= fs*2`:** сегмент коротший за 2 с не дає PSD → `NaN`
+- **scalar_mode:** `mean_psd_sqrt` (default), `band_power_sqrt`, `median_psd_sqrt`,
+  `peak_psd_sqrt` — усі чотири прораховуються у `cli.py` як діагностика і
+  порівнюються в `report.md`
 
 ### 6.3 IRI_psd (Eq.3 з `02_FORMULAS`)
 
@@ -576,26 +600,41 @@ IRI = 0.774 * sqrt(PSD) - 0.825  (m/km)
 ```
 
 ```python
-def compute_iri_psd(sqrt_psd, A=0.774, B=0.825):
+def compute_iri_psd(a_vertical_g, fs, f_low=0.5, f_high=6.0,
+                    scalar_mode='mean_psd_sqrt', return_debug=False):
     """
-    sqrt_psd: in g (from PSD band power)
-    A, B: calibration coefficients from book (Eq.3)
-    Returns: IRI in m/km
+    Returns: (iri_psd_raw, iri_psd, debug_info), обидва IRI у m/km
     """
-    iri_psd = A * sqrt_psd - B
-    return iri_psd
+    sqrtPSD, debug_info = compute_psd_band_power(
+        a_vertical_g, fs, f_low, f_high, scalar_mode=scalar_mode
+    )
+
+    # Eq.3 з книги, коефіцієнти НЕ перекалібровуються під датасет
+    iri_psd_raw = 0.774 * sqrtPSD - 0.825
+
+    # Clipped-версія; NaN НЕ перетворюється на 0 — max() сховав би пропуск
+    iri_psd = max(0.0, iri_psd_raw) if np.isfinite(iri_psd_raw) else np.nan
+
+    return iri_psd_raw, iri_psd, debug_info
 ```
 
-**Проблема:** IRI_psd може бути **< 0** якщо `sqrt_psd` малий або `A, B` не калібровані для конкретного phone/vehicle
+**Проблема:** `iri_psd_raw` може бути **< 0**, якщо виміряна густина PSD нижча за
+поріг калібрування Eq.3 (некалібрований телефон/кріплення), а не тому, що дорога
+ідеальна.
 
-**Приклад:**
+**Приклад (сегмент 1 поточного датасету):**
 ```
-sqrt_psd = 0.5 g
-IRI_psd = 0.774 * 0.5 - 0.825 = -0.438 m/km  (негативний!)
+psd_sqrt_scalar = 0.013478 g/√Hz
+iri_psd_raw     = 0.774 * 0.013478 - 0.825 = -0.8146 m/km  (негативний)
+iri_psd         = max(0, -0.8146)           =  0.00 m/km
 ```
 
-**Рішення:**
-- IRI_psd зберігаємо "as is" (може бути < 0)
+**Контракт:**
+- `iri_psd_raw` — сире значення Eq.3, зберігається як діагностика калібрування
+- `iri_psd = max(0, iri_psd_raw)` — те, що використовується далі
+- обидві колонки експортуються в `road_segments.csv`
+- обидві дорівнюють `NaN`, якщо PSD неможливо обчислити (`n < fs*2` або порожня
+  смуга); Eq.3 не має speed-члена, тому `iri_psd` **не** залежить від `speed_valid`
 - **Основний IRI** = IRI_multi (Eq.4-6), який завжди >= 0
 
 ### 6.4 IRI_multi (Eq.4-6 з `02_FORMULAS`)
@@ -630,27 +669,35 @@ def compute_iri_multi(grms, speed_kmh,
     return max(0.0, iri)  # Clamp to >= 0
 ```
 
-**Приклад:**
+**Приклад (сегмент 1 поточного датасету):**
 ```
-grms = 0.059 g
-speed_kmh = 41.7
+grms = 0.066388 g
+speed_kmh = 37.761
 npeop = 1
 stif = 1.0, damp_f = 1.0, tyre_s = 1.0
 
-IRI_multi = 50.32*0.059 - 0.06*41.7 + 0.17*1 - 1.86*1 - 0.90*1 - 0.78*1 + 6.68
-          = 2.969 - 2.502 + 0.17 - 1.86 - 0.90 - 0.78 + 6.68
-          = 3.78 m/km  ✓
+IRI_multi = 50.32*0.066388 - 0.06*37.761 + 0.17*1 - 1.86*1 - 0.90*1 - 0.78*1 + 6.68
+          = 3.3406 - 2.2657 + 0.17 - 1.86 - 0.90 - 0.78 + 6.68
+          = 4.385 m/km
 ```
 
-**Validation:** наш результат 3.78 m/km → класифікація **GOOD** (2-4 m/km)
+Eq.4/5/6 містять speed-член і калібровані лише для 20–100 км/год, тому поза цим
+діапазоном (`speed_valid = False`) записується `NaN`, а не 0.
+
+**Validation:** середнє по повних сегментах поточного датасету — **2.99 m/km**
+(150 повних сегментів зі 152; числа й умови прогону — у
+[05_results_legacy_vs_new.md](05_results_legacy_vs_new.md)), тобто класифікація
+**GOOD** (2-4 m/km)
 
 ---
 
 ## Крок 7: Anomaly Detection
 
-**Файл:** `road_quality_analyzer/analysis.py`
+**Файл:** `road_quality_analyzer/anomaly/threshold.py`
 
-**Функція:** `detect_threshold_anomalies(a_vertical, threshold_ms2=10.0)`
+**Функції:**
+- `detect_threshold_anomalies(a_vertical, threshold_ms2=10.0)`
+- `remove_distress_windows(signal, anomaly_mask, fs, window_sec=0.5)`
 
 ### Threshold 10 m/s² (Eq.A5 з `02_FORMULAS`)
 
@@ -681,105 +728,159 @@ anomalies = [False, False, True, False, False, ...]
 → count = 1 anomaly
 ```
 
-**Наш датасет:** 0 anomalies (жодного |a_vertical| > 10 m/s²) → good road
+**Наш датасет:** 0 anomalies (жодного |a_vertical| > 10 m/s²). Це **не** доказ
+ідеальної дороги: поріг 10 m/s² узятий із книги для сирого показу акселерометра, а
+пайплайн застосовує його до gravity-removed вертикалі у світовій системі й не
+калібрує під конкретний телефон і кріплення. Тому кількість подій може бути
+заниженою — див. [06_threats_to_validity_and_limitations.md](06_threats_to_validity_and_limitations.md).
 
 ### Distress Removal для PSD (Eq.B8 з `02_FORMULAS`)
 
 **Навіщо:** Eq.3 калібровано "after removing the effect of distress"
 
 ```python
-def remove_distress_windows(a_vertical_g, anomalies, fs_hz, window_sec=1.0):
+def remove_distress_windows(signal, anomaly_mask, fs, window_sec=0.5):
     """
-    Exclude ±window_sec навколо кожної anomaly
+    Замаскувати ±window_sec навколо кожної anomaly
     """
-    window_samples = int(window_sec * fs_hz)
-    
-    mask_exclude = np.zeros(len(a_vertical_g), dtype=bool)
-    
-    # Find anomaly indices
-    anomaly_idx = np.where(anomalies)[0]
-    
-    for idx in anomaly_idx:
-        # Exclude window
+    cleaned_signal = signal.copy()
+
+    anomaly_indices = np.where(anomaly_mask)[0]
+    window_samples = int(window_sec * fs)
+
+    for idx in anomaly_indices:
         start = max(0, idx - window_samples)
-        end = min(len(a_vertical_g), idx + window_samples + 1)
-        mask_exclude[start:end] = True
-    
-    # Clean signal
-    a_clean = a_vertical_g[~mask_exclude]
-    
-    return a_clean
+        end = min(len(signal), idx + window_samples + 1)
+        cleaned_signal[start:end] = np.nan   # NaN, а не видалення семплів
+
+    return cleaned_signal
 ```
 
-**Параметр window_sec:** конфігурований (default 1.0 s)
+**Параметр window_sec:** фіксований ±0.5 с (`DISTRESS_WINDOW_SEC = 0.5` у `cli.py`);
+CLI-прапорця для його зміни немає.
+
+**Чому NaN, а не компактний масив:** функція повертає масив тієї самої довжини, у
+якому вікна аномалій замінені на `NaN`. Стикувати вцілілі шматки впритул не можна —
+у місці склейки з'явився б стрибок, який Welch побачив би як широкосмугову енергію
+рівно в смузі Eq.3. Тому `segmentation/segment_100m.py::longest_finite_run()` бере
+**найдовший неперервний скінченний відрізок** сегмента і подає у Welch лише його;
+якщо цей відрізок коротший за `fs*2`, сегмент просто не має `IRI_psd` (`NaN`).
 
 ---
 
 ## Крок 8: 100m Segmentation
 
-**Файл:** `road_quality_analyzer/segmentation.py`
+**Файл:** `road_quality_analyzer/segmentation/segment_100m.py`
 
-**Функція:** `segment_by_distance(df_uniform, segment_length_m=100.0)`
+**Функції:**
+- `create_segments(s_grid, segment_length_m=100.0)` → `{seg_id: indices}`
+- `longest_finite_run(signal)` → найдовший неперервний скінченний відрізок
+- `aggregate_segment_metrics(...)` → метрики одного сегмента
+- `create_segments_dataframe(...)` → `pandas.DataFrame` усіх сегментів
 
 ### Алгоритм (Eq.B7 з `02_FORMULAS`)
 
 ```python
-def segment_by_distance(df_uniform, segment_length_m=100.0):
-    # 1. Compute seg_id
-    df_uniform['seg_id'] = np.floor(df_uniform['s'] / segment_length_m).astype(int)
-    
-    # 2. Group by seg_id
-    segments = []
-    
-    for seg_id, group in df_uniform.groupby('seg_id'):
-        # Aggregate metrics
-        s_start = group['s'].min()
-        s_end = group['s'].max()
-        
-        # Grms
-        grms = np.sqrt(np.mean(group['a_vertical_g']**2))
-        
-        # PSD (if enough samples)
-        if len(group) >= 128:
-            sqrt_psd = compute_psd_scalar(group['a_vertical_g'], fs_hz)
-            iri_psd = compute_iri_psd(sqrt_psd)
-        else:
-            sqrt_psd = np.nan
-            iri_psd = np.nan
-        
-        # IRI_multi
-        mean_speed_kmh = group['v_kmh'].mean()
-        iri_multi = compute_iri_multi(grms, mean_speed_kmh)
-        
-        # Anomalies
-        anomaly_count = group['anomaly'].sum()
-        
-        # Valid ratio (GPS available, heading defined)
-        valid_ratio = group['valid_heading'].sum() / len(group)
-        
-        segments.append({
-            'seg_id': seg_id,
-            's_start': s_start,
-            's_end': s_end,
-            'iri_multi': iri_multi,
-            'iri_psd': iri_psd,
-            'grms': grms,
-            'mean_speed_kmh': mean_speed_kmh,
-            'valid_ratio': valid_ratio,
-            'anomaly_count': anomaly_count
-        })
-    
-    df_segments = pd.DataFrame(segments)
-    return df_segments
+MIN_FULL_SEGMENT_M = 90.0
+SPEED_VALID_MIN_KMH, SPEED_VALID_MAX_KMH = 20.0, 100.0
+DX_COMPLIANT_M = 0.3
+LOW_SPEED_MAX_KMH = SPEED_VALID_MIN_KMH          # 20 км/год
+LOW_SPEED_CLASS_BY_POLICY = {'very-poor': 'very_poor', 'poor': 'poor',
+                             'invalid': 'invalid', 'ignore': 'ignore'}
+NORMAL_SPEED_CLASS = 'normal'
+
+
+def create_segments(s_grid, segment_length_m=100.0):
+    # s_grid має бути вже очищений від NaN: поза покриттям GPS відстань невідома,
+    # а np.floor(NaN).astype(int) створив би фантомний сегмент
+    if not np.all(np.isfinite(s_grid)):
+        raise ValueError(...)
+
+    seg_ids = np.floor(s_grid / segment_length_m).astype(int)
+    return {sid: np.where(seg_ids == sid)[0] for sid in np.unique(seg_ids)}
+
+
+def aggregate_segment_metrics(seg_id, indices, a_vertical_g, a_vertical_g_psd,
+                              v_grid, s_grid, fs, anomaly_mask=None,
+                              low_speed_policy='invalid', ...):
+    seg_s = s_grid[indices]
+    seg_v = v_grid[indices]
+    length_m = seg_s[-1] - seg_s[0]
+    mean_speed_kmh = np.mean(seg_v) * 3.6
+
+    # Дорога, якою неможливо їхати швидше за 20 км/год: збудження підвіски падає
+    # під смугу 0.5-6 Hz, тому сегмент дістає мітку, а не число
+    low_speed = mean_speed_kmh < LOW_SPEED_MAX_KMH
+
+    metrics = {
+        'seg_id': seg_id,
+        's_start': seg_s[0],
+        's_end': seg_s[-1],
+        'length_m': length_m,
+        'partial': length_m < MIN_FULL_SEGMENT_M,   # хвіст запису
+        'n_samples': len(indices),
+        'mean_speed_mps': np.mean(seg_v),
+        'mean_speed_kmh': mean_speed_kmh,
+        'speed_valid': SPEED_VALID_MIN_KMH <= mean_speed_kmh <= SPEED_VALID_MAX_KMH,
+        'low_speed_class': (LOW_SPEED_CLASS_BY_POLICY[low_speed_policy]
+                            if low_speed else NORMAL_SPEED_CLASS),
+        'needs_class12_survey': low_speed,          # прилад класу 1/2 (профілометр)
+        'dx_le_03_share': np.mean((seg_v / fs) <= DX_COMPLIANT_M),
+    }
+
+    metrics['grms'] = compute_grms(a_vertical_g[indices])
+
+    # Welch — лише на найдовшому неперервному чистому відрізку сигналу без
+    # distress-вікон; guard n >= fs*2 сидить усередині compute_psd_band_power
+    seg_psd_input = longest_finite_run(a_vertical_g_psd[indices])
+    iri_psd_raw, iri_psd, debug = compute_iri_psd(seg_psd_input, fs, ...)
+    metrics['iri_psd_raw'] = iri_psd_raw
+    metrics['iri_psd'] = iri_psd
+    # + діагностика PSD: psd_band_power, psd_sqrt_scalar, psd_scalar_mode,
+    #   psd_n_samples_used, psd_df_hz, fs_used_hz
+
+    # Eq.4/5/6 мають speed-член і калібровані для 20-100 км/год → поза діапазоном NaN
+    metrics['iri_multi'] = (
+        compute_iri_multi(metrics['grms'], mean_speed_kmh,
+                          vehicle_type=VehicleType.GENERIC)
+        if metrics['speed_valid'] else np.nan
+    )
+
+    metrics['anomaly_count'] = int(np.sum(anomaly_mask[indices]))
+
+    # Пороговий детектор працює й нижче 20 км/год, тому для low-speed сегментів
+    # саме events_per_km замінює IRI; нульова довжина → NaN, не ділення на нуль
+    metrics['events_per_km'] = (metrics['anomaly_count'] / (length_m / 1000.0)
+                                if length_m > 0 else np.nan)
+    return metrics
 ```
 
-**Результат:**
+**Політика low-speed сегментів (`--low-speed-policy`).** Мітка залежить від
+політики, число — ніколи: `iri_multi` лишається `NaN` за будь-якої з чотирьох
+політик, бо Eq.4/5/6 калібровані лише на 20–100 км/год (опорні швидкості
+30/50/80 км/год), а частота збудження `v / λ` нижче 20 км/год виходить за смугу
+0.5–6 Hz, у якій визначені Eq.3 і Grms. Політика `ignore` додатково прибирає
+рядки з `road_segments.csv`, `roughness.geojson` і карти — але не зі звіту:
+`report.md` рахує та перелічує їх у секції «Сегменти з низькою швидкістю».
+
+**Результат:** `road_segments.csv` має 24 колонки (значення нижче округлені для
+читабельності; повний опис колонок — у
+[08_user_guide_and_cli_reference.md](08_user_guide_and_cli_reference.md)):
+
 ```csv
-seg_id,s_start,s_end,iri_multi,iri_psd,grms,mean_speed_kmh,valid_ratio,anomaly_count
-0,0.0,99.88,7.67,3.45,0.128,34.8,0.98,0
-1,100.0,199.86,3.60,2.12,0.054,41.2,1.00,0
+seg_id,s_start,s_end,length_m,partial,n_samples,mean_speed_mps,mean_speed_kmh,speed_valid,low_speed_class,needs_class12_survey,dx_le_03_share,grms,iri_psd_raw,iri_psd,psd_band_power,psd_sqrt_scalar,psd_scalar_mode,psd_n_samples_used,psd_df_hz,fs_used_hz,iri_multi,anomaly_count,events_per_km
+0,28.608,99.878,71.270,True,385,9.767,35.162,True,normal,False,1.0,0.045616,-0.811575,0.0,0.001659,0.017346,mean_psd_sqrt,385,0.250627,52.632,3.495702,0,0.0
+1,100.077,199.974,99.897,False,502,10.489,37.761,True,normal,False,1.0,0.066388,-0.814568,0.0,0.001002,0.013478,mean_psd_sqrt,502,0.250627,52.632,4.384994,0,0.0
+5,500.093,599.926,99.833,False,3026,1.738,6.257,False,invalid,True,1.0,0.011871,-0.822574,0.0,0.000054,0.003135,mean_psd_sqrt,3026,0.250627,52.632,,0,0.0
 ...
 ```
+
+Сегмент 0 позначений `partial=True`: після обрізання країв (3 с) запис починається
+на 28.6 м, тому в перший 100-метровий бін потрапляє лише 71.3 м.
+
+Сегмент 5 пройдено на 6.3 км/год: `needs_class12_survey=True`, `iri_multi` порожній
+(NaN), а стан ділянки описує `events_per_km`. У записі 2025-07-29 таких сегментів
+19 зі 152.
 
 ---
 
@@ -788,15 +889,19 @@ seg_id,s_start,s_end,iri_multi,iri_psd,grms,mean_speed_kmh,valid_ratio,anomaly_c
 **Файл:** `road_quality_analyzer/artifacts.py`
 
 **Функції:**
-- `export_csv(df_segments, output_dir)` → road_segments.csv
-- `export_geojson(df_segments, df_uniform, output_dir)` → roughness.geojson
-- `export_plots(df_segments, output_dir)` → PNG plots
-- `export_html_map(df_segments, df_uniform, output_dir)` → Folium map
-- `generate_report(df_segments, metrics_overall, output_dir)` → report.md
+- `export_segments_geojson(...)` → roughness.geojson (LineString на сегмент)
+- `export_events_geojson(...)` → events.geojson (Point на кожну аномалію)
+- `create_segments_map_html(...)` → segments_map.html (Folium)
+- `create_plots(...)` → plots/*.png + plots/*.pdf (стиль SciencePlots)
+
+`road_segments.csv` (`segments_df.to_csv`) і `report.md` пише сам
+`cli.py::analyze()`. Метрики серіалізуються через `_json_num`: не-скінченне
+значення стає `null`, а не `NaN` (валідний JSON), `json.dump(..., allow_nan=False)`.
 
 ### GeoJSON Structure
 
 ```python
+# спрощено; реальна реалізація — export_segments_geojson()
 def export_geojson(df_segments, df_uniform, output_dir):
     features = []
     
@@ -816,13 +921,22 @@ def export_geojson(df_segments, df_uniform, output_dir):
             },
             "properties": {
                 "seg_id": int(seg['seg_id']),
-                "s_start": float(seg['s_start']),
-                "s_end": float(seg['s_end']),
-                "iri_multi": float(seg['iri_multi']),
-                "grms": float(seg['grms']),
-                "mean_speed_kmh": float(seg['mean_speed_kmh']),
-                "valid_ratio": float(seg['valid_ratio']),
-                "anomaly_count": int(seg['anomaly_count'])
+                "s_start": _json_num(seg['s_start']),
+                "s_end": _json_num(seg['s_end']),
+                "length_m": _json_num(seg['length_m']),
+                "partial": bool(seg['partial']),
+                "iri_multi": _json_num(seg['iri_multi']),
+                "iri_psd_raw": _json_num(seg['iri_psd_raw']),
+                "iri_psd": _json_num(seg['iri_psd']),
+                "grms": _json_num(seg['grms']),
+                "mean_speed_kmh": _json_num(seg['mean_speed_kmh']),
+                "speed_valid": bool(seg['speed_valid']),
+                "low_speed_class": str(seg['low_speed_class']),
+                "needs_class12_survey": bool(seg['needs_class12_survey']),
+                "dx_le_03_share": _json_num(seg['dx_le_03_share']),
+                "anomaly_count": int(seg['anomaly_count']),
+                "events_per_km": _json_num(seg['events_per_km'])
+                # + psd_sqrt_scalar / psd_scalar_mode / psd_band_power, якщо є
             }
         }
         features.append(feature)
@@ -836,61 +950,121 @@ def export_geojson(df_segments, df_uniform, output_dir):
         json.dump(geojson, f, indent=2)
 ```
 
+### Позначення low-speed сегментів на карті
+
+`create_segments_map_html()` фарбує сегменти за `iri_multi`, нормованим на
+[min, max] цього запису (зелений `#1A9641` → синій `#2C7BB6` → помаранчевий
+`#FF7F00` → червоний `#D7191C`). Сегмент із `needs_class12_survey = True`
+знімається з цієї шкали повністю:
+
+```python
+LOW_SPEED_COLOR = '#FF00FF'
+LOW_SPEED_LEGEND_LABEL = 'Потребує обстеження профілометром (клас 1/2)'
+LOW_SPEED_WEIGHT_BONUS = 2      # товща за звичайні LINE_WEIGHT = 8
+
+if bool(row['needs_class12_survey']):
+    color = LOW_SPEED_COLOR
+    line_weight = LINE_WEIGHT + LOW_SPEED_WEIGHT_BONUS
+```
+
+Пурпуровий не трапляється ніде у шкалі IRI, тому кандидата на обстеження
+профілометром неможливо сплутати з оціненим сегментом. Легенда додається на
+карту лише тоді, коли такий сегмент справді намальовано (`has_low_speed`),
+а tooltip для нього додатково показує `low_speed_class` і той самий текст
+легенди. `events_per_km` є у tooltip кожного сегмента.
+
 ---
 
 ## Determinism & Testing
 
-**Файл:** `tests/` (22 unit tests)
+**Файл:** `tests/` (163 unit tests у 11 файлах)
 
 ### Фіксований seed
 
+Єдине джерело випадковості в тестах — фікстура `rng` у `tests/conftest.py`:
+явно засіяний `default_rng`, незалежний від глобального стану NumPy (глобальний
+`np.random` не використовує ні пакет, ні тести):
+
 ```python
-np.random.seed(42)  # Для будь-яких stochastic операцій
+SEED = 20260101
+
+@pytest.fixture
+def rng():
+    return np.random.default_rng(SEED)
 ```
+
+Сам пайплайн (`analyze()`) стохастичних операцій не має — детермінізм перевіряє
+`test_cli.py::test_pipeline_is_deterministic_across_two_runs`, який запускає
+аналіз двічі на тому самому CSV і порівнює `road_segments.csv` побайтово.
 
 ### Test coverage
 
-1. **test_ingestion.py** (3 tests)
-   - `test_load_sensor_csv_separates_streams` — розділення ACCEL/GPS
-   - `test_load_sensor_csv_no_ffill` — немає ffill/bfill
-   - `test_time_conversion_to_seconds` — ms → seconds
+Тестові дані синтезуються в `tmp_path` (`tests/conftest.py::write_drive_csv`);
+11-мегабайтний реальний запис у тестах не використовується.
 
-2. **test_preprocessing.py** (5 tests)
-   - `test_build_uniform_time_grid` — рівномірна сітка
-   - `test_compute_gps_distance_haversine` — Haversine формула
-   - `test_compute_gps_distance_cumulative` — monotonic increase
-   - `test_build_distance_grid` — відстань + швидкість
-   - `test_distance_grid_velocity_smoothing` — savgol filter
+1. **test_ingestion.py** (13 tests) — контракт CSV v2: розділення потоків,
+   заборона ffill/bfill, `#`-преамбула, згортання дублікатів timestamp,
+   детекція одиниці Time (ms / s / epoch-s / ISO), вироджені входи
+   (порожній файл, немає Accelerometer, немає Location, зайве поле в рядку),
+   стабільне сортування.
 
-3. **test_orientation.py** (5 tests)
-   - `test_gravity_alignment_synthetic_roll_pitch` — rotation matrix correctness
-   - `test_gravity_alignment_synthetic_pitch` — single-axis tilt
-   - `test_gps_heading` — heading unit vector
-   - `test_perpendicular_accel` — a_perp calculation
-   - `test_perpendicular_accel_masked_low_speed` — masking v < 1 m/s
+2. **test_preprocessing.py** (12 tests) — uniform grid з **median** dt (не mean),
+   haversine із масштабуванням `cos(lat)` для довготи та контроль на
+   транспозицію lat/lon, NaN поза покриттям GPS, згладжування ДО диференціювання.
 
-4. **test_units.py** (4 tests)
-   - `test_units_grms` — g units consistency
-   - `test_units_threshold_anomaly` — m/s² threshold
-   - `test_units_iri_psd_input` — PSD scalar в g
-   - `test_psd_scalar_modes_consistency` — Welch parameters
+3. **test_orientation.py** (11 tests) — відновлення відомого вертикального
+   поштовху на нахиленому телефоні (30° roll / 20° pitch), відсутність витоку
+   бічного прискорення у вертикаль, ортонормальність `R` та `det(R) = 1`,
+   ENU з `cos(lat0)`, маскування heading при v < 1 м/с.
 
-5. **test_compare_runs.py** (5 tests, STAGE 2)
-   - `test_haversine_distance` — geospatial distance
-   - `test_compute_gps_distance` — cumulative distance
-   - `test_binning_to_100m` — legacy re-binning
-   - `test_rank_correlation_calculation` — Spearman
-   - `test_outputs_created` — artifacts existence
+4. **test_filtering.py** (12 tests) — підсилення 1.0 у смузі та 0.5 на її межах
+   (filtfilt застосовує фільтр двічі), придушення 0.1 Гц і 15 Гц, нульова
+   групова затримка проти каузального `lfilter`, guard недопустимої смуги та
+   входу, коротшого за `padlen`.
 
-**Всі тести:** 22/22 PASS (runtime ~3 секунди)
+5. **test_grms.py** (6 tests) — Grms проти аналітичних еталонів
+   (синус → 1/√2), NaN-вхід, порожній вхід.
+
+6. **test_iri.py** (17 tests) — коефіцієнти Eq.3 та Eq.4/5/6 закріплені
+   літералами, raw-vs-clipped контракт, NaN замість вигаданого значення
+   при `n < fs*2` та порожній смузі, контракт одиниць (g, не м/с²),
+   зв'язок `band_power_sqrt = mean_psd_sqrt * sqrt(ширина смуги)`.
+
+7. **test_anomaly.py** (9 tests) — поріг по модулю, distress-вікна ±0.5 с,
+   обрізання на краях масиву, поширення NaN у Grms/Welch.
+
+8. **test_segmentation.py** (14 tests) — `seg_id = floor(s/100)` на межі 100.0,
+   guard `n >= fs*2`, Welch на найдовшому чистому run (без склеювання чанків),
+   NaN поза діапазоном швидкості зйомки.
+
+9. **test_artifacts.py** (11 tests) — GeoJSON: порядок `[lon, lat]`, `null`
+   замість `NaN`, валідність FeatureCollection; карта: пурпурний `#FF00FF` і
+   товща лінія для low-speed сегментів, легенда лише за їх наявності,
+   сегменти малюються навіть коли жоден `iri_multi` не визначений.
+
+10. **test_cli.py** (16 tests) — наскрізний `analyze()`: відсутність GPS падає
+    з `ValueError` і не пише жодного артефакту, обрізання країв ПІСЛЯ фільтрів
+    (перший корисний рядок не несе filtfilt-транзієнта), distress removal лише
+    для PSD, застосування band-pass до метрик, детермінізм, звіт документує
+    реально виконані коефіцієнти.
+
+11. **test_low_speed_policy.py** (42 tests) — політика `--low-speed-policy`:
+    поріг рівно 20 км/год (строга нерівність), матриця з 4 політик, інваріант
+    «`iri_multi` лишається NaN за будь-якої політики», `events_per_km` (зокрема
+    guard на сегменті нульової довжини), `ignore` виключає рядки з CSV/GeoJSON/
+    карти, але звіт їх рахує, і повністю low-speed запис усе одно дає повний
+    набір артефактів.
+
+**Всі тести:** 163/163 PASS (runtime ~23 секунди)
 
 ### Determinism checklist
 
-- [x] Fixed random seed
+- [x] Fixed random seed (`tests/conftest.py`, фікстура `rng`)
 - [x] Reproducible filters (filtfilt, zero-phase)
 - [x] No external API calls (offline обробка)
 - [x] Fixed parameters (f_low, f_high, threshold)
 - [x] Unit tests для кожної функції
+- [x] Наскрізний тест побайтової відтворюваності двох запусків
 
 ---
 
@@ -903,15 +1077,18 @@ np.random.seed(42)  # Для будь-яких stochastic операцій
 4. ✅ Multi-method IRI (Eq.3 PSD, Eq.4-6 vehicle)
 5. ✅ Threshold anomaly detection (10 m/s²)
 6. ✅ Sampling compliance monitoring (dx ≤ 0.3 m)
-7. ✅ Deterministic pipeline (22 tests)
+7. ✅ Deterministic pipeline (163 tests)
 
 **Ключові відмінності від legacy:**
 - Gravity removal → Grms lower by 5.6x
 - Distance segmentation → apples-to-apples comparison
 - Uniform grid → PSD possible
-- GPS heading → a_perp features
+- GPS heading → контроль якості GPS (маска `heading_valid`)
 
 **Validation:** Spearman ρ = 0.783 → новий пайплайн зберігає roughness patterns legacy
+(результат прогону STAGE 2; скрипт `tools/compare_runs_v2.py` та каталог
+`out/comparison/` видалені разом із legacy-кодом, тому з поточного дерева це число
+не переобчислюється)
 
 **Наступні розділи:**
 - [03_methods_legacy_pipeline.md](03_methods_legacy_pipeline.md) — legacy підхід

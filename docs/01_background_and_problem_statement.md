@@ -207,7 +207,7 @@ Distance between GPS points: 13.9 m
 
 ```
 Timestamp alignment:
-Accel: [100.023, 100.043, 100.062, 100.081, ...]  (50 Hz)
+Accel: [100.023, 100.043, 100.062, 100.081, ...]  (~52.6 Hz у датасеті)
 GPS:   [100.0,   101.0,   102.0, ...]              (1 Hz)
 
 Інтерполяція GPS → accel потребує filtering
@@ -241,7 +241,7 @@ rmsa = np.sqrt(np.mean(accel_z**2))  # body-frame Z-axis
 - **Різниця: 5.6x**
 
 **З correction (новий пайплайн):**
-1. Estimate gravity vector з low-pass filter (0.25 Hz cutoff)
+1. Estimate gravity vector з low-pass filter (0.3 Hz cutoff)
 2. Обертання до world frame (quaternion rotation)
 3. Subtract gravity → `a_linear_world`
 4. Взяти `a_vertical = a_linear_world.z` (чисто вертикальна компонента)
@@ -271,8 +271,9 @@ Legacy: сегменти за часом (наприклад, кожні 10 се
 
 **Приклад:**
 - Legacy: 1799 time-based segments (variable length 10-300 м)
-- New: 153 distance-based segments (exactly 100 м кожен)
-- **100m-aligned comparison:** 152 overlap segments для validation
+- New: 152 distance-based segments по 100 м (поточний прогін на тому самому CSV;
+  з них 2 позначені `partial` — коротший хвіст запису та обрізаний край)
+- **100m-aligned comparison:** 152 overlap segments для validation (STAGE 2)
 
 ### 3. Sampling Compliance (dx ≤ 0.3 m)
 
@@ -283,15 +284,16 @@ Legacy: сегменти за часом (наприклад, кожні 10 се
 ```
 dx(t) = v(t) / fs_accel
 
-Приклад:
+Приклад (fs ≈ 52.6 Hz — датасет 2025-07-29):
 v = 50 km/h = 13.9 m/s
-fs = 50 Hz
-→ dx = 13.9 / 50 = 0.278 м < 0.3 м ✓
+→ dx = 13.9 / 52.6 = 0.264 м < 0.3 м ✓
 
 Проблема:
 v = 80 km/h = 22.2 m/s
-fs = 50 Hz
-→ dx = 22.2 / 50 = 0.444 м > 0.3 м ✗ (non-compliant)
+→ dx = 22.2 / 52.6 = 0.422 м > 0.3 м ✗ (non-compliant)
+
+Із номінальними 100 Hz рекордера:
+→ dx = 22.2 / 100 = 0.222 м < 0.3 м ✓
 ```
 
 **Чому критично:**
@@ -300,8 +302,10 @@ fs = 50 Hz
 - **Non-compliance → aliasing:** пропускаємо короткі нерівності (potholes)
 
 **Рішення у проєкті:**
-1. Compute dx для кожного sample
-2. Report share of distance with `dx ≤ 0.3 m` у `table_metrics_overall.csv`
+1. Compute `dx = v / fs` для кожного sample
+2. Report частку `dx ≤ 0.3 m`: по сегментах — колонка `dx_le_03_share`
+   у `road_segments.csv`, загалом по запису — секція `Sampling Compliance`
+   у `report.md`
 3. Mask non-compliant segments у ML features (опціонально)
 
 ### 4. GPS Heading для a_perp
@@ -339,61 +343,85 @@ a_perp = dot(a_linear_world, p_hat)
 
 **Приклад:** `data/sensor_data_20250729_163334.csv`
 
-**Формат:**
+**Формат (контракт v2, рівно 7 колонок):**
 ```
+# schema=2
+# units: accel=m/s^2 (includes gravity), gyro=rad/s, latlon=deg WGS84, time=ms epoch anchored monotonic
 Time,Type,X,Y,Z,Latitude,Longitude
-1722261414023,ACCEL,0.2345,-0.1234,9.8765,,
-1722261414043,ACCEL,0.2401,-0.1198,9.8812,,
-...
-1722261414000,GPS,,,,,50.450123,30.523456
-1722261415000,GPS,,,,,50.450234,30.523567
+1722261414023,Accelerometer,0.2345,-0.1234,9.8765,,
+1722261414043,Accelerometer,0.2401,-0.1198,9.8812,,
+1722261414030,Gyroscope,0.0123,-0.0045,0.0011,,
+1722261414000,Location,,,,50.450123,30.523456
+1722261415000,Location,,,,50.450234,30.523567
 ```
 
 **Колонки:**
-- **Time:** Unix timestamp у мілісекундах
-- **Type:** `ACCEL` (3-axis accelerometer) або `GPS` (location)
-- **X, Y, Z:** акселерометр у м/с² (phone body frame) або пусті для GPS
-- **Latitude, Longitude:** GPS coordinates у градусах або пусті для ACCEL
+- **Time:** epoch-ms на монотонному годиннику
+  (`anchorWallMs + (event.timestamp - anchorNs)/1e6`)
+- **Type:** рівно одне з `Accelerometer` | `Gyroscope` | `Location`
+- **X, Y, Z:** акселерометр у м/с² (з гравітацією, phone body frame) або гіроскоп
+  у рад/с; для `Location` — порожні
+- **Latitude, Longitude:** десяткові градуси WGS84; для рядків сенсорів — порожні
 
-**Характеристики нашого датасету:**
-- **Distance:** 15.14 km
-- **Duration:** ~30 хвилин
-- **Accel samples:** 94702 (fs ≈ 52.6 Hz після uniform grid)
-- **GPS samples:** 1799 (~1 Hz)
+Рядки, що починаються з `#`, — необов'язкова metadata-преамбула; вона
+пропускається при читанні (`pandas.read_csv(..., comment='#')`), тому старіші
+файли без преамбули парсяться так само.
+
+**Характеристики нашого датасету** (`data/sensor_data_20250729_163334.csv`):
+- **Distance:** 15.09 km (за поточним пайплайном, після обрізання країв)
+- **Duration:** ~30 хвилин (1799 с)
+- **Accelerometer rows:** 93399 (fs ≈ 52.6 Hz за median dt)
+- **Gyroscope rows:** 93398 (не використовуються пайплайном)
+- **Location rows:** 1799 (~1 Hz)
 
 ### Вихідні артефакти
 
-**1. road_segments.csv**
+**1. road_segments.csv** (24 колонки; нижче — ключові)
 ```csv
-seg_id,s_start,s_end,iri_multi,iri_psd,grms,mean_speed_kmh,valid_ratio,anomaly_count
-0,0.0,99.9,7.67,3.45,0.128,34.8,0.98,0
-1,100.0,199.9,3.60,2.12,0.054,41.2,1.00,0
-...
+seg_id,s_start,s_end,length_m,partial,n_samples,mean_speed_mps,mean_speed_kmh,speed_valid,low_speed_class,needs_class12_survey,dx_le_03_share,grms,iri_psd_raw,iri_psd,...,iri_multi,anomaly_count,events_per_km
+1,100.08,199.97,99.90,False,502,10.49,37.76,True,normal,False,1.00,0.0664,-0.81,0.0,...,4.38,0,0.0
 ```
 
 **Metrics:**
 - **iri_multi:** IRI з Eq.4-6 (vehicle-specific regression), м/км
-- **iri_psd:** IRI з Eq.3 (PSD-based), м/км (може бути < 0 якщо не калібрований)
+- **iri_psd_raw / iri_psd:** IRI з Eq.3 (PSD-based), м/км — сире значення
+  (може бути < 0, якщо не калібрований) та clipped до 0
 - **grms:** RMS вертикального прискорення, g
-- **mean_speed_kmh:** середня швидкість на сегменті
-- **valid_ratio:** частка valid samples (GPS available, heading defined)
+- **mean_speed_mps / mean_speed_kmh:** середня швидкість на сегменті
+- **speed_valid:** швидкість у діапазоні зйомки 20–100 км/год; поза ним
+  `iri_multi` = NaN (Eq.4/5/6 мають speed-член). Eq.3 speed-члена не має, тому
+  `iri_psd` від `speed_valid` не залежить
+- **partial:** сегмент коротший за 90 м (хвіст запису), виключений із середніх
+- **dx_le_03_share:** частка семплів із `dx = v/fs ≤ 0.3 м`
 - **anomaly_count:** кількість samples з |a_vertical| > 10 m/s²
+- **low_speed_class / needs_class12_survey:** мітка сегмента з середньою
+  швидкістю < 20 км/год за опцією `--low-speed-policy` (`normal` / `False` для
+  решти). Числовий `iri_multi` для них лишається NaN за будь-якої політики —
+  такі ділянки потребують приладу класу 1/2 (лазерного профілометра)
+- **events_per_km:** `anomaly_count` на кілометр; для низькошвидкісних
+  сегментів саме він служить індикатором стану замість IRI
 
 **2. roughness.geojson**
-- LineString features для кожного сегмента
-- Properties: всі метрики + geometry
+- LineString features для кожного сегмента (координати `[lon, lat]`)
+- Properties: метрики сегмента; не-скінченні значення серіалізуються як `null`
 - Можна відкрити у QGIS/Kepler.gl/Folium
 
-**3. report.md**
-- Текстовий звіт з summary statistics
-- Acceptance criteria check (21/21)
-- Plots references
+**3. events.geojson**
+- Point features для кожного перевищення порогу 10 м/с²
 
-**4. Plots (PNG, 150 DPI)**
-- `plot_grms_profile.png` — Grms vs distance
-- `plot_iri_profile.png` — IRI_multi vs distance
-- `plot_speed_profile.png` — Speed vs distance
-- `plot_psd_heatmap.png` — PSD spectrogram (frequency vs distance)
+**4. report.md**
+- Текстовий звіт: summary, data window, configuration, sampling compliance,
+  PSD scalar diagnostic, top-10 найгірших сегментів, сегменти з низькою
+  швидкістю (< 20 км/год), assumptions & limitations
+
+**5. Plots (PNG 150 DPI + PDF, стиль SciencePlots)**
+- `speed_vs_distance` — Speed vs distance
+- `accel_vs_distance` — вертикальне прискорення (g) vs distance
+- `metrics_vs_distance` — Grms + IRI_multi vs distance
+- `iri_psd_vs_distance` — IRI_psd vs distance
+
+**6. segments_map.html**
+- Folium-карта з color-coded сегментами (за IRI_multi)
 
 ---
 

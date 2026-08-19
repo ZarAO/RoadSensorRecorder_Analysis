@@ -5,21 +5,29 @@
 
 ---
 
-## Швидкий старт (2 команди)
+## Швидкий старт
 
-### 1. Аналіз нових даних
+### Аналіз даних
 ```bash
 python -m road_quality_analyzer analyze \
   --input data/sensor_data_20250729_163334.csv \
   --out out/new_analysis
 ```
 
-### 2. Порівняння legacy vs new (paper-ready)
-```bash
-python tools/compare_runs_v2.py
-```
+CLI має два обов'язкові параметри — `--input` і `--out` — та один
+необов'язковий: `--low-speed-policy {very-poor|poor|invalid|ignore}`
+(за замовчуванням `invalid`), який керує сегментами, пройденими повільніше за
+20 км/год (див. [08](08_user_guide_and_cli_reference.md)).
 
-**Результати:** `out/comparison/analysis/` (таблиці, графіки, GeoJSON)
+**Результати:** `out/new_analysis/` — `road_segments.csv`, `roughness.geojson`,
+`events.geojson`, `segments_map.html`, `report.md`, `plots/`.
+
+> **Порівняння legacy vs new** виконувалось скриптом `tools/compare_runs_v2.py` на
+> етапі STAGE 2. Ні скрипт, ні каталог `out/comparison/` більше не входять до
+> репозиторію (видалені разом із legacy-кодом, див. [09](09_migration_notes.md)),
+> тому числа з розділу [05](05_results_legacy_vs_new.md) з цього дерева не
+> переобчислюються. Стабільні копії тих таблиць і графіків збережені у
+> [docs/paper_assets/](paper_assets/README.md).
 
 ---
 
@@ -37,13 +45,14 @@ python tools/compare_runs_v2.py
 - **[02 — Методи нового пайплайну](02_methods_new_pipeline.md)**
   - Детальний алгоритм: ingestion → uniform grid → GPS → orientation → filters → metrics → segmentation
   - Orientation correction: gravity alignment + GPS heading + a_perp
-  - Формули з `agent_prompt_pack/02_FORMULAS_TEST_MAP_UNIFIED.md`:
+  - Формули із зовнішнього довідника `02_FORMULAS_TEST_MAP_UNIFIED.md`
+    (коефіцієнти в коді — `road_quality_analyzer/metrics/iri.py`):
     - Eq.1: Quarter-car IRI (опціонально)
     - Eq.2-3: IRI з PSD (основний метод)
     - Eq.4-6: Мультиваріантна регресія IRI (vehicle-specific)
   - Sampling compliance: dx ≤ 0.3m, fs 80–120Hz
   - Threshold anomaly: |a_vertical| > 10 m/s²
-  - Детермінізм та тестування (22 unit tests)
+  - Детермінізм та тестування (163 unit tests, 11 файлів)
 
 - **[03 — Методи legacy пайплайну](03_methods_legacy_pipeline.md)**
   - Чесний опис legacy підходу (modules/)
@@ -57,15 +66,16 @@ python tools/compare_runs_v2.py
 
 - **[04 — Експериментальний дизайн та відтворюваність](04_experimental_design_and_reproducibility.md)**
   - Exact reproducibility protocol (input, команди, outputs)
-  - Фіксація версій (commit hash, OS, Python 3.13.5)
+  - Фіксація версій (commit hash, OS, версія Python)
   - Як повторити на іншому CSV
   - Де знайти артефакти STAGE 2
 
 ### 📊 Результати
 
 - **[05 — Результати порівняння legacy vs new](05_results_legacy_vs_new.md)**
-  - **Таблиця 1:** Overall metrics ([table_metrics_overall.csv](../out/comparison/analysis/tables/table_metrics_overall.csv))
-  - **Таблиця 2:** Rank correlations ([table_rank_correlation.csv](../out/comparison/analysis/tables/table_rank_correlation.csv))
+  *(числа з прогону STAGE 2; копії таблиць і графіків — у `docs/paper_assets/`)*
+  - **Таблиця 1:** Overall metrics (`table_metrics_overall.csv`)
+  - **Таблиця 2:** Rank correlations (`table_rank_correlation.csv`)
   - **Рис. 1:** IRI_multi vs Legacy RMSA scatter (ρ = 0.783, p < 0.0001)
   - **Рис. 2:** Grms vs Legacy RMSA scatter (ρ = 0.942)
   - **Рис. 3:** Speed profile (контекст для dx compliance)
@@ -73,7 +83,7 @@ python tools/compare_runs_v2.py
   - 100m-aligned comparison (152 overlap segments)
   - Інтерпретація Spearman correlation
 
-### ⚠️ Обмеження
+### ⚠ Обмеження
 
 - **[06 — Загрози валідності та обмеження](06_threats_to_validity_and_limitations.md)**
   - Phone mount variability (tilt, vibration)
@@ -83,6 +93,8 @@ python tools/compare_runs_v2.py
   - Orientation estimation assumptions (gravity LPF)
   - Eq.3 calibration mismatch (A, B coefficients)
   - Eq.4-6 simulated vehicle limitations
+  - Парадокс низької швидкості: найгірші ділянки дають найменш валідний вимір
+    (`--low-speed-policy`, `needs_class12_survey`, `events_per_km`)
   - Що вже пом'якшено, що залишається
 
 ### 🚀 Майбутнє
@@ -92,7 +104,7 @@ python tools/compare_runs_v2.py
   - **P0:** RF anomaly classifier (a_vertical, a_perp, speed features)
   - **P1:** Sensor fusion з gyro (стабільність у поворотах)
   - **P1:** Multi-device comparison та normalization
-  - **P1:** Automatic quality filters (low valid_ratio, invalid heading)
+  - **P1:** Automatic quality filters (low GPS coverage, invalid heading)
   - **P2:** Quarter-car mode (якщо є road profile)
   - **P2:** External validation campaign (repeat runs, inter-operator)
 
@@ -100,8 +112,8 @@ python tools/compare_runs_v2.py
 
 - **[08 — User guide та CLI reference](08_user_guide_and_cli_reference.md)**
   - Install/venv setup
-  - `analyze` command (всі параметри)
-  - `main.py` wrapper (legacy compatibility)
+  - `analyze` command (`--input`, `--out`, `--low-speed-policy` — інших параметрів немає)
+  - `main.py` wrapper (auto-detect останнього CSV, автогенерація теки)
   - Outputs опис (CSV/GeoJSON/HTML/plots/report)
   - Troubleshooting (типові проблеми)
   - FAQ (IRI_psd=0 why, anomalies=0 why, etc.)
@@ -113,7 +125,8 @@ python tools/compare_runs_v2.py
   - What changed: removed `modules/`, updated `main.py`
   - Before vs After: CLI commands, outputs, metrics mapping
   - How to reproduce STAGE 1–2 without legacy
-  - Legacy access: `archive/legacy_snapshot/`
+  - Legacy access: лише через історію git (каталог `archive/legacy_snapshot/`
+    у робочому дереві відсутній)
 
 ---
 
@@ -129,27 +142,32 @@ python tools/compare_runs_v2.py
 
 ---
 
-## Ключові артефакти STAGE 2 (paper-ready)
+## Ключові артефакти STAGE 2 (історична довідка)
+
+> Каталог `out/comparison/` було видалено разом із legacy-кодом і скриптом
+> `tools/compare_runs_v2.py`. Перелік нижче описує, які файли створював той прогін.
+> Стабільні копії 4 таблиць і 4 графіків збережені у
+> [docs/paper_assets/](paper_assets/README.md); решти файлів у дереві немає.
 
 ### Таблиці
-- [table_metrics_overall.csv](../out/comparison/analysis/tables/table_metrics_overall.csv)
-- [table_metrics_per_100m.csv](../out/comparison/analysis/tables/table_metrics_per_100m.csv) (153 рядки)
-- [table_top10_worst_segments.csv](../out/comparison/analysis/tables/table_top10_worst_segments.csv)
-- [table_rank_correlation.csv](../out/comparison/analysis/tables/table_rank_correlation.csv)
+- `tables/table_metrics_overall.csv`
+- `tables/table_metrics_per_100m.csv` (153 рядки)
+- `tables/table_top10_worst_segments.csv`
+- `tables/table_rank_correlation.csv`
 
 ### Графіки
-- [plot_speed_profile.png](../out/comparison/analysis/plots/plot_speed_profile.png)
-- [plot_grms_vs_rmsa.png](../out/comparison/analysis/plots/plot_grms_vs_rmsa.png) (ρ = 0.942)
-- [plot_iri_multi_vs_legacy_proxy.png](../out/comparison/analysis/plots/plot_iri_multi_vs_legacy_proxy.png) (ρ = 0.783)
-- [plot_top10_segments_bar.png](../out/comparison/analysis/plots/plot_top10_segments_bar.png)
+- `plots/plot_speed_profile.png`
+- `plots/plot_grms_vs_rmsa.png` (ρ = 0.942)
+- `plots/plot_iri_multi_vs_legacy_proxy.png` (ρ = 0.783)
+- `plots/plot_top10_segments_bar.png`
 
 ### GeoJSON
-- [new_roughness_100m.geojson](../out/comparison/analysis/geojson/new_roughness_100m.geojson) (153 LineStrings)
-- [legacy_proxy_roughness_100m.geojson](../out/comparison/analysis/geojson/legacy_proxy_roughness_100m.geojson) (152 Points)
+- `geojson/new_roughness_100m.geojson` (153 LineStrings)
+- `geojson/legacy_proxy_roughness_100m.geojson` (152 Points)
 
 ### Звіти
-- [comparison_summary.md](../out/comparison/analysis/comparison_summary.md) (3100+ слів, 14 розділів)
-- [STAGE2_COMPLETION.md](../out/comparison/STAGE2_COMPLETION.md) (детальний звіт STAGE 2)
+- `comparison_summary.md` (14 розділів)
+- `STAGE2_COMPLETION.md` (детальний звіт STAGE 2)
 
 ---
 
@@ -165,16 +183,16 @@ python tools/compare_runs_v2.py
   version={STAGE 3},
   url={https://github.com/ZarAO/RoadSensorRecorder_Analysis},
   commit={main branch, 2025-01-10},
-  note={Python 3.13.5, 22 unit tests, Spearman ρ=0.783 validation}
+  note={Python 3.11+, 163 unit tests, Spearman ρ=0.783 validation (STAGE 2)}
 }
 ```
 
 **У тексті статті вказати:**
 - Repository: `ZarAO/RoadSensorRecorder_Analysis`
 - Version/commit: main branch, дата 2025-01-10
-- Python: 3.13.5
-- Key libraries: pandas 2.3.2, numpy 2.3.2, scipy 1.16.1, matplotlib 3.10.6
-- Test coverage: 22/22 PASS
+- Python: >= 3.11 (перевірено на 3.14.4)
+- Key libraries: версії з `pip freeze` вашого середовища
+- Test coverage: 163/163 PASS (`pytest tests -q`, 11 файлів)
 - Validation: Spearman ρ = 0.783 (IRI_multi vs legacy RMSA, p < 0.0001)
 
 **Ключові покращення для цитування:**
@@ -192,8 +210,10 @@ python tools/compare_runs_v2.py
 
 **Для питань:**
 - Методологія: див. [02_methods_new_pipeline.md](02_methods_new_pipeline.md)
-- Формули: `agent_prompt_pack/02_FORMULAS_TEST_MAP_UNIFIED.md`
-- Тести: `tests/` (22 unit tests)
+- Формули: посилання `agent_prompt_pack/02_FORMULAS_TEST_MAP_UNIFIED.md` у документації
+  вказує на зовнішній довідник із рівняннями (у репозиторії його немає). Фактичні
+  коефіцієнти, які виконуються, — у `road_quality_analyzer/metrics/iri.py`
+- Тести: `tests/` (163 unit tests у 11 файлах)
 - Результати: [05_results_legacy_vs_new.md](05_results_legacy_vs_new.md)
 
 **Репозиторій:** https://github.com/ZarAO/RoadSensorRecorder_Analysis

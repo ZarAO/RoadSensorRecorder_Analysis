@@ -56,7 +56,7 @@ Book defaults A=0.774, B=0.825 не калібровані для нашого p
    ```
 
 4. **Code changes:**
-   - Update `modules/analysis.py`, line ~200-220 (Eq.3 section)
+   - Update `road_quality_analyzer/metrics/iri.py` (`IRI_PSD_COEFFICIENTS`)
    - Add CLI flags: `--iri_psd_A <float> --iri_psd_B <float>`
    - Update unit test `test_compute_iri_psd()` з новими defaults
 
@@ -97,7 +97,7 @@ Coefficients from simulation (generic vehicle), не калібровані дл
    ```
 
 3. **Code changes:**
-   - `modules/analysis.py`, line ~250-280 (Eq.6 section)
+   - `road_quality_analyzer/metrics/iri.py` (`IRI_MULTI_COEFFICIENTS`)
    - CLI flags: `--iri_multi_coef_grms <float> --iri_multi_coef_speed <float> ...`
    - Unit test `test_compute_iri_multi()` з новими coeffs
 
@@ -143,7 +143,8 @@ Threshold 0.63 arbitrary → може пропускати true anomalies або
    ```
 
 3. **Code changes:**
-   - Update `modules/analysis.py`, line ~350 (RF threshold)
+   - Update `road_quality_analyzer/anomaly/threshold.py` (зараз — абсолютний
+     поріг 10 м/с², ML-класифікатора немає)
    - Add CLI flag: `--rf_threshold <float>`
    - Document threshold choice у `02_FORMULAS`
 
@@ -175,7 +176,7 @@ No gyro → cannot detect rapid phone rotations
    ```
 
 2. **Code changes:**
-   - Add `modules/sensor_fusion.py`:
+   - Add `road_quality_analyzer/orientation/sensor_fusion.py`:
      ```python
      def madgwick_ahrs(accel, gyro, dt, beta=0.1):
          """
@@ -184,8 +185,11 @@ No gyro → cannot detect rapid phone rotations
          """
          # Implementation: https://x-io.co.uk/open-source-imu-and-ahrs-algorithms/
      ```
-   - Modify `modules/preprocessing.py`, replace `estimate_gravity_lowpass()` → `sensor_fusion.madgwick_ahrs()`
-   - Update `data/sensor_data_*.csv` schema: add GYRO_X, GYRO_Y, GYRO_Z columns
+   - Modify `road_quality_analyzer/orientation/gravity_alignment.py`: замінити
+     `estimate_gravity()` (low-pass) на `sensor_fusion.madgwick_ahrs()`
+   - Гіроскоп уже є у CSV (рядки `Type=Gyroscope`, рад/с) і зчитується в
+     `SensorData.gyro_*`, але пайплайном не використовується — змінювати
+     схему не потрібно
 
 3. **Data collection:**
    - RoadSensorRecorder app: enable gyroscope logging (1 line Android code)
@@ -276,9 +280,17 @@ Currently no automated quality flagging
    quality < 0.6 → POOR (exclude from analysis)
    ```
 
-3. **Code changes:**
-   - Add `modules/quality.py`
-   - Integrate у `main.py`: compute quality per segment
+3. **Median speed per segment:**
+   ```
+   Зараз segment_100m.py рахує лише mean_speed_mps / mean_speed_kmh, і саме
+   середня швидкість іде у speed-член Eq.6. Зупинка всередині сегмента зміщує
+   середнє сильніше за медіану → додати speed_median_kmh і порівняти вплив на IRI.
+   ```
+
+4. **Code changes:**
+   - Add `road_quality_analyzer/quality.py`
+   - Integrate у `cli.py::analyze`: compute quality per segment
+   - (частково вже є: `speed_valid`, `dx_le_03_share`, `partial`)
    - Add column `quality_score` до `road_segments.csv`
    - CLI flag: `--min_quality 0.8` (filter POOR segments)
 
@@ -384,7 +396,7 @@ Current pipeline: post-processing (offline)
 1. **Architecture:**
    ```
    Android App (RoadSensorRecorder_v2):
-     → Collect ACCEL + GPS (current)
+     → Collect Accelerometer + Gyroscope + Location (current)
      → Run lightweight IRI estimation (new)
      → Display live IRI на map (new)
    
@@ -399,7 +411,7 @@ Current pipeline: post-processing (offline)
    - Compute rolling IRI (last 100m window)
 
 3. **Code changes:**
-   - Port `modules/preprocessing.py`, `modules/analysis.py` → Java/Kotlin
+   - Port `road_quality_analyzer/preprocessing/`, `metrics/` → Java/Kotlin
    - Or: use Python-for-Android (Kivy) → embed full pipeline
 
 **Success Metrics:**

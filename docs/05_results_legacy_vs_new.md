@@ -1,5 +1,16 @@
 # 05 — Результати порівняння legacy vs new
 
+> **Статус даних цього розділу.** Усі числа отримані прогоном STAGE 2
+> (скрипт `tools/compare_runs_v2.py`, каталог `out/comparison/`). Ні скрипт, ні
+> каталог більше не входять до репозиторію, а сам новий пайплайн відтоді
+> виправлено (обрізання країв ±3 с ПІСЛЯ фільтрів, відкидання семплів поза
+> покриттям GPS, прапорці `partial` / `speed_valid`, NaN замість вигаданих
+> значень). Тому цифри нижче — **історичний зріз**, а не результат поточного
+> коду: сьогодні той самий CSV дає 152 сегменти, 15092.4 м, mean Grms 0.0467 g і mean IRI_multi
+> 2.99 m/km (перевірено прогоном). Legacy-числа (RMSA, peaks) відтворити
+> неможливо взагалі — legacy-код видалено. Первинні таблиці та графіки того
+> прогону збережені у [docs/paper_assets/](paper_assets/README.md).
+
 ## Зміст
 1. [Overall Metrics](#overall-metrics-таблиця-1)
 2. [Rank Correlations](#rank-correlations-таблиця-2)
@@ -12,6 +23,7 @@
 ## Overall Metrics (Таблиця 1)
 
 **Джерело:** `out/comparison/analysis/tables/table_metrics_overall.csv`
+(копія збережена: `docs/paper_assets/tables/table_metrics_overall.csv`)
 
 | Метрика | Значення | Опис |
 |---------|----------|------|

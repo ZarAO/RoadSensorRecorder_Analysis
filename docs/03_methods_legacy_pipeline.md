@@ -73,7 +73,7 @@ def preprocess_data(df):
     if pd.api.types.is_numeric_dtype(df['Time']):
         df['Time'] = pd.to_datetime(df['Time'], unit='ms', utc=True)
     
-    # 2. Створення окремих колонок для ACCEL і GPS
+    # 2. Створення окремих колонок для потоків акселерометра і локації
     df_filtered = df.copy()
     df_filtered['accel_x'] = np.where(df_filtered['Type'] == 'Accelerometer', 
                                        df_filtered['X'], np.nan)
@@ -89,6 +89,10 @@ def preprocess_data(df):
 ```
 
 ### Проблема: ffill/bfill
+
+> У схемах нижче `ACCEL` / `GPS` — скорочення для читабельності. У самому CSV
+> значення `Type` завжди були `Accelerometer` / `Gyroscope` / `Location`
+> (див. [08](08_user_guide_and_cli_reference.md)).
 
 **Forward fill (ffill):**
 ```
@@ -403,7 +407,7 @@ def analyze_route_segments(df, rmsa, segment_duration_sec=10):
 
 **Порівняння з новим пайплайном:**
 - **Legacy:** 1799 segments (time-based, variable length)
-- **New:** 153 segments (distance-based, exactly 100 м)
+- **New:** 152 segments (distance-based, 100 м; 2 позначені `partial`)
 - **100m-aligned:** 152 overlap segments для validation
 
 ---
@@ -587,7 +591,7 @@ New:
 | Metrics | RMSA (м/с², змішаний) | Grms (g), IRI (m/km) | ✅ ISO compliance |
 | GPS | ffill/bfill | Linear interpolation | ✅ Causal, фізично коректно |
 | Anomalies | Statistical (mean+2σ) | Absolute (10 m/s²) | ✅ Fewer false positives |
-| Testing | 0 tests | 22 unit tests | ✅ Deterministic, reproducible |
+| Testing | 0 tests | 163 unit tests | ✅ Deterministic, reproducible |
 | Validation | None | Spearman ρ = 0.783 | ✅ Quantitative evidence |
 
 ### Чому legacy залишається цінним

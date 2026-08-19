@@ -70,13 +70,14 @@ dx_max = 18.6 / 52.6 = 0.35 m > 0.3 m  ✗ (non-compliant)
 - **Potholes underdetection:** typical pothole width 0.3-0.5 м → marginal
 - **PSD bias:** high-frequency content underestimated
 
-**Quantification:**
+**Quantification** (поточний прогін: середня `dx_le_03_share` по повних сегментах
+= 0.795; у 41 зі 150 сегментів частка < 1):
 ```
-Share of distance with dx ≤ 0.3 m:
-(Currently not computed in table_metrics_overall.csv — TODO)
-
-Estimated: ~70-80% (based on speed profile)
-→ 20-30% non-compliant
+Частка dx ≤ 0.3 m рахується пайплайном:
+- по сегментах — колонка dx_le_03_share у road_segments.csv
+  (експортується і в properties roughness.geojson)
+- по всьому запису — секція "Sampling Compliance" у report.md
+  (median dt, mean dx, P95 dx, share dx≤0.3m, прапорець fs у смузі 80-120 Hz)
 ```
 
 ### Threat Level: **MODERATE**
@@ -96,10 +97,10 @@ Estimated: ~70-80% (based on speed profile)
 - Quarter-car model (Eq.1) розрахований для V = const (зазвичай 80 km/h)
 - Vehicle regression (Eq.6) має speed term, але assumes smooth speed
 
-**Our dataset:**
-- Mean speed: 41.7 km/h
-- Range: 15-67 km/h
-- **Stop-and-go segments:** v < 5 m/s → GPS heading undefined
+**Our dataset** (поточний прогін, 150 повних сегментів):
+- Середня з посегментних `mean_speed_kmh`: 41.9 km/h
+- Range: 4.4–74.7 km/h
+- **Stop-and-go segments:** v < 1 m/s → GPS heading undefined (маскується)
 
 **Impact:**
 - **IRI_multi underestimation** на високих швидкостях (Eq.6 має `-0.06*Speed` term)
@@ -108,16 +109,62 @@ Estimated: ~70-80% (based on speed profile)
 
 **Quantification:**
 ```
-Speed variance: σ_v = 12.3 km/h (high variability)
-→ IRI_multi range: 3.78 ± 0.5 m/km (estimated error)
+Speed variability: σ = 16.7 km/h між сегментами
+IRI_multi (повні сегменти): mean 2.99, σ 1.45, max 6.72 m/km
+Поза діапазоном зйомки 20-100 km/h: 19 зі 150 сегментів → IRI = NaN
 ```
 
 ### Threat Level: **MODERATE**
 
 **Best practices:**
-- Filter segments with valid_ratio < 0.8 (low GPS quality)
-- Use median speed per segment (already implemented)
+- Filter segments with `dx_le_03_share < 0.8` (просторова дискретизація не відповідає вимозі)
+- Сегменти поза діапазоном швидкості зйомки вже позначені `speed_valid = False`,
+  і для них `iri_multi` = NaN (Eq.3 speed-члена не має, тому `iri_psd` зберігається)
+- **Median speed per segment — НЕ реалізовано:** `segment_100m.py` рахує лише
+  `mean_speed_mps` / `mean_speed_kmh`, і саме середня швидкість іде у speed-член
+  Eq.6. Зупинка всередині сегмента зміщує середнє сильніше за медіану — це
+  відкритий пункт (див. [07](07_future_work_roadmap.md))
 - Acknowledge in paper: "urban mixed-traffic conditions"
+
+### Парадокс низької швидкості (low-speed paradox)
+
+**Найгірші ділянки дають найменш валідний вимір.** Дорога, розбита настільки, що
+швидше за ~5–20 км/год нею фізично не проїхати, — це саме та ділянка, заради якої
+робиться зйомка. І саме там акселерометричний IRI не працює:
+
+- частота збудження підвіски `f = v / λ` (λ — довжина хвилі нерівності), тому
+  фіксована смуга 0.5–6 Hz, у якій визначені Eq.3 і Grms, «бачить» різні
+  довжини хвиль залежно від швидкості:
+
+  | Швидкість | Смуга 0.5–6 Hz відповідає λ |
+  |-----------|------------------------------|
+  | 80 км/год (22.2 м/с) | 3.7–44 м — саме діапазон, у якому визначений IRI |
+  | 20 км/год (5.6 м/с) | 0.9–11 м — нижня межа зйомки |
+  | 6.3 км/год (1.7 м/с) | 0.3–3.5 м — це вже текстура, а не рівність |
+
+  На 6 км/год довгохвильова складова, яка й формує IRI, зміщується **під**
+  смугу вимірювання, а в самій смузі лишається короткохвильовий вміст;
+- Eq.4/5/6 містять speed-член і калібровані на 30/50/80 км/год, робочий діапазон —
+  20–100 км/год. Нижче нього формула просто не визначена;
+- guidebook класифікує запис зі швидкістю < 20 км/год як **incomplete dataset**.
+
+Тобто чим гірша дорога, тим менше в неї шансів отримати число — це не помилка
+реалізації, а межа методу. У записі 2025-07-29 це 19 зі 152 сегментів.
+
+**Що зроблено (не приховано, а марковано):**
+- `needs_class12_survey = True` для кожного такого сегмента: потрібен прилад
+  **класу 1/2** (лазерний профілометр), а не смартфон;
+- `low_speed_class` — мітка за політикою `--low-speed-policy`
+  (`very-poor` / `poor` / `invalid` / `ignore`), причому **числовий `iri_multi`
+  лишається `NaN` за будь-якої політики**: мітка ніколи не підміняє вимір;
+- `events_per_km` — пороговий детектор подій працює й на низькій швидкості, тому
+  для цих ділянок саме він служить індикатором стану;
+- на карті такі сегменти пурпурові (`#FF00FF`, товща лінія) з окремою легендою;
+- сама стійко низька швидкість — теж індикатор стану (guidebook Eq.10/11:
+  FFS/V50 vs IRI, значущо для IRI > 7 м/км), але як **окреме** свідчення, а не
+  як підставлене замість IRI число.
+
+### Threat Level: **HIGH** (для найгірших ділянок — метод там не вимірює)
 
 ---
 
@@ -160,7 +207,8 @@ Accel samples every 0.26 m
 ### Threat Level: **MODERATE**
 
 **Mitigations:**
-- Savitzky-Golay smoothing для speed (already implemented, 2-sec window)
+- Згладжування cumulative distance ковзним середнім ~1 с (`uniform_filter1d`)
+  ДО чисельного диференціювання швидкості (already implemented)
 - Report distance uncertainty в metadata
 - Use heading only when v > 1 m/s (already masked)
 
@@ -170,9 +218,9 @@ Accel samples every 0.26 m
 
 ### Проблема (Gravity Alignment Assumptions)
 
-**Assumption 1: Low-pass cutoff = 0.25 Hz sufficient**
+**Assumption 1: Low-pass cutoff = 0.3 Hz sufficient**
 ```
-Gravity LPF at 0.25 Hz → assumes phone rotates slower than 0.25 Hz
+Gravity LPF at 0.3 Hz → assumes phone rotates slower than 0.3 Hz
 
 But:
 - Sharp turn: phone може tilted > 15° за 0.5 sec → 2 Hz rotation
@@ -216,7 +264,7 @@ Possible causes:
 - **IRI bias** (Eq.6 uses Grms → propagated error)
 
 **Mitigations implemented:**
-- Low-pass at 0.25 Hz (steep Butterworth 4th order)
+- Low-pass at 0.3 Hz (steep Butterworth 4th order, zero-phase filtfilt)
 - Quaternion rotation (numerically stable)
 - Heading masking at low speed (v < 1 m/s)
 
@@ -242,7 +290,7 @@ IRI = 0.774 * sqrt(PSD) - 0.825  (m/km)
 
 **Our implementation:**
 - Uses book defaults (A, B not recalibrated)
-- Applies distress removal (±1 sec window around anomalies)
+- Applies distress removal (±0.5 s вікно навколо кожної аномалії)
 - But: phone/vehicle різні → mismatch
 
 **Impact:**
@@ -257,9 +305,12 @@ IRI_psd = 0.774 * 0.5 - 0.825 = -0.438 m/km  (invalid)
 → Negative IRI physically meaningless
 ```
 
-**Quantification:**
-- **% segments with IRI_psd < 0:** [TODO: compute from table_metrics_per_100m.csv]
-- **Estimated:** ~10-20% segments
+**Quantification** (поточний прогін на `data/sensor_data_20250729_163334.csv`):
+- **% повних сегментів з `iri_psd_raw` < 0:** 100% (mean `iri_psd_raw` = -0.81 m/km)
+- `iri_psd` кліпається до 0, сире значення зберігається окремою колонкою;
+  частка негативних також друкується у `report.md`
+- Тобто на цих даних Eq.3 з книжковими коефіцієнтами непридатна як абсолютна
+  метрика — це сигнал про калібрування, а не про ідеальну дорогу
 
 ### Threat Level: **HIGH** (for IRI_psd absolute values)
 
@@ -338,7 +389,7 @@ Total uncertainty: ±0.5 m/km (for mean IRI = 3.78 → ±13% error)
 ### ✅ What We Already Did
 
 1. **Orientation correction:**
-   - Low-pass 0.25 Hz (gravity estimation)
+   - Low-pass 0.3 Hz (gravity estimation)
    - Quaternion rotation (world-frame alignment)
    - **Impact:** Grms 5.6x lower than legacy RMSA → reduced gravity contamination
 
@@ -352,10 +403,14 @@ Total uncertainty: ±0.5 m/km (for mean IRI = 3.78 → ±13% error)
 
 4. **Anomaly threshold:**
    - Absolute 10 m/s² (not statistical)
-   - **Impact:** 0 false positives (vs 1799 legacy peaks)
+   - **Impact:** на датасеті 2025-07-29 — 0 подій (поріг застосовано до
+     gravity-removed вертикалі й не калібрований під цей пристрій, тому
+     кількість подій може бути заниженою)
 
 5. **Deterministic pipeline:**
-   - Fixed parameters, unit tests (22/22 PASS)
+   - Fixed parameters, unit tests (163/163 PASS, 11 файлів)
+   - Seed зафіксовано в `tests/conftest.py` (фікстура `rng`); наскрізний тест порівнює
+     `road_segments.csv` двох прогонів побайтово
    - **Impact:** Reproducible results
 
 6. **Validation against legacy:**
@@ -380,7 +435,7 @@ Total uncertainty: ±0.5 m/km (for mean IRI = 3.78 → ±13% error)
 
 3. **Calibration (Eq.3):**
    - Book defaults A, B may not fit our phone/vehicle
-   - **Risk:** IRI_psd < 0 у 10-20% segments
+   - **Risk:** на цьому датасеті `iri_psd_raw` < 0 у 100% повних сегментів
    - **Mitigation:** Use IRI_multi as primary (P0: recalibrate A, B)
 
 ### 🟡 Moderate Priority (can partially mitigate)
@@ -398,7 +453,7 @@ Total uncertainty: ±0.5 m/km (for mean IRI = 3.78 → ±13% error)
 6. **Speed variability:**
    - Stop-and-go → IRI assumptions violated
    - **Risk:** IRI underestimation ±0.5 m/km
-   - **Mitigation:** Filter low valid_ratio segments
+   - **Mitigation:** Filter segments with `speed_valid = False`
 
 ### 🟢 Low Priority (acceptable for current scope)
 
@@ -419,13 +474,13 @@ Total uncertainty: ±0.5 m/km (for mean IRI = 3.78 → ±13% error)
 ### Validity Statement
 
 **Internal validity (reproducibility):** ✅ HIGH
-- Deterministic pipeline, fixed params, 22 tests
+- Deterministic pipeline, fixed params, 163 tests
 
-**External validity (generalizability):** ⚠️ MODERATE
+**External validity (generalizability):** ⚠ MODERATE
 - Single phone model, single vehicle, single route
 - Cannot generalize to all smartphones/vehicles without multi-device validation
 
-**Construct validity (do we measure what we claim):** ⚠️ MODERATE-HIGH
+**Construct validity (do we measure what we claim):** ⚠ MODERATE-HIGH
 - Grms measures vibrations ✅ (ρ = 0.942 vs legacy)
 - IRI_multi correlates with roughness ✅ (ρ = 0.783)
 - Absolute IRI accuracy unknown ❌ (no ground truth)
