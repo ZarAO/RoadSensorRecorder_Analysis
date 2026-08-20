@@ -84,73 +84,76 @@ def parse_form_xlsx(path: str) -> ParsedForm:
     """Parse a profilometer xlsx form into a ParsedForm reference table."""
     try:
         wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
-        ws = wb.active
     except Exception as exc:
         raise ValueError(f"не вдалося прочитати xlsx: {exc}") from exc
 
-    header_row = _find_header_row(ws)
+    try:
+        ws = wb.active
+        header_row = _find_header_row(ws)
 
-    warnings: list = []
-    road_name = _find_label_value(ws, header_row, _METADATA_LABELS['road_name'])
-    if not road_name:
-        road_name = os.path.splitext(os.path.basename(path))[0]
-    direction = _find_label_value(ws, header_row, _METADATA_LABELS['direction'])
-    lane = _coerce_int(
-        _find_label_value(ws, header_row, _METADATA_LABELS['lane']), 'номер смуги руху', warnings
-    )
-    category = _coerce_int(
-        _find_label_value(ws, header_row, _METADATA_LABELS['category']), 'технічну категорію', warnings
-    )
+        warnings: list = []
+        road_name = _find_label_value(ws, header_row, _METADATA_LABELS['road_name'])
+        if not road_name:
+            road_name = os.path.splitext(os.path.basename(path))[0]
+        direction = _find_label_value(ws, header_row, _METADATA_LABELS['direction'])
+        lane = _coerce_int(
+            _find_label_value(ws, header_row, _METADATA_LABELS['lane']), 'номер смуги руху', warnings
+        )
+        category = _coerce_int(
+            _find_label_value(ws, header_row, _METADATA_LABELS['category']), 'технічну категорію', warnings
+        )
 
-    n_cols = len(DATA_COLUMNS)
-    rows = []
-    for row in ws.iter_rows(min_row=header_row + 1):
-        row_idx = row[0].row
-        if row[0].value is None:
-            break
-        raw = [cell.value for cell in row[:n_cols]]
-        try:
-            rows.append([float(v) for v in raw])
-        except (TypeError, ValueError):
-            warnings.append(f"рядок {row_idx}: нечислові дані, пропущено")
+        n_cols = len(DATA_COLUMNS)
+        rows = []
+        for row in ws.iter_rows(min_row=header_row + 1, max_col=n_cols):
+            if not row or row[0].value is None:
+                break
+            row_idx = row[0].row
+            raw = [cell.value for cell in row]
+            try:
+                rows.append([float(v) for v in raw])
+            except (TypeError, ValueError):
+                warnings.append(f"рядок {row_idx}: нечислові дані, пропущено")
 
-    if len(rows) < 5:
-        raise ValueError(f"too few data rows: found {len(rows)}, need at least 5")
+        if len(rows) < 5:
+            raise ValueError(f"too few data rows: found {len(rows)}, need at least 5")
 
-    intervals = pd.DataFrame(rows, columns=DATA_COLUMNS)
+        intervals = pd.DataFrame(rows, columns=DATA_COLUMNS)
 
-    chain_start = intervals['km_start'] * 1000.0 + intervals['m_start']
-    chain_end = intervals['km_end'] * 1000.0 + intervals['m_end']
+        chain_start = intervals['km_start'] * 1000.0 + intervals['m_start']
+        chain_end = intervals['km_end'] * 1000.0 + intervals['m_end']
 
-    step_diffs = (chain_end - chain_start).abs()
-    step_m = float(np.median(step_diffs))
-    off_step = step_diffs[~np.isclose(step_diffs, step_m)]
-    if len(off_step) > 0:
-        warnings.append(f"{len(off_step)} рядків з кроком, відмінним від медіанного {step_m} м")
+        step_diffs = (chain_end - chain_start).abs()
+        step_m = float(np.median(step_diffs))
+        off_step = step_diffs[~np.isclose(step_diffs, step_m)]
+        if len(off_step) > 0:
+            warnings.append(f"{len(off_step)} рядків з кроком, відмінним від медіанного {step_m} м")
 
-    gap_mask = chain_start.iloc[1:].to_numpy() != chain_end.iloc[:-1].to_numpy()
-    n_gaps = int(np.sum(gap_mask))
-    if n_gaps > 0:
-        warnings.append(f'{n_gaps} chainage gap/overlap rows')
+        gap_mask = chain_start.iloc[1:].to_numpy() != chain_end.iloc[:-1].to_numpy()
+        n_gaps = int(np.sum(gap_mask))
+        if n_gaps > 0:
+            warnings.append(f'розривів/перекриттів пікетажу: {n_gaps}')
 
-    ch8 = intervals['iri_ch8']
-    if (intervals['iri_ch9'] == ch8).all() and (intervals['iri_ch10'] == ch8).all():
-        warnings.append('канали 9–10 дублюють канал 8; еталон рахується з каналів 1–8')
+        ch8 = intervals['iri_ch8']
+        if (intervals['iri_ch9'] == ch8).all() and (intervals['iri_ch10'] == ch8).all():
+            warnings.append('канали 9–10 дублюють канал 8; еталон рахується з каналів 1–8')
 
-    chainage_span_m = float(abs(chain_end.iloc[-1] - chain_start.iloc[0]))
+        chainage_span_m = float(abs(chain_end.iloc[-1] - chain_start.iloc[0]))
 
-    lats = pd.concat([intervals['lat_start'], intervals['lat_end']])
-    lons = pd.concat([intervals['lon_start'], intervals['lon_end']])
-    bbox = [float(lats.min()), float(lons.min()), float(lats.max()), float(lons.max())]
+        lats = pd.concat([intervals['lat_start'], intervals['lat_end']])
+        lons = pd.concat([intervals['lon_start'], intervals['lon_end']])
+        bbox = [float(lats.min()), float(lons.min()), float(lats.max()), float(lons.max())]
 
-    return ParsedForm(
-        road_name=str(road_name),
-        direction=str(direction) if direction is not None else None,
-        lane=lane,
-        category=category,
-        step_m=step_m,
-        intervals=intervals,
-        chainage_span_m=chainage_span_m,
-        bbox=bbox,
-        warnings=warnings,
-    )
+        return ParsedForm(
+            road_name=str(road_name),
+            direction=str(direction) if direction is not None else None,
+            lane=lane,
+            category=category,
+            step_m=step_m,
+            intervals=intervals,
+            chainage_span_m=chainage_span_m,
+            bbox=bbox,
+            warnings=warnings,
+        )
+    finally:
+        wb.close()
