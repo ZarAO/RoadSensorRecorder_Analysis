@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv('RQA_DATA_DIR', str(tmp_path / 'data'))
     monkeypatch.setenv('RQA_RESULTS_DIR', str(tmp_path / 'results'))
+    monkeypatch.setenv('RQA_REFERENCE_DIR', str(tmp_path / 'reference'))
     monkeypatch.setenv('RQA_DB_URL', f"sqlite:///{tmp_path / 'admin.db'}")
     # Jobs run synchronously inside the request: assertions see final state
     monkeypatch.setenv('RQA_QUEUE_INLINE', '1')
