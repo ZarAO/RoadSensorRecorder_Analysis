@@ -1,0 +1,90 @@
+:host { display: block; }
+
+section.card { margin-bottom: var(--space-4); }
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+.section-head h3 { margin: 0; }
+
+.upload-row {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.field {
+  display: grid;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-muted-fg);
+}
+
+input[type='date'],
+input[type='file'],
+textarea {
+  font-family: inherit;
+  font-size: var(--text-sm);
+  color: var(--color-fg);
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-md);
+  min-height: var(--btn-height);
+  padding: var(--space-2) var(--space-3);
+}
+textarea { resize: vertical; line-height: var(--leading-normal); }
+
+.table-wrap { overflow-x: auto; }
+
+td small { display: block; color: var(--color-faint-fg); font-size: var(--text-xs); }
+tr.deleted { opacity: 0.55; }
+.actions { white-space: nowrap; text-align: right; }
+.actions button { margin-left: var(--space-2); }
+
+.chip.status-running { animation: status-pulse 1.6s var(--ease-standard) infinite; }
+
+.success-note {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+  border: 1px solid var(--color-success);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-sm);
+}
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: oklch(10% 0.02 250 / 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fade-in var(--duration-fast) var(--ease-standard) both;
+}
+@keyframes fade-in { from { opacity: 0; } }
+
+.dialog {
+  min-width: 24rem;
+  max-width: 90vw;
+  animation: dialog-in var(--duration-normal) var(--ease-standard) both;
+}
+@keyframes dialog-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+.dialog .field { margin-bottom: var(--space-4); }
+.dialog .hint { color: var(--color-muted-fg); font-size: var(--text-sm); }
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}

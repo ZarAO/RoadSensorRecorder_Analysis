@@ -19,6 +19,10 @@ export const routes: Routes = [
     loadComponent: () => import('./map/global-map-page').then(m => m.GlobalMapPage),
   },
   {
+    path: 'calibration',
+    loadComponent: () => import('./calibration/calibration-page').then(m => m.CalibrationPage),
+  },
+  {
     path: 'dashboard',
     loadComponent: () => import('./dashboard/dashboard-page').then(m => m.DashboardPage),
   },

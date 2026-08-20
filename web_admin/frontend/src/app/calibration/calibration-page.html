@@ -1,0 +1,290 @@
+<h2>Калібрування</h2>
+
+@if (error(); as message) {
+  <p class="error-banner" role="alert">{{ message }}</p>
+}
+
+<section class="card rise-in">
+  <h3>Еталони профілометра</h3>
+
+  <div class="upload-row">
+    <input type="file" accept=".xlsx" #refInput (change)="onFileInput($event)"
+           aria-label="Файл еталона профілометра (.xlsx)" />
+    <label class="field">
+      Дата вимірювання (ручне поле)
+      <input type="date" [value]="measuredAt()" (input)="onMeasuredAtInput($event)" />
+    </label>
+    <button class="primary" (click)="upload(refInput)"
+            [disabled]="!pendingFile() || busy()">Завантажити</button>
+  </div>
+
+  <div class="table-wrap">
+    <table class="data" id="references-table">
+      <thead>
+        <tr>
+          <th>Дорога</th>
+          <th>Крок, м</th>
+          <th>Інтервалів</th>
+          <th>Пікетаж</th>
+          <th>Дата вимірювання</th>
+          <th>Попередження</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (reference of references(); track reference.id) {
+          <tr [class.deleted]="reference.source_deleted">
+            <td>
+              {{ reference.road_name }}
+              <small>{{ reference.filename }}</small>
+            </td>
+            <td>{{ fmt(reference.step_m, 0) }}</td>
+            <td>{{ reference.intervals_count }}</td>
+            <td>{{ fmt(reference.chainage_span_m / 1000) }} км</td>
+            <td>{{ reference.measured_at ? (reference.measured_at | date:'yyyy-MM-dd') : '—' }}</td>
+            <td>
+              @if (reference.parse_warnings.length) {
+                <span class="chip warn" [title]="warningsTitle(reference)">{{ reference.parse_warnings.length }} попередж.</span>
+              } @else { — }
+            </td>
+            <td class="actions">
+              @if (reference.source_deleted) {
+                <span class="chip">видалено</span>
+              } @else {
+                <button class="danger" (click)="askDeleteReference(reference)">Видалити</button>
+              }
+            </td>
+          </tr>
+        } @empty {
+          <tr>
+            <td colspan="7">
+              <div class="empty-state">
+                <p>Еталонів ще немає — завантажте форму 25 (.xlsx) із кроком 10 м.</p>
+              </div>
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card rise-in">
+  <div class="section-head">
+    <h3>Порівняння</h3>
+    <button class="primary" (click)="openComparison()"
+            [disabled]="!doneRuns().length || !comparableReferences().length"
+            title="Потрібні щонайменше один завершений ран і один еталон із кроком 10 м">
+      Нове порівняння
+    </button>
+  </div>
+
+  <div class="table-wrap">
+    <table class="data" id="comparisons-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Ран</th>
+          <th>Еталон</th>
+          <th>Статус</th>
+          <th>ρ</th>
+          <th>MAE</th>
+          <th>bias</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (comparison of comparisons(); track comparison.id) {
+          <tr>
+            <td>{{ comparison.id }}</td>
+            <td>
+              <a [routerLink]="['/runs', comparison.run_id]">#{{ comparison.run_id }}</a>
+              <small>{{ comparison.run_filename ?? '—' }}</small>
+            </td>
+            <td>{{ comparison.reference_road ?? '—' }}</td>
+            <td>
+              <span class="chip status-{{ comparison.status }}"
+                    [class.ok]="comparison.status === 'done'"
+                    [class.bad]="comparison.status === 'failed'"
+                    [class.warn]="comparison.status === 'running'"
+                    [attr.title]="comparison.error">{{ comparison.status }}</span>
+            </td>
+            <td>{{ fmt(comparison.summary?.spearman_rho) }}</td>
+            <td>{{ fmt(comparison.summary?.mae) }}</td>
+            <td>{{ fmt(comparison.summary?.bias) }}</td>
+            <td class="actions">
+              <a routerLink="/calibration/comparisons/{{ comparison.id }}">Відкрити</a>
+              <button class="danger" (click)="askDeleteComparison(comparison)">Видалити</button>
+            </td>
+          </tr>
+        } @empty {
+          <tr>
+            <td colspan="8">
+              <div class="empty-state">
+                <p>Порівнянь ще немає — оберіть завершений ран і еталон.</p>
+              </div>
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card rise-in">
+  <h3>Набори коефіцієнтів</h3>
+
+  @if (createdRuns(); as created) {
+    <p class="success-note" role="status">
+      Створено {{ created }} нових ранів —
+      <a routerLink="/runs">до результатів</a>;
+      після завершення перебудуйте глобальну мапу.
+    </p>
+  }
+
+  <div class="table-wrap">
+    <table class="data" id="sets-table">
+      <thead>
+        <tr>
+          <th>Назва</th>
+          <th>Модель</th>
+          <th>Тип авто</th>
+          <th>Телефон</th>
+          <th>Статус</th>
+          <th>Параметри</th>
+          <th>ρ</th>
+          <th>MAE</th>
+          <th>Походження</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (set of sets(); track set.id) {
+          <tr>
+            <td>{{ set.name }}</td>
+            <td>{{ set.model }}</td>
+            <td>{{ set.vehicle_type ?? '—' }}</td>
+            <td>{{ set.phone_model ?? '—' }}</td>
+            <td>
+              <span class="chip"
+                    [class.ok]="set.status === 'confirmed'"
+                    [class.accent]="set.status === 'draft'">{{ set.status }}</span>
+            </td>
+            <td>{{ paramsText(set) }}</td>
+            <td>{{ statText(set, 'spearman_rho') }}</td>
+            <td>{{ statText(set, 'mae') }}</td>
+            <td>
+              @if (set.comparison_id != null) {
+                <a routerLink="/calibration/comparisons/{{ set.comparison_id }}">порівняння #{{ set.comparison_id }}</a>
+              } @else { — }
+            </td>
+            <td class="actions">
+              @if (set.status === 'draft') {
+                <button class="primary" (click)="openConfirm(set)">Підтвердити</button>
+              } @else if (set.status === 'confirmed') {
+                <button (click)="archive(set)">Архівувати</button>
+              }
+            </td>
+          </tr>
+        } @empty {
+          <tr>
+            <td colspan="10">
+              <div class="empty-state">
+                <p>Наборів ще немає — створіть чернетку зі сторінки порівняння.</p>
+              </div>
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+</section>
+
+@if (comparisonOpen()) {
+  <div class="dialog-backdrop" (click)="comparisonOpen.set(false)">
+    <div class="dialog card" id="comparison-dialog" role="dialog" aria-modal="true"
+         aria-labelledby="comparison-title" (click)="$event.stopPropagation()">
+      <h3 id="comparison-title">Нове порівняння</h3>
+      <label class="field">
+        Ран
+        <select [value]="selectedRunId()" (change)="onRunSelect($event)">
+          @for (run of doneRuns(); track run.id) {
+            <option [value]="run.id">#{{ run.id }} — {{ run.filename }}</option>
+          }
+        </select>
+      </label>
+      <label class="field">
+        Еталон
+        <select [value]="selectedReferenceId()" (change)="onReferenceSelect($event)">
+          @for (reference of comparableReferences(); track reference.id) {
+            <option [value]="reference.id">{{ reference.road_name }} ({{ reference.filename }})</option>
+          }
+        </select>
+      </label>
+      <p class="hint">Порівнюються лише еталони з кроком 10 м.</p>
+      <div class="dialog-actions">
+        <button (click)="comparisonOpen.set(false)">Скасувати</button>
+        <button class="primary" (click)="submitComparison()">Порівняти</button>
+      </div>
+    </div>
+  </div>
+}
+
+@if (deleteTarget(); as target) {
+  <div class="dialog-backdrop" (click)="deleteTarget.set(null)">
+    <div class="dialog card" id="delete-dialog" role="dialog" aria-modal="true"
+         aria-labelledby="delete-title" (click)="$event.stopPropagation()">
+      <h3 id="delete-title">Видалити {{ target.label }}?</h3>
+      <p class="hint">
+        @if (target.kind === 'reference') {
+          Порівняння на цьому еталоні залишаться, але позначаться як видалене джерело.
+        } @else {
+          Артефакти порівняння буде видалено безповоротно.
+        }
+      </p>
+      <div class="dialog-actions">
+        <button (click)="deleteTarget.set(null)">Скасувати</button>
+        <button class="danger" (click)="submitDelete()">Видалити</button>
+      </div>
+    </div>
+  </div>
+}
+
+@if (confirmTarget(); as target) {
+  <div class="dialog-backdrop" (click)="confirmTarget.set(null)">
+    <div class="dialog card" id="confirm-dialog" role="dialog" aria-modal="true"
+         aria-labelledby="confirm-title" (click)="$event.stopPropagation()">
+      <h3 id="confirm-title">Підтвердити набір «{{ target.name }}»</h3>
+      <label class="field">
+        Нотатка підтвердження
+        <textarea rows="3" [value]="confirmNote()" (input)="onNoteInput($event)"></textarea>
+      </label>
+      <p class="hint">
+        Підтвердження активує набір лише для майбутніх ранів;
+        попередній confirmed того ж ключа буде архівовано.
+      </p>
+      <div class="dialog-actions">
+        <button (click)="confirmTarget.set(null)">Скасувати</button>
+        <button class="primary" (click)="submitConfirm()">Підтвердити</button>
+      </div>
+    </div>
+  </div>
+}
+
+@if (reanalyzeTarget(); as target) {
+  <div class="dialog-backdrop" (click)="reanalyzeTarget.set(null)">
+    <div class="dialog card" id="reanalyze-dialog" role="dialog" aria-modal="true"
+         aria-labelledby="reanalyze-title" (click)="$event.stopPropagation()">
+      <h3 id="reanalyze-title">Переаналіз наявних ранів</h3>
+      <p>
+        Перерахувати {{ target.candidates }} наявних ранів
+        (vehicle_type={{ target.set.vehicle_type ?? '—' }})?
+        Старі рани лишаться недоторканими.
+      </p>
+      <div class="dialog-actions">
+        <button (click)="reanalyzeTarget.set(null)">Скасувати</button>
+        <button class="primary" (click)="submitReanalyze()">Перерахувати</button>
+      </div>
+    </div>
+  </div>
+}
