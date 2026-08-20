@@ -44,11 +44,13 @@ def create_app() -> FastAPI:
     from src.api.dashboard import router as dashboard_router
     from src.api.files import router as files_router
     from src.api.global_map import router as global_map_router
+    from src.api.references import router as references_router
     from src.api.runs import router as runs_router
     app.include_router(files_router, prefix='/api')
     app.include_router(runs_router, prefix='/api')
     app.include_router(global_map_router, prefix='/api')
     app.include_router(dashboard_router, prefix='/api')
+    app.include_router(references_router, prefix='/api')
     return app
 
 

@@ -23,6 +23,26 @@ class FileOut(BaseModel):
     runs_count: int = 0
 
 
+class ReferenceOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    filename: str
+    uploaded_at: datetime
+    road_name: str
+    direction: Optional[str] = None
+    lane: Optional[int] = None
+    category: Optional[int] = None
+    step_m: float
+    measured_at: Optional[str] = None
+    intervals_count: int
+    chainage_span_m: float
+    bbox: Optional[list] = None
+    parse_warnings: list = []
+    source_deleted: bool
+    comparisons_count: int = 0
+
+
 class RunCreate(BaseModel):
     file_id: int
     params: dict = {}
