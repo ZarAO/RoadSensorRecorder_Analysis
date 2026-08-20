@@ -178,7 +178,7 @@ describe('AggregateDetail', () => {
     await fixture.whenStable();
     const host = fixture.nativeElement as HTMLElement;
 
-    expect(text(host, '#speed-effect')).toContain('Швидкості проїздів однакові');
+    expect(text(host, '#speed-effect')).toContain('Швидкісний ефект не оцінено');
     expect(host.querySelector('#speed-effect .muted')).toBeTruthy();
   });
 

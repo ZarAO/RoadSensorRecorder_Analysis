@@ -53,11 +53,7 @@ section.card { margin-bottom: var(--space-4); }
 }
 .meta dd { margin: var(--space-1) 0 0; font-size: var(--text-sm); }
 .meta dd small { display: block; color: var(--color-faint-fg); font-size: var(--text-xs); }
-.chip.stale {
-  margin-left: var(--space-2);
-  border-color: var(--color-warn);
-  color: var(--color-warn);
-}
+.chip.stale { margin-left: var(--space-2); }
 
 .lead { margin: 0; font-size: var(--text-base); font-variant-numeric: tabular-nums; }
 .muted { margin: 0; color: var(--color-muted-fg); font-size: var(--text-sm); }

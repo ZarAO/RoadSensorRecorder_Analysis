@@ -36,7 +36,7 @@
               [class.bad]="detail.status === 'failed'"
               [class.warn]="detail.status === 'running'">{{ detail.status }}</span>
         @if (detail.summary?.stale) {
-          <span class="chip stale"
+          <span class="chip warn stale"
                 title="Один із проїздів видалено — числа більше не відтворювані">stale</span>
         }
       </dd></div>
@@ -109,7 +109,7 @@
             лише за бінами з ≥2 проїздами.
           </p>
         } @else {
-          <p class="muted">Швидкості проїздів однакові — ефект не оцінюється.</p>
+          <p class="muted">Швидкісний ефект не оцінено — замало проїздів з різними швидкостями у спільних бінах.</p>
         }
       </section>
 

@@ -174,7 +174,7 @@
                     [class.warn]="aggregate.status === 'running'"
                     [attr.title]="aggregate.error">{{ aggregate.status }}</span>
               @if (aggregate.summary?.stale) {
-                <span class="chip stale" title="Один із проїздів видалено — числа більше не відтворювані">stale</span>
+                <span class="chip warn stale" title="Один із проїздів видалено — числа більше не відтворювані">stale</span>
               }
             </td>
             <td>{{ biasWithCi(aggregate.summary) }}</td>

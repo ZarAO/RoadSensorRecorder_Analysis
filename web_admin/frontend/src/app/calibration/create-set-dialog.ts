@@ -104,7 +104,6 @@ export class CreateSetDialog {
   readonly closed = output<void>();
 
   protected readonly model = linkedSignal<SetModel>(() => this.defaultModel());
-  protected readonly vehicle = linkedSignal(() => this.vehicleType());
   protected readonly phone = linkedSignal<string | null>(
     () => this.phoneOptions()[0]?.value ?? null);
   protected readonly submitting = signal(false);
@@ -113,8 +112,13 @@ export class CreateSetDialog {
   /** null while the operator has not typed a name: the suggestion then keeps
    *  tracking the model and the vehicle type. */
   private readonly typedName = signal<string | null>(null);
+  /** null while the operator has not edited the vehicle type: it then keeps
+   *  tracking the input (e.g. a run's vehicle_type arriving after an async fetch)
+   *  instead of overwriting whatever the operator already typed. */
+  private readonly typedVehicle = signal<string | null>(null);
 
   protected readonly name = computed(() => this.typedName() ?? this.defaultName());
+  protected readonly vehicle = computed(() => this.typedVehicle() ?? this.vehicleType());
 
   protected readonly canCreate = computed(
     () => !!this.name().trim() && !!this.vehicle().trim() && !this.submitting());
@@ -129,7 +133,7 @@ export class CreateSetDialog {
   }
 
   protected onVehicleInput(event: Event): void {
-    this.vehicle.set((event.target as HTMLInputElement).value);
+    this.typedVehicle.set((event.target as HTMLInputElement).value);
   }
 
   protected onPhoneInput(event: Event): void {

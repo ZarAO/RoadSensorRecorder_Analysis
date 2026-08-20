@@ -55,11 +55,7 @@ tr.deleted { opacity: 0.55; }
 .actions button { margin-left: var(--space-2); }
 
 .chip.status-running { animation: status-pulse 1.6s var(--ease-standard) infinite; }
-.chip.stale {
-  margin-left: var(--space-2);
-  border-color: var(--color-warn);
-  color: var(--color-warn);
-}
+.chip.stale { margin-left: var(--space-2); }
 
 .success-note {
   background: var(--color-success-bg);
