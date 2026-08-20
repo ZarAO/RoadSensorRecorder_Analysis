@@ -19,8 +19,8 @@ CLI має два обов'язкові параметри — `--input` і `--o
 (за замовчуванням `invalid`), який керує сегментами, пройденими повільніше за
 20 км/год (див. [08](08_user_guide_and_cli_reference.md)).
 
-**Результати:** `out/new_analysis/` — `road_segments.csv`, `roughness.geojson`,
-`events.geojson`, `segments_map.html`, `report.md`, `plots/`.
+**Результати:** `out/new_analysis/` — `road_segments.csv`, `recording_meta.json`,
+`roughness.geojson`, `events.geojson`, `segments_map.html`, `report.md`, `plots/`.
 
 > **Порівняння legacy vs new** виконувалось скриптом `tools/compare_runs_v2.py` на
 > етапі STAGE 2. Ні скрипт, ні каталог `out/comparison/` більше не входять до

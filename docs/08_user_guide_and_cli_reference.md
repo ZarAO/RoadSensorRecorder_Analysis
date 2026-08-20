@@ -30,6 +30,7 @@ python main.py --input "storage\data\sensor_data_20250729_163334.csv" --out stor
 ```
 storage/results/my_run/
 ├── road_segments.csv       (метрики на 100 м сегмент, 24 колонки)
+├── recording_meta.json     (преамбула, профіль авто, події, футер запису)
 ├── roughness.geojson       (LineString на сегмент)
 ├── events.geojson          (Point на кожну аномалію)
 ├── segments_map.html       (Folium map, забарвлення за IRI_multi)
@@ -146,6 +147,20 @@ Time,Type,X,Y,Z,Latitude,Longitude
 пропускається (`pd.read_csv(..., comment='#')`), тому файли без преамбули
 читаються ідентично. Заголовок перевіряється точно — інакше `ValueError`.
 
+Записи контрактів v2.1/v3 містять додаткові коментовані рядки, які аналізатор
+парсить у `report.md` (секції Recording Metadata / Vehicle Profile / Recording
+Events) і `recording_meta.json`:
+
+```csv
+# vehicle_type=sedan                     ← v3: блок профілю авто (11 ключів)
+# event: t=1753796581000, type=gps_lost, age_s=12   ← v2.1: інцидент запису
+# end: duration_ms=40000, rows_accel=4000, rows_gyro=0, rows_gps=40, events=2, battery_end_pct=85, reason=user
+```
+
+Наявність футера `# end:` означає чисту зупинку; його відсутність — обірваний
+запис (файл валідний до останнього рядка, але неповний). Канонічний опис
+контракту — `RoadSensorRecorder/README.md`.
+
 ---
 
 ## CLI Reference
@@ -248,6 +263,7 @@ python -m road_quality_analyzer analyze `
 ```
 <out>/
 ├── road_segments.csv
+├── recording_meta.json
 ├── roughness.geojson
 ├── events.geojson
 ├── segments_map.html
