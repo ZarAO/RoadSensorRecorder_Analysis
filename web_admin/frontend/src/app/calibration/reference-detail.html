@@ -76,7 +76,7 @@
           @for (row of pageRows(); track row.interval_id) {
             <tr>
               <td>{{ row.interval_id }}</td>
-              <td>{{ fmt(row.chainage_km) }}</td>
+              <td>{{ fmt(row.chainage_km, 3) }}</td>
               <td>{{ fmt(row.iri_ref) }}</td>
               <td>{{ row.channel_range }}</td>
             </tr>

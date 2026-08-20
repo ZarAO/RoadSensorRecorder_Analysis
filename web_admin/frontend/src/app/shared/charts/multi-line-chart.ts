@@ -51,8 +51,8 @@ interface HoverRow { label: string; colorVar: string; value: number | null; }
           <path class="band" [attr.d]="d" />
         }
 
-        @for (s of series(); track s.label) {
-          <path class="line" [attr.d]="linePath(s)" [style.stroke]="'var(' + s.colorVar + ')'"
+        @for (s of series(); track s.label; let i = $index) {
+          <path class="line" [attr.d]="linePaths()[i]" [style.stroke]="'var(' + s.colorVar + ')'"
                 [attr.stroke-dasharray]="s.dashed ? '6 4' : null" />
         }
 
@@ -109,11 +109,12 @@ export class MultiLineChart {
     return x == null ? 0 : this.xScale()(x);
   });
 
+  /** Fixed 3-decimal precision (meter resolution on km-scale chainage), not the
+   *  axis-span-scaled tickLabel — that gave 100 m resolution on an 11 km reference,
+   *  well above the 10 m interval spacing the data actually carries. */
   protected readonly hoverXLabel = computed(() => {
     const x = this.hoverX();
-    if (x == null) return '';
-    const domain = this.xDomain();
-    return tickLabel(x, domain[1] - domain[0]);
+    return x == null ? '' : x.toFixed(3);
   });
 
   protected readonly hoverRows = computed<HoverRow[]>(() => {
@@ -122,6 +123,17 @@ export class MultiLineChart {
     return this.series().map(s => ({
       label: s.label, colorVar: s.colorVar, value: this.nearestY(s.points, x),
     }));
+  });
+
+  /** One path per series, precomputed alongside the scales so pointermove
+   *  (which only touches hoverX) never re-sorts/re-renders every series' points. */
+  protected readonly linePaths = computed(() => {
+    const [sx, sy] = [this.xScale(), this.yScale()];
+    return this.series().map(s => {
+      const sorted = [...s.points].sort((a, b) => a.x - b.x);
+      return sorted.map((point, index) =>
+        `${index ? 'L' : 'M'}${sx(point.x).toFixed(2)} ${sy(point.y).toFixed(2)}`).join(' ');
+    });
   });
 
   protected readonly bandPath = computed(() => {
@@ -135,13 +147,6 @@ export class MultiLineChart {
       .map(p => `L${sx(p.x).toFixed(2)} ${sy(p.lo).toFixed(2)}`).join(' ');
     return `${top} ${bottom} Z`;
   });
-
-  protected linePath(series: LineSeries): string {
-    const sorted = [...series.points].sort((a, b) => a.x - b.x);
-    const [sx, sy] = [this.xScale(), this.yScale()];
-    return sorted.map((point, index) =>
-      `${index ? 'L' : 'M'}${sx(point.x).toFixed(2)} ${sy(point.y).toFixed(2)}`).join(' ');
-  }
 
   protected pct(value: number, span: number, lo: number, hi: number): number {
     return Math.min(hi, Math.max(lo, (value / span) * 100));
@@ -175,8 +180,11 @@ export class MultiLineChart {
     if (!svg) return null;
     const rect = svg.getBoundingClientRect();
     if (!rect.width || !rect.height) return null;
+    const x = ((event.clientX - rect.left) / rect.width) * CHART.width;
     return {
-      x: ((event.clientX - rect.left) / rect.width) * CHART.width,
+      // Clamped to the plot rect: the crosshair must never draw over the axis
+      // labels and invertScale must never extrapolate past the data extent.
+      x: Math.min(PLOT.x1, Math.max(PLOT.x0, x)),
       y: ((event.clientY - rect.top) / rect.height) * CHART.height,
     };
   }

@@ -120,6 +120,19 @@ describe('ReferenceDetail', () => {
     expect(rows[1].textContent).toContain('—');
   });
 
+  it('renders distinct chainage labels for adjacent 10 m intervals', async () => {
+    const fixture = createPage(apiStub());
+    await fixture.whenStable();
+
+    // Row 0 midpoint is 5 m (0.005 km), row 1 is 15 m (0.015 km) — at 2 decimals both
+    // round to "0.01"; the table must render 3 decimals so they stay distinguishable.
+    const rows = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('tbody tr'));
+    const chainageCells = rows.map(row => row.querySelectorAll('td')[1].textContent?.trim());
+    expect(chainageCells[0]).toBe('0.005');
+    expect(chainageCells[1]).toBe('0.015');
+    expect(chainageCells[0]).not.toBe(chainageCells[1]);
+  });
+
   it('paginates «N–M з K» and shows the remainder on the last page', async () => {
     const fixture = createPage(apiStub({ getReferenceIntervals: () => of(MANY_ROWS) }));
     await fixture.whenStable();
