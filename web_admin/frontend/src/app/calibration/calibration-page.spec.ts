@@ -166,6 +166,39 @@ describe('CalibrationPage', () => {
     await fixture.whenStable();
   });
 
+  it('guards reanalyze against a double click: the second one creates no runs', async () => {
+    const pending = new Subject<RunOut[]>();
+    const reanalyzeSpy = vi.fn(() => pending.asObservable());
+    const fixture = createPage(apiStub({
+      reanalyzeCoefficientSet: reanalyzeSpy as unknown as ApiService['reanalyzeCoefficientSet'],
+    }));
+    await fixture.whenStable();
+    const host = fixture.nativeElement as HTMLElement;
+
+    click(host, 'Підтвердити');
+    await fixture.whenStable();
+    click(host.querySelector('#confirm-dialog')!.querySelector('.dialog-actions')!, 'Підтвердити');
+    await fixture.whenStable();
+
+    const actions = host.querySelector('#reanalyze-dialog')!.querySelector('.dialog-actions')!;
+    click(actions, 'Перерахувати');
+    await fixture.whenStable();
+
+    // Dialog stays open while the request is in flight — the button must be
+    // disabled, and a second click must not queue another N analyzer runs.
+    const button = Array.from(actions.querySelectorAll('button'))
+      .find(candidate => candidate.textContent?.trim() === 'Перерахувати')!;
+    expect(button.disabled).toBe(true);
+    button.click();
+    await fixture.whenStable();
+    expect(reanalyzeSpy).toHaveBeenCalledTimes(1);
+
+    pending.next([RUN, RUN]);
+    pending.complete();
+    await fixture.whenStable();
+    expect(host.querySelector('#reanalyze-dialog')).toBeFalsy();
+  });
+
   it('keeps the reanalyze dialog open and shows the error banner when reanalyze fails', async () => {
     const reanalyzeSpy = vi.fn(() => throwError(() => ({ error: { detail: 'ран не знайдено' } })));
     const fixture = createPage(apiStub({

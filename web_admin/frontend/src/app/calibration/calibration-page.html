@@ -193,7 +193,8 @@
             <td class="actions">
               @if (set.status === 'draft') {
                 <button class="primary" (click)="openConfirm(set)">Підтвердити</button>
-              } @else if (set.status === 'confirmed') {
+              }
+              @if (set.status === 'draft' || set.status === 'confirmed') {
                 <button (click)="archive(set)" [disabled]="archivingId() === set.id">Архівувати</button>
               }
             </td>
@@ -289,13 +290,14 @@
          aria-labelledby="reanalyze-title" (click)="$event.stopPropagation()">
       <h3 id="reanalyze-title">Переаналіз наявних ранів</h3>
       <p>
-        Перерахувати {{ target.candidates }} наявних ранів
+        Перерахувати рани для {{ target.candidates }} файлів
         (vehicle_type={{ target.set.vehicle_type ?? '—' }})?
         Старі рани лишаться недоторканими.
       </p>
       <div class="dialog-actions">
         <button (click)="reanalyzeTarget.set(null)">Скасувати</button>
-        <button class="primary" (click)="submitReanalyze()">Перерахувати</button>
+        <button class="primary" (click)="submitReanalyze()"
+                [disabled]="reanalyzing()">Перерахувати</button>
       </div>
     </div>
   </div>

@@ -2,7 +2,7 @@ import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 
 import { ThemeService } from '../theme.service';
-import { SegmentMap, segmentColor } from './segment-map';
+import { SegmentMap, escapeHtml, segmentColor } from './segment-map';
 
 describe('segmentColor', () => {
   it('maps IRI_multi onto the severity scale', () => {
@@ -26,6 +26,18 @@ describe('segmentColor', () => {
     expect(segmentColor({})).toBe('#8b93a3');
     expect(segmentColor({ iri_multi: null })).toBe('#8b93a3');
     expect(segmentColor({ iri_multi: '3.2' })).toBe('#8b93a3');
+  });
+});
+
+describe('escapeHtml', () => {
+  it('neutralizes markup coming from a geojson filename', () => {
+    expect(escapeHtml('<img src=x onerror=alert(1)>'))
+      .toBe('&lt;img src=x onerror=alert(1)&gt;');
+    expect(escapeHtml(`a&b "q" 'p'`)).toBe('a&amp;b &quot;q&quot; &#39;p&#39;');
+  });
+
+  it('leaves a plain filename untouched', () => {
+    expect(escapeHtml('drive_2026-08-20.csv')).toBe('drive_2026-08-20.csv');
   });
 });
 

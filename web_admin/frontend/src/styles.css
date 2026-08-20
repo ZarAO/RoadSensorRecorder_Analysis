@@ -10,6 +10,19 @@
   box-sizing: border-box;
 }
 
+/* Native UA controls (date picker calendar, scrollbars, selects) follow the theme.
+   tokens.css is generated — these two declarations belong here, next to the base
+   element styling. Dark is the default theme (:root), light is the override.
+   With color-scheme set, Chrome themes the calendar-picker indicator itself —
+   no invert() filter needed. */
+:root {
+  color-scheme: dark;
+  accent-color: var(--color-accent);
+}
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+
 html {
   height: 100%;
 }
@@ -87,7 +100,7 @@ button.primary:hover:not(:disabled) { background: var(--color-accent-hover); }
 button.danger { color: var(--color-error); }
 button.danger:hover:not(:disabled) { background: var(--color-error-bg); }
 
-select, input[type='text'] {
+select, input[type='text'], input[type='date'] {
   font-family: inherit;
   font-size: var(--text-sm);
   color: var(--color-fg);

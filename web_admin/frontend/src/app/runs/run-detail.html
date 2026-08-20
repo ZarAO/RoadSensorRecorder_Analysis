@@ -54,6 +54,12 @@
             ? (summary.mean_iri_multi | number:'1.2-2') : '—' }}</b>
           <span>сер. IRI_multi</span>
         </div>
+        @if (summary.mean_iri_multi_corrected != null) {
+          <div class="card kpi-card rise-in">
+            <b class="num">{{ summary.mean_iri_multi_corrected | number:'1.2-2' }}</b>
+            <span>Середній IRI (кориг.)</span>
+          </div>
+        }
         <div class="card kpi-card rise-in">
           <app-count-up [value]="summary.low_speed_count" /><span>low-speed</span>
         </div>
@@ -128,6 +134,12 @@
 
     <section class="card rise-in">
       <h3>Мапа сегментів</h3>
+      @if (hasCorrectedIri()) {
+        <p class="corrected-note">
+          Кольори мапи — за некоригованим IRI_multi; корекція зсуву показана
+          в колонці «IRI кориг.».
+        </p>
+      }
       @if (mapData(); as fc) {
         <app-segment-map class="run-map" [data]="fc" />
       } @else {

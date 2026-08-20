@@ -57,6 +57,8 @@ export class CalibrationPage {
   readonly createdRuns = signal<number | null>(null);
   /** Coefficient set id currently being archived, guarding against a double click */
   readonly archivingId = signal<number | null>(null);
+  /** Reanalyze request in flight — a double click would queue 2N real analyzer runs */
+  readonly reanalyzing = signal(false);
 
   readonly doneRuns = computed(() => this.runs().filter(run => run.status === 'done'));
   readonly comparableReferences = computed(() => this.references().filter(
@@ -243,17 +245,22 @@ export class CalibrationPage {
 
   submitReanalyze(): void {
     const target = this.reanalyzeTarget();
-    if (!target) return;
+    if (!target || this.reanalyzing()) return;
+    this.reanalyzing.set(true);
     this.error.set(null);
     this.api.reanalyzeCoefficientSet(target.set.id).subscribe({
       next: runs => {
         // Clear only on success — a failed request keeps the dialog open so the
         // operator can retry instead of losing the reanalyze offer.
+        this.reanalyzing.set(false);
         this.reanalyzeTarget.set(null);
         this.createdRuns.set(runs.length);
         this.reloadRuns();
       },
-      error: err => this.error.set(this.describe(err)),
+      error: err => {
+        this.reanalyzing.set(false);
+        this.error.set(this.describe(err));
+      },
     });
   }
 

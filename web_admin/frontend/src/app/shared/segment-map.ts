@@ -51,6 +51,17 @@ const TILE_ATTR = '© <a href="https://www.openstreetmap.org/copyright">OpenStre
 /** Casing is drawn in the inverse of the basemap so every hue stays readable. */
 const CASING = { dark: 'rgba(245,245,244,0.9)', light: 'rgba(15,18,25,0.85)' };
 
+/** Popup HTML is built by hand, so any value coming from a geojson property
+ *  (filename) is escaped before interpolation. */
+export function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 const CASING_WEIGHT = 10;
 const LINE_WEIGHT = 6;
 const LINE_HOVER_WEIGHT = 9;
@@ -224,7 +235,9 @@ export class SegmentMap {
   private popupHtml(props: Record<string, unknown>): string {
     const runId = props['run_id'];
     // filename/run_id exist only on the merged global map, not in a run's own geojson
-    const title = props['filename'] != null ? `<b>${props['filename']}</b><br>` : '';
+    const title = props['filename'] != null
+      ? `<b>${escapeHtml(String(props['filename']))}</b><br>`
+      : '';
     const runLink = this.showRunLink() && runId != null
       ? `<br><a href="#" data-run="${runId}">До рану #${runId}</a>`
       : '';

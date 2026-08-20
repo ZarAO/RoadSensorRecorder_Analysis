@@ -114,6 +114,27 @@ describe('RunDetail', () => {
     expect(chipsText).not.toContain('Книжкові константи');
   });
 
+  it('rounds coefficient params to 3 decimals instead of printing float noise', async () => {
+    const runWithCoefficients: RunOut = {
+      ...RUN,
+      params: {
+        low_speed_policy: 'invalid',
+        coefficients: {
+          eq3: { set_id: 4, name: 'Sedan eq3', params: { A: 6.0000000000000009, B: 0.41 } },
+          eq6_bias: { set_id: 7, name: 'Sedan eq6', params: { bias: -1.5499999999999998 } },
+        },
+      },
+    };
+    const fixture = createRunDetail(apiStub({ getRun: () => of(runWithCoefficients) }));
+    await fixture.whenStable();
+
+    const chipsText = (fixture.nativeElement as HTMLElement)
+      .querySelector('.coeff-chips')?.textContent ?? '';
+    expect(chipsText).toContain('A=6.000, B=0.410');
+    expect(chipsText).toContain('bias=-1.550');
+    expect(chipsText).not.toContain('1.5499999');
+  });
+
   it('renders a muted "book constants" chip when the run has no coefficients', async () => {
     const fixture = createRunDetail(apiStub());
     await fixture.whenStable();
@@ -187,5 +208,29 @@ describe('RunDetail', () => {
     const rows = host.querySelectorAll('tbody tr');
     expect(rows[0].textContent).toContain('3.00');
     expect(rows[1].textContent).toContain('—');
+  });
+
+  it('discloses that the map colors stay uncorrected, and shows the corrected mean', async () => {
+    const plain = createRunDetail(apiStub());
+    await plain.whenStable();
+    expect((plain.nativeElement as HTMLElement).querySelector('.corrected-note')).toBeNull();
+    expect((plain.nativeElement as HTMLElement).textContent)
+      .not.toContain('Середній IRI (кориг.)');
+
+    const correctedRun: RunOut = {
+      ...RUN,
+      summary: { ...RUN.summary!, mean_iri_multi_corrected: 1.65 },
+    };
+    const fixture = createRunDetail(apiStub({
+      getRun: () => of(correctedRun),
+      getSegments: () => of([{ ...SEGMENTS[0], iri_multi_corrected: 3.0 }]),
+    }));
+    await fixture.whenStable();
+
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.querySelector('.corrected-note')?.textContent)
+      .toContain('Кольори мапи — за некоригованим IRI_multi');
+    expect(host.textContent).toContain('Середній IRI (кориг.)');
+    expect(host.textContent).toContain('1.65');
   });
 });

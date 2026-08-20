@@ -138,9 +138,13 @@ export class RunDetail {
     });
   }
 
+  /** Same 3-decimal rounding as the calibration table — raw floats print as
+   *  -1.5499999999999998 in a chip. */
   private formatCoefficientParams(params: { A?: number; B?: number; bias?: number }): string {
-    if (params.bias != null) return `bias=${params.bias}`;
-    if (params.A != null && params.B != null) return `A=${params.A}, B=${params.B}`;
+    if (params.bias != null) return `bias=${params.bias.toFixed(3)}`;
+    if (params.A != null && params.B != null) {
+      return `A=${params.A.toFixed(3)}, B=${params.B.toFixed(3)}`;
+    }
     return '';
   }
 
