@@ -8,12 +8,18 @@ and must run before store_reference, so that any failure here — after the
 row is committed — is a persistence error, not a parse error (see references.py).
 """
 
+import json
 import shutil
 from pathlib import Path
+
+import pandas as pd
+from profilometer_validation.match import REFERENCE_CHANNELS
 
 from src.core.config import Settings
 from src.db.models import ReferenceDataset
 from src.services.reference_forms import ParsedForm
+
+INTERVALS_GEOJSON_NAME = 'intervals.geojson'
 
 
 def reference_dir(settings: Settings, ref: ReferenceDataset) -> Path:
@@ -61,3 +67,46 @@ def store_reference(session, settings: Settings, form: ParsedForm, tmp_xlsx: Pat
 
 def delete_reference_data(settings: Settings, ref: ReferenceDataset) -> None:
     shutil.rmtree(reference_dir(settings, ref), ignore_errors=True)
+
+
+def load_reference_intervals(settings: Settings, ref: ReferenceDataset) -> pd.DataFrame:
+    """The stored intervals_{step_m}m.csv plus iri_ref = mean(ch1..ch8) — never
+    ch9/10, which duplicate ch8 (profilometer_validation.match.REFERENCE_CHANNELS)."""
+    csv_path = reference_dir(settings, ref) / f'intervals_{int(ref.step_m)}m.csv'
+    df = pd.read_csv(csv_path, encoding='utf-8')
+    df['iri_ref'] = df[REFERENCE_CHANNELS].mean(axis=1)
+    return df
+
+
+def build_reference_geojson(settings: Settings, ref: ReferenceDataset) -> dict:
+    """FeatureCollection of interval LineStrings, cached at
+    reference_dir/intervals.geojson — intervals are immutable after upload,
+    so the cache never needs invalidation."""
+    cache_path = reference_dir(settings, ref) / INTERVALS_GEOJSON_NAME
+    if cache_path.is_file():
+        return json.loads(cache_path.read_text(encoding='utf-8'))
+
+    df = load_reference_intervals(settings, ref)
+    chain_start = df['km_start'] * 1000.0 + df['m_start']
+    chain_end = df['km_end'] * 1000.0 + df['m_end']
+    features = [
+        {
+            'type': 'Feature',
+            'properties': {
+                'interval_id': int(idx),
+                'chainage_m': float((chain_start[idx] + chain_end[idx]) / 2.0),
+                'iri_ref': float(row['iri_ref']) if pd.notna(row['iri_ref']) else None,
+            },
+            'geometry': {
+                'type': 'LineString',
+                'coordinates': [
+                    [float(row['lon_start']), float(row['lat_start'])],
+                    [float(row['lon_end']), float(row['lat_end'])],
+                ],
+            },
+        }
+        for idx, row in df.iterrows()
+    ]
+    fc = {'type': 'FeatureCollection', 'features': features}
+    cache_path.write_text(json.dumps(fc, ensure_ascii=False), encoding='utf-8')
+    return fc

@@ -27,6 +27,21 @@ describe('segmentColor', () => {
     expect(segmentColor({ iri_multi: null })).toBe('#8b93a3');
     expect(segmentColor({ iri_multi: '3.2' })).toBe('#8b93a3');
   });
+
+  it('reads props[metricKey] when a metricKey is given', () => {
+    expect(segmentColor({ iri_ref: 7 }, 'iri_ref')).toBe('#d81e2c');
+    expect(segmentColor({ iri_ref: 1 }, 'iri_ref')).toBe('#00a63e');
+    // iri_multi present but metricKey is iri_ref: must not fall back to it
+    expect(segmentColor({ iri_multi: 7, iri_ref: 1 }, 'iri_ref')).toBe('#00a63e');
+  });
+
+  it('defaults to iri_multi when no metricKey is given', () => {
+    expect(segmentColor({ iri_multi: 7 })).toBe('#d81e2c');
+  });
+
+  it('still marks class-1/2 survey magenta first with a non-default metricKey', () => {
+    expect(segmentColor({ needs_class12_survey: true, iri_ref: 1 }, 'iri_ref')).toBe('#FF00FF');
+  });
 });
 
 describe('escapeHtml', () => {

@@ -1,6 +1,8 @@
 import os
 from pathlib import Path
 
+import pytest
+
 from tests.conftest import build_form_xlsx
 
 
@@ -72,3 +74,57 @@ def test_disk_write_failure_leaves_no_orphaned_row(client, tmp_path, monkeypatch
 
     monkeypatch.setattr(references_service.shutil, 'copy', original_copy)
     assert _upload(client, tmp_path, name='form.xlsx').status_code == 201
+
+
+def test_intervals_endpoint_computes_iri_ref_from_ch1_8_only(client, tmp_path):
+    body = _upload(client, tmp_path).json()
+    r = client.get(f"/api/references/{body['id']}/intervals")
+    assert r.status_code == 200
+    rows = r.json()
+    assert len(rows) == body['intervals_count']
+    for row in rows:
+        assert isinstance(row['iri_ref'], float)
+    # duplicate_ch9_10=True by default in build_form_xlsx: ch9/ch10 == ch8, so
+    # including them would shift the mean — iri_ref must come from ch1..8 only
+    expected = sum(rows[0][f'iri_ch{c}'] for c in range(1, 9)) / 8
+    assert rows[0]['iri_ref'] == pytest.approx(expected)
+
+
+def test_intervals_404_for_unknown_reference(client):
+    assert client.get('/api/references/999/intervals').status_code == 404
+
+
+def test_intervals_409_after_delete(client, tmp_path):
+    ref_id = _upload(client, tmp_path).json()['id']
+    assert client.delete(f'/api/references/{ref_id}').status_code == 204
+    r = client.get(f'/api/references/{ref_id}/intervals')
+    assert r.status_code == 409
+    assert 'еталон' in r.json()['detail']
+
+
+def test_geojson_endpoint_builds_and_caches(client, tmp_path):
+    body = _upload(client, tmp_path).json()
+    r = client.get(f"/api/references/{body['id']}/geojson")
+    assert r.status_code == 200
+    fc = r.json()
+    assert fc['type'] == 'FeatureCollection'
+    assert len(fc['features']) == body['intervals_count']
+    feature = fc['features'][0]
+    assert feature['type'] == 'Feature'
+    assert set(feature['properties']) == {'interval_id', 'chainage_m', 'iri_ref'}
+    assert feature['geometry']['type'] == 'LineString'
+    assert len(feature['geometry']['coordinates']) == 2
+    cache_path = Path(os.environ['RQA_REFERENCE_DIR']) / str(body['id']) / 'intervals.geojson'
+    assert cache_path.is_file()
+
+
+def test_geojson_404_for_unknown_reference(client):
+    assert client.get('/api/references/999/geojson').status_code == 404
+
+
+def test_geojson_409_after_delete(client, tmp_path):
+    ref_id = _upload(client, tmp_path).json()['id']
+    assert client.delete(f'/api/references/{ref_id}').status_code == 204
+    r = client.get(f'/api/references/{ref_id}/geojson')
+    assert r.status_code == 409
+    assert 'еталон' in r.json()['detail']

@@ -9,6 +9,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
+import numpy as np
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -18,7 +19,12 @@ from src.core.config import get_settings
 from src.db.models import ReferenceDataset
 from src.db.session import get_session
 from src.services.reference_forms import parse_form_xlsx
-from src.services.references import delete_reference_data, store_reference
+from src.services.references import (
+    build_reference_geojson,
+    delete_reference_data,
+    load_reference_intervals,
+    store_reference,
+)
 
 router = APIRouter(prefix='/references', tags=['references'])
 
@@ -27,6 +33,13 @@ def _to_out(ref: ReferenceDataset) -> ReferenceOut:
     out = ReferenceOut.model_validate(ref)
     out.comparisons_count = len(ref.comparisons)
     return out
+
+
+def _ref_or_404(ref_id: int, session: Session) -> ReferenceDataset:
+    row = session.get(ReferenceDataset, ref_id)
+    if row is None:
+        raise HTTPException(404, 'Reference not found')
+    return row
 
 
 @router.post('', status_code=201, response_model=ReferenceOut)
@@ -73,18 +86,32 @@ def list_references(session: Session = Depends(get_session)):
 
 @router.get('/{ref_id}', response_model=ReferenceOut)
 def get_reference(ref_id: int, session: Session = Depends(get_session)):
-    row = session.get(ReferenceDataset, ref_id)
-    if row is None:
-        raise HTTPException(404, 'Reference not found')
-    return _to_out(row)
+    return _to_out(_ref_or_404(ref_id, session))
 
 
 @router.delete('/{ref_id}', status_code=204)
 def delete_reference(ref_id: int, session: Session = Depends(get_session)):
-    row = session.get(ReferenceDataset, ref_id)
-    if row is None:
-        raise HTTPException(404, 'Reference not found')
+    row = _ref_or_404(ref_id, session)
     settings = get_settings()
     delete_reference_data(settings, row)
     row.source_deleted = True
     session.commit()
+
+
+@router.get('/{ref_id}/intervals')
+def get_reference_intervals(ref_id: int, session: Session = Depends(get_session)):
+    row = _ref_or_404(ref_id, session)
+    if row.source_deleted:
+        raise HTTPException(409, 'еталон видалено')
+    df = load_reference_intervals(get_settings(), row)
+    # NaN -> null: strict JSON parsers reject NaN, and a missing metric must
+    # never surface as a number (analyzer invariant)
+    return df.replace({np.nan: None}).to_dict('records')
+
+
+@router.get('/{ref_id}/geojson')
+def get_reference_geojson(ref_id: int, session: Session = Depends(get_session)):
+    row = _ref_or_404(ref_id, session)
+    if row.source_deleted:
+        raise HTTPException(409, 'еталон видалено')
+    return build_reference_geojson(get_settings(), row)

@@ -21,10 +21,15 @@ const IRI_SCALE = {
   unknown: '#8b93a3',
 } as const;
 
-/** IRI_multi severity color; the class-1/2 magenta wins over any IRI value. */
-export function segmentColor(props: Record<string, unknown>): string {
+/** The IRI-shaped metric a map colors and labels segments/intervals by. */
+export type SegmentMetricKey = 'iri_multi' | 'iri_ref';
+
+/** Severity color for props[metricKey]; the class-1/2 magenta wins over any IRI value. */
+export function segmentColor(
+  props: Record<string, unknown>, metricKey: SegmentMetricKey = 'iri_multi',
+): string {
   if (props['needs_class12_survey']) return IRI_SCALE.survey;
-  const iri = props['iri_multi'];
+  const iri = props[metricKey];
   if (typeof iri !== 'number') return IRI_SCALE.unknown;
   if (iri < 2.5) return IRI_SCALE.good;
   if (iri < 4) return IRI_SCALE.fair;
@@ -140,6 +145,9 @@ export class SegmentMap {
   readonly data = input<GeoJsonFeatureCollection | null>(null);
   /** Global map: the popup offers a link to the owning run. */
   readonly showRunLink = input(false);
+  /** Which property drives color + popup value: run segments (iri_multi,
+   *  default) or reference intervals (iri_ref). */
+  readonly metricKey = input<SegmentMetricKey>('iri_multi');
   readonly runClick = output<number>();
 
   readonly legend = LEGEND;
@@ -176,12 +184,13 @@ export class SegmentMap {
 
     effect(() => {
       const fc = this.data();
+      const metricKey = this.metricKey();
       if (!this.ready()) return;
-      this.render(fc);
+      this.render(fc, metricKey);
     });
   }
 
-  private render(fc: GeoJsonFeatureCollection | null): void {
+  private render(fc: GeoJsonFeatureCollection | null, metricKey: SegmentMetricKey): void {
     const map = this.map;
     if (!map) return;
     this.casing?.remove();
@@ -202,7 +211,7 @@ export class SegmentMap {
     this.line = L.geoJSON(fc as never, {
       pointToLayer: (_feature, latlng) => L.circleMarker(latlng, { radius: 4 }),
       style: feature => ({
-        color: segmentColor(feature?.properties ?? {}),
+        color: segmentColor(feature?.properties ?? {}, metricKey),
         weight: LINE_WEIGHT,
         opacity: LINE_OPACITY,
       }),
@@ -212,7 +221,7 @@ export class SegmentMap {
         path.on('mouseover', () => path.setStyle({ weight: LINE_HOVER_WEIGHT, opacity: 1 }));
         path.on('mouseout', () =>
           path.setStyle({ weight: LINE_WEIGHT, opacity: LINE_OPACITY }));
-        layer.bindPopup(this.popupHtml(props));
+        layer.bindPopup(this.popupHtml(props, metricKey));
         layer.on('popupopen', event => {
           const link = event.popup.getElement()?.querySelector('a[data-run]');
           link?.addEventListener('click', clickEvent => {
@@ -232,7 +241,7 @@ export class SegmentMap {
     }
   }
 
-  private popupHtml(props: Record<string, unknown>): string {
+  private popupHtml(props: Record<string, unknown>, metricKey: SegmentMetricKey): string {
     const runId = props['run_id'];
     // filename/run_id exist only on the merged global map, not in a run's own geojson
     const title = props['filename'] != null
@@ -241,7 +250,18 @@ export class SegmentMap {
     const runLink = this.showRunLink() && runId != null
       ? `<br><a href="#" data-run="${runId}">До рану #${runId}</a>`
       : '';
-    return `${title}Сегмент ${props['seg_id']}, IRI_multi: ${this.iriLabel(props)}${runLink}`;
+    if (props['seg_id'] != null) {
+      return `${title}Сегмент ${props['seg_id']}, IRI_multi: ${this.iriLabel(props)}${runLink}`;
+    }
+    if (props['interval_id'] != null) {
+      return `Інтервал ${props['interval_id']}, IRI: ${this.metricLabel(props, metricKey)}`;
+    }
+    return `${title}${runLink}`;
+  }
+
+  private metricLabel(props: Record<string, unknown>, metricKey: SegmentMetricKey): string {
+    const value = props[metricKey];
+    return typeof value === 'number' ? value.toFixed(2) : '—';
   }
 
   /** Low-speed invariant: a class-1/2 segment never shows a number */
