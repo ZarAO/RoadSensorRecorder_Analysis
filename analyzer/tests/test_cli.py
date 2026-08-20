@@ -428,3 +428,30 @@ def test_analyze_pre_v21_file_reports_absence(tmp_path, drive_csv):
 
     meta = json.loads((out / 'recording_meta.json').read_text(encoding='utf-8'))
     assert meta['clean_stop'] is False and meta['vehicle'] == {}
+
+
+def test_analyze_with_calibrated_coefficients(tmp_path, drive_csv):
+    """CLI overrides change iri_psd and are named in the report; defaults don't."""
+    csv_path = drive_csv('calib.csv', duration_s=40.0, a_vert=_baseline_excitation)
+
+    out_book = tmp_path / 'book'
+    out_custom = tmp_path / 'custom'
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        analyze(csv_path, str(out_book))
+        analyze(csv_path, str(out_custom), iri_psd_A=6.0, iri_psd_B=0.4)
+
+    book = pd.read_csv(out_book / 'road_segments.csv')
+    custom = pd.read_csv(out_custom / 'road_segments.csv')
+
+    # Same physics: the PSD scalar is identical; only Eq.3's line changes
+    assert (book['psd_sqrt_scalar'] - custom['psd_sqrt_scalar']).abs().max() < 1e-12
+    expected = 6.0 * custom['psd_sqrt_scalar'] + 0.4
+    assert (custom['iri_psd_raw'] - expected).abs().max() < 1e-9
+    assert (book['iri_psd_raw']
+            - (0.774 * book['psd_sqrt_scalar'] - 0.825)).abs().max() < 1e-9
+
+    report_book = (out_book / 'report.md').read_text(encoding='utf-8')
+    report_custom = (out_custom / 'report.md').read_text(encoding='utf-8')
+    assert 'book values, not modified' in report_book
+    assert 'CUSTOM calibrated set (A=6.0, B=0.4)' in report_custom

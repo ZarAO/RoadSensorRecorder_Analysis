@@ -179,3 +179,39 @@ def test_iri_multi_responds_to_vehicle_parameters():
     heavier = compute_iri_multi(0.1, 50.0, npeop=3.0, vehicle_type=VehicleType.GENERIC)
 
     assert heavier - baseline == pytest.approx(0.17 * 2.0)
+
+
+# --- Calibrated-coefficient overrides (profilometer validation study) --------
+
+def test_book_coefficients_are_pinned():
+    """The published Eq.3 constants must never be retuned in place."""
+    from road_quality_analyzer.metrics.iri import IRI_PSD_COEFFICIENTS
+    assert IRI_PSD_COEFFICIENTS == {'A_sqrt_psd': 0.774, 'B_const': -0.825}
+
+
+def test_compute_iri_psd_accepts_calibrated_overrides():
+    import numpy as np
+    from road_quality_analyzer.metrics.iri import compute_iri_psd
+
+    rng = np.random.default_rng(20260820)
+    fs = 100.0
+    signal = 0.05 * np.sin(2 * np.pi * 2.0 * np.arange(0, 10, 1 / fs)) \
+        + rng.normal(0, 0.005, 1000)
+
+    raw_book, _, debug = compute_iri_psd(signal, fs, return_debug=True)
+    raw_custom, clipped_custom, _ = compute_iri_psd(signal, fs, A=2.0, B=0.5)
+
+    sqrt_psd = debug['psd_sqrt_scalar']
+    assert raw_book == 0.774 * sqrt_psd - 0.825
+    assert raw_custom == 2.0 * sqrt_psd + 0.5
+    assert clipped_custom == max(0.0, raw_custom)
+
+
+def test_partial_override_keeps_book_value_for_the_other():
+    import numpy as np
+    from road_quality_analyzer.metrics.iri import compute_iri_psd
+
+    fs = 100.0
+    signal = 0.05 * np.sin(2 * np.pi * 2.0 * np.arange(0, 10, 1 / fs))
+    raw, _, debug = compute_iri_psd(signal, fs, A=1.0, return_debug=True)
+    assert raw == 1.0 * debug['psd_sqrt_scalar'] - 0.825

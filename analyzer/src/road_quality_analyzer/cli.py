@@ -31,6 +31,15 @@ def main():
     analyze_parser.add_argument('--input', required=True, help='Шлях до CSV файлу')
     analyze_parser.add_argument('--out', required=True, help='Директорія для результатів')
     analyze_parser.add_argument(
+        '--iri-psd-A', type=float, default=None, metavar='A',
+        help='Калібрований коефіцієнт A для Eq.3 (IRI = A*sqrtPSD + B). '
+             'Без прапорця — книжкове значення; книжкові константи в коді незмінні.'
+    )
+    analyze_parser.add_argument(
+        '--iri-psd-B', type=float, default=None, metavar='B',
+        help='Калібрований коефіцієнт B для Eq.3 (разом із --iri-psd-A).'
+    )
+    analyze_parser.add_argument(
         '--low-speed-policy',
         choices=sorted(LOW_SPEED_CLASS_BY_POLICY),
         default=DEFAULT_LOW_SPEED_POLICY,
@@ -45,14 +54,16 @@ def main():
     args = parser.parse_args()
 
     if args.command == 'analyze':
-        analyze(args.input, args.out, low_speed_policy=args.low_speed_policy)
+        analyze(args.input, args.out, low_speed_policy=args.low_speed_policy,
+                iri_psd_A=getattr(args, 'iri_psd_A'), iri_psd_B=getattr(args, 'iri_psd_B'))
     else:
         parser.print_help()
         sys.exit(1)
 
 
 def analyze(input_path: str, output_dir: str,
-            low_speed_policy: str = DEFAULT_LOW_SPEED_POLICY):
+            low_speed_policy: str = DEFAULT_LOW_SPEED_POLICY,
+            iri_psd_A: float = None, iri_psd_B: float = None):
     """
     Full analysis of sensor data
 
@@ -62,6 +73,8 @@ def analyze(input_path: str, output_dir: str,
         low_speed_policy: how to treat segments below LOW_SPEED_MAX_KMH -
             'very-poor'/'poor'/'invalid' label them, 'ignore' drops their rows
             from the CSV/GeoJSON/map (the report still counts them)
+        iri_psd_A, iri_psd_B: optional calibrated Eq.3 coefficients (a named,
+            provenance-documented set); None -> the book values, unchanged
     """
     import numpy as np
     from pathlib import Path
@@ -265,7 +278,8 @@ def analyze(input_path: str, output_dir: str,
             s_grid, a_vertical_g, a_vertical_g_psd, v_grid, fs, anomaly_mask,
             segment_length_m=SEGMENT_LENGTH_M, scalar_mode=mode,
             f_low=BAND_LOW_HZ, f_high=BAND_HIGH_HZ,
-            low_speed_policy=low_speed_policy
+            low_speed_policy=low_speed_policy,
+            iri_psd_A=iri_psd_A, iri_psd_B=iri_psd_B
         )
 
     # Low-speed segments are captured before any exclusion: under the 'ignore'
@@ -493,9 +507,16 @@ def analyze(input_path: str, output_dir: str,
         f.write("- PSD method: Welch (scipy.signal.welch), only when n >= fs*2\n")
         f.write(f"- Frequency band: [{BAND_LOW_HZ}, {BAND_HIGH_HZ}] Hz (B4)\n")
         f.write(f"- Scalar mode: {DEFAULT_SCALAR_MODE} (sqrt of mean PSD density, g/sqrt(Hz))\n")
-        f.write("- Coefficients (from `metrics/iri.py`, book values, not modified):\n")
-        for name, value in IRI_PSD_COEFFICIENTS.items():
-            f.write(f"  - {name} = {value}\n")
+        if iri_psd_A is not None or iri_psd_B is not None:
+            f.write("- Coefficients: CUSTOM calibrated set "
+                    f"(A={iri_psd_A if iri_psd_A is not None else IRI_PSD_COEFFICIENTS['A_sqrt_psd']}, "
+                    f"B={iri_psd_B if iri_psd_B is not None else IRI_PSD_COEFFICIENTS['B_const']}) "
+                    "— книжкові значення в коді незмінні; провенанс набору див. у "
+                    "документі калібрувального дослідження\n")
+        else:
+            f.write("- Coefficients (from `metrics/iri.py`, book values, not modified):\n")
+            for name, value in IRI_PSD_COEFFICIENTS.items():
+                f.write(f"  - {name} = {value}\n")
         f.write("\n")
         f.write("**IRI_multi (Eq.4/5/6):**\n")
         f.write(f"- Vehicle type: {VehicleType.GENERIC.name} (Eq.6)\n")

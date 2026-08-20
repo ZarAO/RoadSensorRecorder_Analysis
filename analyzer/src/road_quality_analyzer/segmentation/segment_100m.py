@@ -129,6 +129,8 @@ def aggregate_segment_metrics(
     f_low: float = 0.5,
     f_high: float = 6.0,
     low_speed_policy: str = DEFAULT_LOW_SPEED_POLICY,
+    iri_psd_A: float = None,
+    iri_psd_B: float = None,
     **kwargs
 ) -> Dict:
     """
@@ -211,7 +213,8 @@ def aggregate_segment_metrics(
 
     iri_psd_raw, iri_psd, debug_info = compute_iri_psd(
         seg_psd_input, fs, f_low=f_low, f_high=f_high,
-        scalar_mode=scalar_mode, return_debug=True
+        scalar_mode=scalar_mode, return_debug=True,
+        A=iri_psd_A, B=iri_psd_B
     )
     metrics['iri_psd_raw'] = iri_psd_raw
     metrics['iri_psd'] = iri_psd
@@ -273,7 +276,9 @@ def create_segments_dataframe(
     scalar_mode: str = 'mean_psd_sqrt',
     f_low: float = 0.5,
     f_high: float = 6.0,
-    low_speed_policy: str = DEFAULT_LOW_SPEED_POLICY
+    low_speed_policy: str = DEFAULT_LOW_SPEED_POLICY,
+    iri_psd_A: float = None,
+    iri_psd_B: float = None
 ) -> pd.DataFrame:
     """
     Create a DataFrame with metrics per 100 m segment
@@ -300,7 +305,7 @@ def create_segments_dataframe(
         metrics = aggregate_segment_metrics(
             seg_id, indices, a_vertical_g, a_vertical_g_psd, v_grid, s_grid,
             fs, anomaly_mask, scalar_mode=scalar_mode, f_low=f_low, f_high=f_high,
-            low_speed_policy=low_speed_policy
+            low_speed_policy=low_speed_policy, iri_psd_A=iri_psd_A, iri_psd_B=iri_psd_B
         )
         if metrics is not None:
             metrics_list.append(metrics)

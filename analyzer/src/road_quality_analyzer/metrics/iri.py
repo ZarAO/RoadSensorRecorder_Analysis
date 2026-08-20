@@ -5,7 +5,7 @@ Sections A2-A3, B5 - IRI calculation
 
 import numpy as np
 from scipy.signal import welch
-from typing import Tuple
+from typing import Optional, Tuple
 from enum import Enum
 
 
@@ -153,7 +153,9 @@ def compute_iri_psd(
     f_low: float = 0.5,
     f_high: float = 6.0,
     scalar_mode: str = 'mean_psd_sqrt',
-    return_debug: bool = False
+    return_debug: bool = False,
+    A: Optional[float] = None,
+    B: Optional[float] = None,
 ) -> Tuple[float, float, dict]:
     """
     Compute IRI from PSD (Eq.3)
@@ -174,6 +176,9 @@ def compute_iri_psd(
         f_low, f_high: frequency range for the band-pass
         scalar_mode: PSD scalarization mode
         return_debug: whether to return debug information
+        A, B: optional calibrated coefficient overrides (e.g. a device-specific
+              set fitted against profilometer ground truth). None -> the book
+              values from IRI_PSD_COEFFICIENTS, which stay untouched.
 
     Returns:
         (iri_psd_raw, iri_psd, debug_info)
@@ -186,9 +191,11 @@ def compute_iri_psd(
         a_vertical_g, fs, f_low, f_high, scalar_mode=scalar_mode
     )
 
-    # Eq.3 from the book (DO NOT CHANGE THE COEFFICIENTS!)
-    iri_psd_raw = (IRI_PSD_COEFFICIENTS['A_sqrt_psd'] * sqrtPSD
-                   + IRI_PSD_COEFFICIENTS['B_const'])
+    # Eq.3 from the book (DO NOT CHANGE THE COEFFICIENTS!) — calibrated sets
+    # are passed explicitly via A/B, never written into the constants
+    a_coef = IRI_PSD_COEFFICIENTS['A_sqrt_psd'] if A is None else A
+    b_coef = IRI_PSD_COEFFICIENTS['B_const'] if B is None else B
+    iri_psd_raw = a_coef * sqrtPSD + b_coef
 
     # Clipped version (NaN is not converted to 0: max() would hide a missing value)
     iri_psd = max(0.0, iri_psd_raw) if np.isfinite(iri_psd_raw) else np.nan
