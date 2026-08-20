@@ -31,6 +31,17 @@ export interface FileOut {
   runs_count: number;
 }
 
+export interface CoefficientSnapshot {
+  set_id: number;
+  name: string;
+  params: { A?: number; B?: number; bias?: number };
+}
+
+export interface RunCoefficients {
+  eq3: CoefficientSnapshot | null;
+  eq6_bias: CoefficientSnapshot | null;
+}
+
 export interface RunSummary {
   segments_total: number;
   km_total: number;
@@ -41,6 +52,8 @@ export interface RunSummary {
   incidents_total: number;
   clean_stop: boolean | null;
   vehicle_type: string | null;
+  coefficients?: RunCoefficients | null;
+  mean_iri_multi_corrected?: number | null;
 }
 
 export interface RunOut {
@@ -51,7 +64,7 @@ export interface RunOut {
   started_at: string | null;
   finished_at: string | null;
   status: 'queued' | 'running' | 'done' | 'failed';
-  params: { low_speed_policy?: string };
+  params: { low_speed_policy?: string; coefficients?: RunCoefficients };
   result_dir: string | null;
   summary: RunSummary | null;
   error: string | null;
@@ -72,6 +85,7 @@ export interface SegmentRow {
   speed_valid: boolean;
   low_speed_class: string | null;
   needs_class12_survey: boolean;
+  iri_multi_corrected?: number | null;
   [key: string]: unknown;
 }
 
@@ -106,4 +120,104 @@ export interface GeoJsonFeatureCollection {
     properties: Record<string, unknown>;
     geometry: { type: string; coordinates: unknown };
   }>;
+}
+
+export interface ReferenceOut {
+  id: number;
+  filename: string;
+  uploaded_at: string;
+  road_name: string;
+  direction: string | null;
+  lane: number | null;
+  category: number | null;
+  step_m: number;
+  measured_at: string | null;
+  intervals_count: number;
+  chainage_span_m: number;
+  bbox: number[] | null;
+  parse_warnings: string[];
+  source_deleted: boolean;
+  comparisons_count: number;
+}
+
+export interface ComparisonSummary {
+  n_pairs: number;
+  spearman_rho: number;
+  pearson_r: number;
+  mae: number;
+  bias: number;
+  n_eff: number;
+  eq3_r2: number;
+  gates: Record<string, unknown>;
+}
+
+export interface ComparisonOut {
+  id: number;
+  run_id: number;
+  reference_id: number;
+  run_filename: string | null;
+  reference_road: string | null;
+  created_at: string;
+  status: 'queued' | 'running' | 'done' | 'failed';
+  params: Record<string, number>;
+  result_dir: string | null;
+  summary: ComparisonSummary | null;
+  error: string | null;
+}
+
+export interface CoefficientSetOut {
+  id: number;
+  name: string;
+  model: 'eq3' | 'eq6_bias';
+  params: { A?: number; B?: number; bias?: number };
+  vehicle_type: string | null;
+  phone_model: string | null;
+  status: 'draft' | 'confirmed' | 'archived';
+  comparison_id: number | null;
+  stats_snapshot: Record<string, number | null> | null;
+  created_at: string;
+  confirmed_at: string | null;
+  confirmed_note: string | null;
+}
+
+export interface ConfirmOut {
+  set: CoefficientSetOut;
+  archived_set_id: number | null;
+  reanalyze_candidates: number;
+}
+
+export interface ArtifactEntry {
+  name: string;
+  size_bytes: number;
+}
+
+export interface ChartScatterPoint {
+  seg_id: number;
+  psd_sqrt_scalar: number;
+  iri_ref: number;
+  iri_multi: number;
+  chainage_m: number;
+}
+
+export interface ChartProfilePoint {
+  chainage_m: number;
+  iri_ref: number;
+  iri_multi: number;
+  iri_multi_bias_corrected: number;
+  seg_id: number;
+}
+
+export interface ChartBAPoint {
+  seg_id: number;
+  mean: number;
+  diff: number;
+}
+
+export interface ChartData {
+  scatter: ChartScatterPoint[];
+  profile: ChartProfilePoint[];
+  bland_altman: ChartBAPoint[];
+  eq3_fit: { A: number; B: number; r2: number; mae: number; n: number };
+  bias: number;
+  gates: Record<string, unknown>;
 }

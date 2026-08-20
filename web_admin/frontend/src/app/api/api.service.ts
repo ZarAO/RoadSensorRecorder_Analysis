@@ -3,7 +3,8 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
 import {
-  DashboardOut, FileOut, GeoJsonFeatureCollection, RunOut, SegmentRow,
+  ArtifactEntry, ChartData, CoefficientSetOut, ComparisonOut, ConfirmOut, DashboardOut, FileOut,
+  GeoJsonFeatureCollection, ReferenceOut, RunOut, SegmentRow,
 } from './dto';
 
 @Injectable({ providedIn: 'root' })
@@ -72,5 +73,75 @@ export class ApiService {
 
   logUrl(runId: number): string {
     return `${this.base}/runs/${runId}/log`;
+  }
+
+  listRunArtifacts(runId: number): Observable<ArtifactEntry[]> {
+    return this.http.get<ArtifactEntry[]>(`${this.base}/runs/${runId}/artifact-list`);
+  }
+
+  listReferences(): Observable<ReferenceOut[]> {
+    return this.http.get<ReferenceOut[]>(`${this.base}/references`);
+  }
+
+  uploadReference(file: File, measuredAt?: string): Observable<ReferenceOut> {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    if (measuredAt != null) {
+      form.append('measured_at', measuredAt);
+    }
+    return this.http.post<ReferenceOut>(`${this.base}/references`, form);
+  }
+
+  deleteReference(id: number): Observable<void> {
+    return this.http.delete<void>(`${this.base}/references/${id}`);
+  }
+
+  createComparison(runId: number, referenceId: number): Observable<ComparisonOut> {
+    return this.http.post<ComparisonOut>(`${this.base}/comparisons`,
+      { run_id: runId, reference_id: referenceId });
+  }
+
+  listComparisons(runId?: number): Observable<ComparisonOut[]> {
+    const suffix = runId != null ? `?run_id=${runId}` : '';
+    return this.http.get<ComparisonOut[]>(`${this.base}/comparisons${suffix}`);
+  }
+
+  getComparison(id: number): Observable<ComparisonOut> {
+    return this.http.get<ComparisonOut>(`${this.base}/comparisons/${id}`);
+  }
+
+  deleteComparison(id: number): Observable<void> {
+    return this.http.delete<void>(`${this.base}/comparisons/${id}`);
+  }
+
+  comparisonArtifactUrl(id: number, name: string): string {
+    return `${this.base}/comparisons/${id}/artifacts/${name}`;
+  }
+
+  getComparisonChartData(id: number): Observable<ChartData> {
+    return this.http.get<ChartData>(this.comparisonArtifactUrl(id, 'chart_data.json'));
+  }
+
+  listCoefficientSets(): Observable<CoefficientSetOut[]> {
+    return this.http.get<CoefficientSetOut[]>(`${this.base}/coefficient-sets`);
+  }
+
+  createCoefficientSet(payload: {
+    comparison_id: number; model: string; name: string;
+    vehicle_type: string; phone_model?: string | null;
+  }): Observable<CoefficientSetOut> {
+    return this.http.post<CoefficientSetOut>(`${this.base}/coefficient-sets`, payload);
+  }
+
+  confirmCoefficientSet(id: number, note?: string): Observable<ConfirmOut> {
+    return this.http.post<ConfirmOut>(`${this.base}/coefficient-sets/${id}/confirm`, { note });
+  }
+
+  archiveCoefficientSet(id: number): Observable<CoefficientSetOut> {
+    return this.http.post<CoefficientSetOut>(`${this.base}/coefficient-sets/${id}/archive`, {});
+  }
+
+  reanalyzeCoefficientSet(id: number): Observable<RunOut[]> {
+    return this.http.post<RunOut[]>(`${this.base}/coefficient-sets/${id}/reanalyze`, {});
   }
 }
