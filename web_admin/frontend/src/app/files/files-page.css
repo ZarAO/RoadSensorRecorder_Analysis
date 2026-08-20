@@ -1,0 +1,58 @@
+.error { color: #991b1b; background: #fee2e2; padding: 0.5rem 1rem; border-radius: 4px; }
+.warn { color: #92400e; }
+
+.dropzone {
+  border: 2px dashed #9ca3af;
+  border-radius: 8px;
+  padding: 1.5rem;
+  text-align: center;
+  color: #4b5563;
+  margin-bottom: 1rem;
+}
+.dropzone.over { border-color: #2563eb; background: #eff6ff; }
+.upload-label { color: #2563eb; cursor: pointer; text-decoration: underline; }
+
+.toolbar { margin-bottom: 1rem; }
+
+table.files { width: 100%; border-collapse: collapse; }
+table.files th, table.files td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid #e5e7eb;
+  text-align: left;
+  vertical-align: top;
+}
+tr.deleted { opacity: 0.55; }
+td small { display: block; color: #6b7280; }
+.actions { white-space: nowrap; }
+.actions button { margin-right: 0.4rem; }
+
+tr.preview td { background: #f9fafb; }
+table.kv td { padding: 0.15rem 0.75rem 0.15rem 0; border: none; }
+
+button {
+  padding: 0.35rem 0.8rem;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  background: #ffffff;
+  cursor: pointer;
+}
+button:hover { background: #f3f4f6; }
+button.primary { background: #2563eb; color: white; border-color: #2563eb; }
+button.danger { color: #991b1b; }
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.dialog {
+  background: white;
+  border-radius: 8px;
+  padding: 1.5rem;
+  min-width: 22rem;
+}
+.dialog .hint { color: #6b7280; font-size: 0.85rem; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1rem; }

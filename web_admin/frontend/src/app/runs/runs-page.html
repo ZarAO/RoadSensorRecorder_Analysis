@@ -1,0 +1,50 @@
+<h2>Результати</h2>
+
+@if (error(); as message) {
+  <p class="error">⚠ {{ message }}</p>
+}
+
+<table class="runs">
+  <thead>
+    <tr>
+      <th>#</th>
+      <th>Файл</th>
+      <th>Статус</th>
+      <th>Створено</th>
+      <th>Зведення</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    @for (run of runs(); track run.id) {
+      <tr>
+        <td><a [routerLink]="['/runs', run.id]">{{ run.id }}</a></td>
+        <td>{{ run.filename }}</td>
+        <td><span class="status" [class]="'status ' + run.status">{{ run.status }}</span></td>
+        <td>{{ run.created_at | date:'yyyy-MM-dd HH:mm:ss' }}</td>
+        <td class="summary">
+          @if (run.summary; as summary) {
+            <span class="chip">{{ summary.segments_total }} сегм.</span>
+            <span class="chip">{{ summary.km_total | number:'1.1-1' }} км</span>
+            @if (summary.vehicle_type) {
+              <span class="chip">{{ summary.vehicle_type }}</span>
+            }
+            @if (summary.clean_stop === true) {
+              <span class="chip ok">чиста зупинка</span>
+            } @else if (summary.clean_stop === false) {
+              <span class="chip bad">обірваний</span>
+            }
+            @if (summary.incidents_total > 0) {
+              <span class="chip bad">інцидентів: {{ summary.incidents_total }}</span>
+            }
+          } @else if (run.error) {
+            <span class="chip bad" [title]="run.error">помилка</span>
+          }
+        </td>
+        <td><button class="danger" (click)="remove(run)">Видалити</button></td>
+      </tr>
+    } @empty {
+      <tr><td colspan="6"><em>Ранів ще немає.</em></td></tr>
+    }
+  </tbody>
+</table>

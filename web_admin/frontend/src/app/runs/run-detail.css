@@ -1,0 +1,51 @@
+.status { padding: 0.1rem 0.5rem; border-radius: 4px; font-size: 0.9rem; margin-left: 0.5rem; }
+.status.queued { background: #f3f4f6; color: #374151; }
+.status.running { background: #fef9c3; color: #854d0e; }
+.status.done { background: #dcfce7; color: #166534; }
+.status.failed { background: #fee2e2; color: #991b1b; }
+
+.meta-line { color: #6b7280; }
+.error { background: #fee2e2; color: #991b1b; padding: 0.75rem; border-radius: 4px; }
+
+.log {
+  background: #111827;
+  color: #d1d5db;
+  padding: 0.75rem;
+  border-radius: 6px;
+  max-height: 24rem;
+  overflow-y: auto;
+  font-size: 0.85rem;
+}
+
+.cards { display: flex; gap: 1rem; flex-wrap: wrap; margin: 1rem 0; }
+.card {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 0.75rem 1.25rem;
+  text-align: center;
+}
+.card b { display: block; font-size: 1.3rem; }
+.card span { color: #6b7280; font-size: 0.85rem; }
+
+.plots { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem; }
+.plots img { width: 100%; border: 1px solid #e5e7eb; border-radius: 6px; }
+
+.folium { width: 100%; height: 480px; border: 1px solid #e5e7eb; border-radius: 6px; }
+
+.table-wrap { overflow-x: auto; }
+table.segments { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+table.segments th, table.segments td {
+  padding: 0.3rem 0.6rem;
+  border-bottom: 1px solid #e5e7eb;
+  text-align: right;
+}
+table.segments th:first-child, table.segments td:first-child { text-align: left; }
+tr.survey { background: #fdf4ff; }
+tr.partial { opacity: 0.6; }
+.magenta { color: #ff00ff; font-weight: 600; }
+
+.report { border-top: 1px solid #e5e7eb; padding-top: 1rem; }
+.report :is(h1, h2, h3) { margin-top: 1.25rem; }
+.report table { border-collapse: collapse; }
+.report td, .report th { border: 1px solid #e5e7eb; padding: 0.25rem 0.5rem; }
