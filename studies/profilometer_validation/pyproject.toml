@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "profilometer-validation"
+version = "1.0.0"
+description = "Smartphone-vs-profilometer matching, validation stats and figures (study 2026-08-20, reused by the web admin)"
+requires-python = ">=3.12"
+dependencies = ["numpy", "pandas", "scipy", "matplotlib", "scienceplots"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

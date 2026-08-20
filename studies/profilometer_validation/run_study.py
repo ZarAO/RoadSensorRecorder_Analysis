@@ -27,13 +27,12 @@ import pandas as pd
 
 STUDY_DIR = Path(__file__).resolve().parent
 REPO_ROOT = STUDY_DIR.parents[1]
-sys.path.insert(0, str(STUDY_DIR))
 
-from calibrate import (  # noqa: E402
+from profilometer_validation.calibrate import (
     bland_altman, effective_n, fit_eq3, fit_linear, influence_on_eq3,
     loro_bias_correction, loro_linear, validation_stats,
 )
-from match import (  # noqa: E402
+from profilometer_validation.match import (
     REFERENCE_CHANNELS, load_form_10m, load_form_intervals, match_segments,
     segment_midpoints_from_geojson, windowed_reference,
 )
@@ -268,7 +267,7 @@ def main() -> None:
         encoding='utf-8')
 
     # --- Figures ---
-    from figures import bland_altman_plot, chainage_overlay, scatter_fit
+    from profilometer_validation.figures import bland_altman_plot, chainage_overlay, scatter_fit
     figures_dir = out_dir / 'figures'
     written = []
     written += scatter_fit(pairs, eq3_pooled, figures_dir)

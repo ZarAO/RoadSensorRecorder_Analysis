@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from calibrate import (
+from profilometer_validation.calibrate import (
     bland_altman, fit_eq3, fit_grms_speed, loro, validation_stats,
 )
 
@@ -75,7 +75,7 @@ def test_fit_grms_speed_shape():
 
 
 def test_fit_eq3_speed_recovers_speed_term():
-    from calibrate import fit_eq3_speed
+    from profilometer_validation.calibrate import fit_eq3_speed
     rng = np.random.default_rng(SEED)
     n = 200
     sqrt_psd = rng.uniform(0.1, 1.0, n)
@@ -93,7 +93,7 @@ def test_fit_eq3_speed_recovers_speed_term():
 
 
 def test_loro_linear_matches_dedicated_loro():
-    from calibrate import loro, loro_linear
+    from profilometer_validation.calibrate import loro, loro_linear
     rng = np.random.default_rng(SEED)
     pairs = pd.concat([_pairs(road='A', rng=rng), _pairs(road='B', rng=rng)],
                       ignore_index=True)
@@ -104,7 +104,7 @@ def test_loro_linear_matches_dedicated_loro():
 
 
 def test_loro_bias_correction_out_of_sample():
-    from calibrate import loro_bias_correction
+    from profilometer_validation.calibrate import loro_bias_correction
     pairs = pd.concat([
         _pairs(road='A', noise=0.0),
         _pairs(road='B', noise=0.0),
@@ -117,7 +117,7 @@ def test_loro_bias_correction_out_of_sample():
 
 
 def test_effective_n_white_noise_and_persistent():
-    from calibrate import effective_n
+    from profilometer_validation.calibrate import effective_n
     rng = np.random.default_rng(SEED)
     white = pd.Series(rng.normal(0, 1, 500))
     assert effective_n(white)['n_eff'] > 400          # ~n for white noise
@@ -126,7 +126,7 @@ def test_effective_n_white_noise_and_persistent():
 
 
 def test_influence_on_eq3_reports_drops():
-    from calibrate import influence_on_eq3
+    from profilometer_validation.calibrate import influence_on_eq3
     out = influence_on_eq3(_pairs(), drop_counts=(1, 5))
     assert set(out) == {'full', 'drop_1_roughest', 'drop_5_roughest'}
     assert out['drop_5_roughest']['n'] == 115

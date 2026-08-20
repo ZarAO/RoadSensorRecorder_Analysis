@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from match import (
+from profilometer_validation.match import (
     METERS_PER_DEG_LAT, build_gps_track, load_form_intervals, match_segments,
     segment_midpoints,
 )
@@ -145,7 +145,7 @@ def test_match_is_deterministic_under_row_shuffle(tmp_path):
 
 def test_segment_midpoints_from_geojson_positional(tmp_path):
     import json
-    from match import segment_midpoints_from_geojson
+    from profilometer_validation.match import segment_midpoints_from_geojson
 
     segments = _segments([0, 1, 2], [0.0, 100.0, 200.0])
     segments.loc[1, 'partial'] = True
@@ -170,7 +170,7 @@ def test_segment_midpoints_from_geojson_positional(tmp_path):
 
 def test_segment_midpoints_from_geojson_count_mismatch_raises(tmp_path):
     import json
-    from match import segment_midpoints_from_geojson
+    from profilometer_validation.match import segment_midpoints_from_geojson
 
     p = tmp_path / 'roughness.geojson'
     p.write_text(json.dumps({'type': 'FeatureCollection', 'features': []}),
@@ -210,7 +210,7 @@ def _seg_with_endpoints(seg_id, s_a, s_b, lat0=LAT0):
 
 
 def test_windowed_reference_averages_the_span(tmp_path):
-    from match import load_form_10m, windowed_reference
+    from profilometer_validation.match import load_form_10m, windowed_reference
     form10 = load_form_10m(_form10_csv(tmp_path))
     # Segment spanning s=50..150: nearest 10m midpoints are rows 5..14
     # (midpoint of row i sits at 10*i+5)
@@ -224,7 +224,7 @@ def test_windowed_reference_averages_the_span(tmp_path):
 
 
 def test_windowed_reference_drops_far_and_degenerate(tmp_path):
-    from match import load_form_10m, windowed_reference
+    from profilometer_validation.match import load_form_10m, windowed_reference
     form10 = load_form_10m(_form10_csv(tmp_path))
     far = _seg_with_endpoints(1, 50.0, 150.0)
     far['lon_a'] = far['lon_b'] = LON0 + 0.01          # ~700 m east
