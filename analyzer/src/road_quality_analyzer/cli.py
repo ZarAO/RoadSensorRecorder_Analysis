@@ -110,6 +110,17 @@ def analyze(input_path: str, output_dir: str,
     if sensor_data.gps_time is not None:
         print(f"  GPS samples: {len(sensor_data.gps_time)}")
 
+    from road_quality_analyzer.io import parse_recording_metadata, RecordingMetadata
+    try:
+        recording_meta = parse_recording_metadata(input_path)
+    except Exception as exc:  # the comment layer must never fail the analysis
+        recording_meta = RecordingMetadata()
+        recording_meta.warnings.append(f"metadata parsing failed: {exc}")
+    print(f"  Metadata: schema={recording_meta.schema}, "
+          f"vehicle={'yes' if recording_meta.vehicle else 'no'}, "
+          f"events={len(recording_meta.events)}, "
+          f"{'clean stop' if recording_meta.clean_stop else 'truncated or pre-v2.1'}")
+
     # 2. Uniform time grid
     print("\n[2/9] Побудова uniform time grid...")
     t_grid, ax_grid, ay_grid, az_grid = build_uniform_time_grid(
@@ -297,6 +308,17 @@ def analyze(input_path: str, output_dir: str,
     segments_df.to_csv(segments_csv, index=False)
     print(f"  ✓ {segments_csv}")
 
+    # Recording metadata (structured feed for the web admin, Stage D)
+    import dataclasses
+    import json
+    meta_json = output_path / "recording_meta.json"
+    meta_payload = dataclasses.asdict(recording_meta)
+    meta_payload.update(source_file=str(input_path),
+                        clean_stop=recording_meta.clean_stop)
+    with open(meta_json, 'w', encoding='utf-8') as jf:
+        json.dump(meta_payload, jf, ensure_ascii=False, indent=2)
+    print(f"  ✓ {meta_json}")
+
     # GeoJSON artifacts
     from road_quality_analyzer.artifacts import (
         export_segments_geojson, export_events_geojson,
@@ -345,6 +367,8 @@ def analyze(input_path: str, output_dir: str,
         # Artifacts
         f.write("## Generated Artifacts\n\n")
         f.write("- `road_segments.csv` - метрики 100м сегментів (CSV)\n")
+        f.write("- `recording_meta.json` - метадані запису: преамбула, профіль авто, "
+                "події, футер (JSON)\n")
         f.write("- `roughness.geojson` - сегменти з геометрією та метриками (GeoJSON)\n")
         f.write("- `events.geojson` - аномалії як точки (GeoJSON)\n")
         f.write("- `segments_map.html` - інтерактивна карта сегментів (відкрийте в браузері)\n")
@@ -360,6 +384,78 @@ def analyze(input_path: str, output_dir: str,
         f.write(f"- Sampling rate: {fs:.1f} Hz\n")
         f.write(f"- Segments (100m): {len(segments_df)} ({n_partial} partial, excluded from means)\n")
         f.write(f"- Anomalies: {n_anomalies}\n\n")
+
+        # Recording metadata (Stage C): the CSV comment layer, v2.1/v3 contract
+        def _pct(value):
+            """Render a battery percent; the contract uses -1 for 'unavailable'."""
+            if value is None or str(value) == '-1':
+                return "недоступно"
+            return f"{value}%"
+
+        f.write("## Recording Metadata\n\n")
+        if recording_meta.schema is None and not recording_meta.preamble:
+            f.write("- Преамбули немає: файл записаний до контракту v2 або без неї\n")
+        else:
+            f.write(f"- Schema: {recording_meta.schema}\n")
+            for key in ('device', 'app_version', 'nominal_rate_hz', 'anchor', 'units'):
+                if key in recording_meta.preamble:
+                    f.write(f"- {key}: {recording_meta.preamble[key]}\n")
+            f.write(f"- Battery: {_pct(recording_meta.preamble.get('battery_start_pct'))}"
+                    f" → {_pct((recording_meta.footer or {}).get('battery_end_pct'))}\n")
+        if recording_meta.clean_stop:
+            footer = recording_meta.footer
+            f.write(f"- Зупинка: чиста (reason={footer.get('reason', '?')}), "
+                    f"duration_ms={footer.get('duration_ms', '?')}\n")
+            f.write(f"- Футер rows (queue-time, верхня межа): "
+                    f"accel={footer.get('rows_accel')}, gyro={footer.get('rows_gyro')}, "
+                    f"gps={footer.get('rows_gps')}; фактично розпарсено: "
+                    f"accel={len(sensor_data.accel_time)}, "
+                    f"gyro={0 if sensor_data.gyro_time is None else len(sensor_data.gyro_time)}, "
+                    f"gps={0 if sensor_data.gps_time is None else len(sensor_data.gps_time)}\n")
+        else:
+            f.write("- Зупинка: футера `# end:` немає — запис обірваний або записаний "
+                    "до контракту v2.1; файл валідний до останнього рядка, але "
+                    "неповний\n")
+        for warning in recording_meta.warnings:
+            f.write(f"- ⚠ {warning}\n")
+
+        f.write("\n## Vehicle Profile\n\n")
+        if recording_meta.vehicle:
+            f.write("| Параметр | Значення |\n|---|---|\n")
+            for key, value in recording_meta.vehicle.items():
+                f.write(f"| `{key}` | {value} |\n")
+            f.write("\nПараметри записані як контекст для порівняння заїздів. "
+                    "Обчислення IRI_multi (Eq.4/5/6) використовують GENERIC-коефіцієнти "
+                    "незалежно від профілю: довідник калібрує лише тестові класи "
+                    "LEV/DSD/GENERIC.\n")
+        else:
+            f.write("Немає блоку профілю (запис до v3 або без активного профілю).\n")
+
+        f.write("\n## Recording Events\n\n")
+        if recording_meta.events:
+            from collections import Counter
+            counts = Counter(e.type for e in recording_meta.events)
+            f.write("| Тип | Кількість |\n|---|---|\n")
+            for etype, count in sorted(counts.items()):
+                f.write(f"| `{etype}` | {count} |\n")
+            f.write(f"\n- Інцидентів (без `accuracy_changed`, як лічильник у "
+                    f"застосунку): {recording_meta.incident_count}\n")
+            if recording_meta.footer and 'events' in recording_meta.footer:
+                f.write(f"- Футер events={recording_meta.footer['events']} "
+                        f"(queue-time, верхня межа; розпарсено "
+                        f"{len(recording_meta.events)})\n")
+            f.write("\n| t, с від старту даних | Тип | Атрибути |\n|---|---|---|\n")
+            for event in recording_meta.events[:50]:
+                t_rel = ('?' if event.t_ms < 0 or sensor_data.t0_ms is None
+                         else f"{(event.t_ms - sensor_data.t0_ms) / 1000.0:.1f}")
+                attrs = ', '.join(f"{k}={v}" for k, v in event.attrs.items())
+                f.write(f"| {t_rel} | `{event.type}` | {attrs} |\n")
+            if len(recording_meta.events) > 50:
+                f.write(f"\n…і ще {len(recording_meta.events) - 50} подій "
+                        "(повний список у recording_meta.json)\n")
+        else:
+            f.write("Рядків `# event:` немає.\n")
+        f.write("\n")
 
         # Data window (E)
         f.write("## Data Window\n\n")

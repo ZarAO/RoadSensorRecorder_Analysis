@@ -39,6 +39,10 @@ class SensorData:
     # Detected unit of the Time column ('ms' / 's' / 'iso')
     time_unit: str = 'ms'
 
+    # Absolute epoch-ms of the first row, set only for a numeric ms Time column;
+    # lets callers relate anchored-epoch-ms event timestamps to time_sec
+    t0_ms: Optional[int] = None
+
 
 def _detect_time_unit(time_values: np.ndarray) -> str:
     """
@@ -110,10 +114,13 @@ def load_sensor_csv(filepath: str) -> SensorData:
 
     # Convert time to seconds from the start
     # Time can be in different formats: timestamp (ms/s) or ISO string
+    t0_ms = None
     if pd.api.types.is_numeric_dtype(df['time']):
         time_unit = _detect_time_unit(df['time'].values)
         divisor = 1000.0 if time_unit == 'ms' else 1.0
         t0 = df['time'].min()
+        if time_unit == 'ms':
+            t0_ms = int(t0)
         df['time_sec'] = (df['time'] - t0) / divisor
     else:
         # ISO datetime
@@ -140,6 +147,7 @@ def load_sensor_csv(filepath: str) -> SensorData:
         accel_y=accel_df['y'].values,
         accel_z=accel_df['z'].values,
         time_unit=time_unit,
+        t0_ms=t0_ms,
     )
 
     if len(gyro_df) > 0:

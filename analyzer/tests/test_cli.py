@@ -361,3 +361,70 @@ def test_report_records_the_analysis_window(baseline_run):
     assert 'Detected Time unit: ms' in report
     assert 'Edge trim: 300 samples (3 s) per side, applied AFTER filtering' in report
     assert 'Samples used for metrics: 3400' in report  # 4000 grid samples - 2 * 300
+
+
+# --- Stage C: recording metadata surfaced in report.md + recording_meta.json --
+
+V3_VEHICLE_BLOCK = (
+    "# vehicle_type=sedan\n# vehicle_make_model=Skoda Octavia\n# vehicle_year=2019\n"
+    "# vehicle_suspension_type=independent\n# vehicle_suspension_condition=good\n"
+    "# vehicle_tire_size=205/55 R16\n# vehicle_tire_type=summer\n"
+    "# vehicle_tire_pressure_bar=2.3\n# vehicle_load=driver_only\n"
+    "# vehicle_mount=windshield\n# vehicle_mount_rigid=true\n"
+)
+V3_COMMENT_TAIL_EVENTS = (
+    "# event: t=1753796581000, type=gps_lost, age_s=12\n"
+    "# event: t=1753796576100, type=accuracy_changed, sensor=accel, accuracy=3\n"
+)
+V3_FOOTER = ("# end: duration_ms=40000, rows_accel=4000, rows_gyro=0, rows_gps=40, "
+             "events=2, battery_end_pct=-1, reason=user\n")
+
+
+def _append_v3_layer(csv_path):
+    """Inject the vehicle block before the header and events+footer at EOF."""
+    from pathlib import Path
+    p = Path(csv_path)
+    text = p.read_text(encoding='utf-8')
+    text = text.replace("Time,Type,", V3_VEHICLE_BLOCK + "Time,Type,", 1)
+    text += V3_COMMENT_TAIL_EVENTS + V3_FOOTER
+    p.write_text(text, encoding='utf-8')
+
+
+def test_analyze_surfaces_v3_metadata(tmp_path, drive_csv):
+    import json
+
+    csv_path = drive_csv('v3.csv', duration_s=40.0, a_vert=_baseline_excitation)
+    _append_v3_layer(csv_path)
+    out = tmp_path / 'out'
+    run_analyze(csv_path, out)
+
+    report = (out / 'report.md').read_text(encoding='utf-8')
+    assert '## Recording Metadata' in report
+    assert 'reason=user' in report            # clean stop verdict
+    assert 'недоступно' in report             # battery_end_pct=-1 rendered as unavailable
+    assert '## Vehicle Profile' in report and 'Skoda Octavia' in report
+    assert '## Recording Events' in report and 'gps_lost' in report
+    assert 'accuracy_changed' in report       # counted but excluded from incidents
+    assert 'recording_meta.json' in report    # listed among generated artifacts
+
+    meta = json.loads((out / 'recording_meta.json').read_text(encoding='utf-8'))
+    assert meta['clean_stop'] is True
+    assert meta['vehicle']['vehicle_type'] == 'sedan'
+    assert len(meta['events']) == 2
+    assert meta['footer']['reason'] == 'user'
+
+
+def test_analyze_pre_v21_file_reports_absence(tmp_path, drive_csv):
+    import json
+
+    csv_path = drive_csv('v2.csv', duration_s=40.0, a_vert=_baseline_excitation,
+                         preamble=False)
+    out = tmp_path / 'out'
+    run_analyze(csv_path, out)
+
+    report = (out / 'report.md').read_text(encoding='utf-8')
+    assert '## Recording Metadata' in report
+    assert 'обірваний або записаний до контракту v2.1' in report
+
+    meta = json.loads((out / 'recording_meta.json').read_text(encoding='utf-8'))
+    assert meta['clean_stop'] is False and meta['vehicle'] == {}
