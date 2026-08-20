@@ -8,8 +8,14 @@
   <h3>Еталони профілометра</h3>
 
   <div class="upload-row">
-    <input type="file" accept=".xlsx" #refInput (change)="onFileInput($event)"
-           aria-label="Файл еталона профілометра (.xlsx)" />
+    <div class="file-picker">
+      <button type="button" (click)="refInput.click()"
+              aria-label="Вибрати файл еталона профілометра (.xlsx)">Вибрати файл…</button>
+      <span class="file-name" [class.muted]="!pendingFile()">
+        {{ pendingFile()?.name ?? 'Файл не вибрано' }}
+      </span>
+      <input type="file" accept=".xlsx" #refInput (change)="onFileInput($event)" hidden />
+    </div>
     <label class="field">
       Дата вимірювання (ручне поле)
       <input type="date" [value]="measuredAt()" (input)="onMeasuredAtInput($event)" />

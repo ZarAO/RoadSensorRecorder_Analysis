@@ -26,8 +26,15 @@ section.card { margin-bottom: var(--space-4); }
   color: var(--color-muted-fg);
 }
 
+.file-picker {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.file-name { font-size: var(--text-sm); }
+.file-name.muted { color: var(--color-muted-fg); }
+
 input[type='date'],
-input[type='file'],
 textarea {
   font-family: inherit;
   font-size: var(--text-sm);
