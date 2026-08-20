@@ -17,7 +17,7 @@ const RUN: RunOut = {
     partial_count: 0, events_total: 2, incidents_total: 1, clean_stop: true,
     vehicle_type: 'sedan',
   },
-  error: null, phone_model: 'samsung SM-S948B',
+  error: null, phone_model: 'samsung SM-S948B', device_id: null, vehicle_id: null,
 };
 
 /** Base ApiService stub: every test overrides only what it needs to exercise. */

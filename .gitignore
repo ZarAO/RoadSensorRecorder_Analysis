@@ -132,13 +132,14 @@ ENV/
 env/
 env.bak/
 venv.bak/
-Lib/
-Scripts/
-share/
-pyvenv.cfg
-# Git ignores paths case-insensitively on Windows, so the venv's Scripts/ rule
-# above also swallowed the backend's own scripts/ — that one is source.
-!web_admin/backend/scripts/
+# A venv created straight in the repo root (`python -m venv .`) drops these here.
+# Anchored to the root on purpose: an unanchored `Scripts/` matches at every depth
+# and (git compares paths case-insensitively on Windows) also swallowed the
+# backend's own scripts/ — that one is source.
+/Lib/
+/Scripts/
+/share/
+/pyvenv.cfg
 
 # === IDE ===
 # VS Code

@@ -169,14 +169,17 @@ export class ApiService {
   createCoefficientSet(payload: {
     comparison_id?: number; aggregate_comparison_id?: number; model: string; name: string;
     vehicle_type: string; phone_model?: string | null;
+    device_id?: string | null; vehicle_id?: string | null;
   }): Observable<CoefficientSetOut> {
     return this.http.post<CoefficientSetOut>(`${this.base}/coefficient-sets`, payload);
   }
 
-  /** How many uploaded files a set with this resolution key would apply to —
-   *  shown before creating/confirming, so a key that matches nothing is visible. */
+  /** How many uploaded files a set with this FULL resolution key would be
+   *  applied to — shown before creating/confirming, so a key that matches
+   *  nothing (or that a more specific confirmed set already owns) is visible. */
   previewResolution(payload: {
     model: string; vehicle_type: string | null; phone_model: string | null;
+    device_id: string | null; vehicle_id: string | null;
   }): Observable<PreviewResolutionOut> {
     return this.http.post<PreviewResolutionOut>(
       `${this.base}/coefficient-sets/preview-resolution`, payload);

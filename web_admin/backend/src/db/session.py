@@ -17,12 +17,13 @@ def make_engine(db_url: str):
     return create_engine(db_url, connect_args=connect_args)
 
 
-# Nullable INTEGER columns added to tables that predate them. SQLite's
-# create_all() never ALTERs an existing table, so every column here is added in
-# place, once (idempotent: skipped when already present).
+# Nullable columns added to tables that predate them, as {table: {column: type}}.
+# SQLite's create_all() never ALTERs an existing table, so every column here is
+# added in place, once (idempotent: skipped when already present).
 _ADDED_COLUMNS = {
-    'analysis_runs': ('eq3_set_id', 'eq6_bias_set_id'),
-    'coefficient_sets': ('aggregate_comparison_id',),
+    'analysis_runs': {'eq3_set_id': 'INTEGER', 'eq6_bias_set_id': 'INTEGER'},
+    'coefficient_sets': {'aggregate_comparison_id': 'INTEGER',
+                         'device_id': 'TEXT', 'vehicle_id': 'TEXT'},
 }
 
 
@@ -40,9 +41,9 @@ def _ensure_run_columns(engine) -> None:
             if table not in tables:
                 continue
             existing = {c['name'] for c in inspector.get_columns(table)}
-            for column in columns:
+            for column, sql_type in columns.items():
                 if column not in existing:
-                    conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {column} INTEGER'))
+                    conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {column} {sql_type}'))
 
 
 def get_session(request: Request):

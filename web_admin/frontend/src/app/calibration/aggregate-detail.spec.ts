@@ -44,12 +44,13 @@ const RUN: RunOut = {
     partial_count: 0, events_total: 0, incidents_total: 0, clean_stop: true,
     vehicle_type: 'sedan',
   },
-  error: null, phone_model: 'samsung SM-S948B',
+  error: null, phone_model: 'samsung SM-S948B', device_id: null, vehicle_id: null,
 };
 
 const CREATED_SET: CoefficientSetOut = {
   id: 12, name: 'eq6_bias_sedan_2026-08-20', model: 'eq6_bias', params: { bias: -1.61 },
-  vehicle_type: 'sedan', phone_model: null, status: 'draft', comparison_id: null,
+  vehicle_type: 'sedan', phone_model: null, device_id: null, vehicle_id: null,
+  status: 'draft', comparison_id: null,
   aggregate_comparison_id: 7, stats_snapshot: null, created_at: '2026-08-20T11:00:00Z',
   confirmed_at: null, confirmed_note: null,
 };
@@ -227,6 +228,7 @@ describe('AggregateDetail', () => {
       name: 'eq6_bias_sedan_2026-08-20',
       vehicle_type: 'sedan',
       phone_model: 'samsung SM-S948B',
+      device_id: null, vehicle_id: null,
     });
     expect(host.querySelector('#set-dialog')).toBeFalsy();
     expect(host.querySelector('.success-note')?.textContent)

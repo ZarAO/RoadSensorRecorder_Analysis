@@ -61,7 +61,11 @@ export class ComparisonDetail {
   readonly vehicleType = signal('');
   /** The compared run's recorded device — the dialog's phone key comes from here */
   readonly phoneModel = signal<string | null>(null);
-  readonly phoneOptions = computed(() => phoneOptionsFor(this.phoneModel()));
+  /** Contract v3.1 identity of the same recording — the exact calibration key */
+  readonly deviceId = signal<string | null>(null);
+  readonly vehicleId = signal<string | null>(null);
+  readonly phoneOptions = computed(
+    () => phoneOptionsFor(this.phoneModel(), this.deviceId(), this.vehicleId()));
   readonly createdSet = signal<CoefficientSetOut | null>(null);
 
   readonly summary = computed(() => this.comparison()?.summary ?? null);
@@ -168,6 +172,8 @@ export class ComparisonDetail {
       next: run => {
         this.vehicleType.set(run.summary?.vehicle_type ?? '');
         this.phoneModel.set(run.phone_model);
+        this.deviceId.set(run.device_id);
+        this.vehicleId.set(run.vehicle_id);
       },
       // A missing run only costs the prefill — the operator can still type the
       // vehicle type, and the dialog falls back to the «any phone» tier

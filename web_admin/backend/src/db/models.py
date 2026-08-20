@@ -133,6 +133,11 @@ class CoefficientSet(Base):
     params: Mapped[dict] = mapped_column(JSON)  # {A, B} for eq3, {bias} for eq6_bias
     vehicle_type: Mapped[Optional[str]] = mapped_column(default=None)
     phone_model: Mapped[Optional[str]] = mapped_column(default=None)
+    # Contract v3.1 identity keys, written by the recorder itself: ANDROID_ID and
+    # the UUID of the active vehicle profile. Both set = the exact resolution
+    # tier; both null = a legacy phone/vehicle-type key.
+    device_id: Mapped[Optional[str]] = mapped_column(default=None)
+    vehicle_id: Mapped[Optional[str]] = mapped_column(default=None)
     status: Mapped[str] = mapped_column(String, default='draft')  # draft|confirmed|archived
     # Provenance: EITHER a single comparison OR a multi-pass aggregate, never both
     comparison_id: Mapped[Optional[int]] = mapped_column(ForeignKey('comparisons.id'), default=None)

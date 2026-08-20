@@ -7,6 +7,12 @@ from sqlalchemy.orm import Session
 
 META_VAN = {'preamble': {'device': 'samsung SM-S948B, android=16'},
             'vehicle': {'vehicle_type': 'van'}}
+# Contract v3.1: the phone writes its own identity into the file
+DEVICE_ID = 'a1b2c3d4e5f60718'
+VEHICLE_ID = '7f3c9e10-0000-4000-8000-abcdefabcdef'
+META_VAN_V31 = {'preamble': {'device': 'samsung SM-S948B, android=16',
+                             'device_id': DEVICE_ID},
+                'vehicle': {'vehicle_type': 'van', 'vehicle_id': VEHICLE_ID}}
 
 
 def _add_set(engine, **kw):
@@ -35,16 +41,113 @@ def test_resolution_fallback_chain(client):
         assert resolve_for_meta(s, None) == {'eq3': None, 'eq6_bias': None}
 
 
-def _upload_with_device(client, name, device, vehicle_type):
+def _upload_with_device(client, name, device, vehicle_type,
+                        device_id=None, vehicle_id=None):
     """A file whose recording_meta is parsed by the real upload endpoint, so the
-    device string is exactly what phone_model_from_meta will later read."""
-    csv = (f'# schema=2\n# device: {device}\n# vehicle_type={vehicle_type}\n'
+    device string is exactly what phone_model_from_meta will later read.
+    device_id/vehicle_id are the contract v3.1 identity keys (absent = legacy)."""
+    lines = [f'# device: {device}', f'# vehicle_type={vehicle_type}']
+    if device_id is not None:
+        lines.insert(0, f'# device_id={device_id}')
+    if vehicle_id is not None:
+        lines.append(f'# vehicle_id={vehicle_id}')
+    csv = ('# schema=2\n' + '\n'.join(lines) + '\n'
            'Time,Type,X,Y,Z,Latitude,Longitude\n'
            '1753796576000,Accelerometer,0.0,0.0,9.81,,\n'
            '1753796577000,Accelerometer,0.0,0.0,9.81,,\n').encode('utf-8')
     r = client.post('/api/files', files={'file': (name, csv)})
     assert r.status_code == 201, r.text
     return r.json()['id']
+
+
+def test_identity_keys_are_read_from_the_parsed_v31_preamble(client):
+    """Contract pin: `# device_id=` lands in the preamble and `# vehicle_id=` in
+    the vehicle block (the parser keeps the `vehicle_` prefix), which is exactly
+    where the resolution helpers look."""
+    from src.db.models import SourceFile
+    from src.services.coefficients import device_id_from_meta, vehicle_id_from_meta
+    fid = _upload_with_device(client, 'v31.csv', 'samsung SM-S948B, android=16',
+                              'van', device_id=DEVICE_ID, vehicle_id=VEHICLE_ID)
+    with Session(client.app.state.engine) as s:
+        meta = s.get(SourceFile, fid).recording_meta
+    assert meta['preamble']['device_id'] == DEVICE_ID
+    assert meta['vehicle']['vehicle_id'] == VEHICLE_ID
+    assert device_id_from_meta(meta) == DEVICE_ID
+    assert vehicle_id_from_meta(meta) == VEHICLE_ID
+    # A legacy file has neither key and must never raise
+    assert device_id_from_meta(META_VAN) is None
+    assert vehicle_id_from_meta(META_VAN) is None
+    assert device_id_from_meta(None) is None and vehicle_id_from_meta(None) is None
+
+
+def test_identity_tier_wins_over_phone_and_generic(client):
+    """Tier 1: a set keyed on (device_id, vehicle_id) beats the phone and the
+    NULL tier for the recording that carries exactly that identity."""
+    from src.services.coefficients import resolve_for_meta
+    engine = client.app.state.engine
+    _add_set(engine, name='van_any')
+    phone = _add_set(engine, name='van_s948', phone_model='samsung SM-S948B')
+    identity = _add_set(engine, name='van_this_phone_and_car',
+                        phone_model='samsung SM-S948B',
+                        device_id=DEVICE_ID, vehicle_id=VEHICLE_ID)
+    with Session(engine) as s:
+        assert resolve_for_meta(s, META_VAN_V31)['eq6_bias']['set_id'] == identity
+        # The same phone in ANOTHER car must not inherit that car's calibration
+        other_car = {'preamble': dict(META_VAN_V31['preamble']),
+                     'vehicle': {'vehicle_type': 'van', 'vehicle_id': 'other-uuid'}}
+        assert resolve_for_meta(s, other_car)['eq6_bias']['set_id'] == phone
+
+
+def test_legacy_file_never_resolves_an_identity_set(client):
+    """A recording made before contract v3.1 carries no device_id: an identity
+    set is invisible to it and the phone/NULL tiers keep working as before."""
+    from src.services.coefficients import resolve_for_meta
+    engine = client.app.state.engine
+    generic = _add_set(engine, name='van_any')
+    _add_set(engine, name='van_identity', phone_model='samsung SM-S948B',
+             device_id=DEVICE_ID, vehicle_id=VEHICLE_ID)
+    with Session(engine) as s:
+        assert resolve_for_meta(s, META_VAN)['eq6_bias']['set_id'] == generic
+
+
+def test_partial_identity_resolves_nothing_and_falls_back(client):
+    """Half an identity is never tier 1: a set with only a device_id resolves for
+    nothing, and a file with only a device_id resolves via the legacy tiers."""
+    from src.services.coefficients import resolve_for_meta
+    engine = client.app.state.engine
+    _add_set(engine, name='half_set', phone_model='samsung SM-S948B',
+             device_id=DEVICE_ID)                     # no vehicle_id
+    _add_set(engine, name='half_set_2', device_id=None, vehicle_id=VEHICLE_ID,
+             phone_model=None)                        # no device_id
+    with Session(engine) as s:
+        assert resolve_for_meta(s, META_VAN_V31)['eq6_bias'] is None
+        assert resolve_for_meta(s, META_VAN)['eq6_bias'] is None
+
+    legacy = _add_set(engine, name='van_s948', phone_model='samsung SM-S948B')
+    half_file = {'preamble': {'device': 'samsung SM-S948B, android=16',
+                              'device_id': DEVICE_ID},
+                 'vehicle': {'vehicle_type': 'van'}}   # no vehicle_id in the file
+    with Session(engine) as s:
+        assert resolve_for_meta(s, half_file)['eq6_bias']['set_id'] == legacy
+
+
+def test_files_resolving_to_identity_key(client):
+    """The inverse of tier 1: the identity pair selects its own recordings and
+    ignores the vehicle type (the identity already names the car)."""
+    from src.services.coefficients import files_resolving_to
+    mine = _upload_with_device(client, 'mine.csv', 'samsung SM-S948B, android=16',
+                              'van', device_id=DEVICE_ID, vehicle_id=VEHICLE_ID)
+    _upload_with_device(client, 'other_car.csv', 'samsung SM-S948B, android=16',
+                        'van', device_id=DEVICE_ID, vehicle_id='other-uuid')
+    _upload_with_device(client, 'legacy.csv', 'samsung SM-S948B, android=16', 'van')
+    with Session(client.app.state.engine) as s:
+        assert [f.id for f in files_resolving_to(
+            s, 'van', 'samsung SM-S948B', DEVICE_ID, VEHICLE_ID)] == [mine]
+        # A half identity never resolves, so it applies to nothing
+        assert files_resolving_to(s, 'van', None, DEVICE_ID, None) == []
+        assert files_resolving_to(s, 'van', None, None, VEHICLE_ID) == []
+        # The legacy tiers stay vehicle-type based and see all three files
+        assert len(files_resolving_to(s, 'van', None)) == 3
 
 
 def test_files_resolving_to_is_phone_aware(client):

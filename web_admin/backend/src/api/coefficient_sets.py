@@ -1,8 +1,8 @@
 """
 CoefficientSet API (Phase 3): draft a set from a comparison's fitted
-stats.json, confirm it (archiving the previous confirmed set for the same
-(model, vehicle_type, phone_model) key), archive, and reanalyze the files of
-the matching vehicle under the freshly confirmed set.
+stats.json, confirm it (archiving the previous confirmed set for the same FULL
+key — model, vehicle_type, phone_model, device_id, vehicle_id), archive, and
+reanalyze the files of the matching vehicle under the freshly confirmed set.
 
 Resolution itself lives in src.services.coefficients; this router only manages
 the CoefficientSet lifecycle and reuses runs._create_and_submit so a
@@ -32,7 +32,7 @@ from src.api.schemas import (
 )
 from src.db.models import AggregateComparison, Comparison, CoefficientSet, SourceFile
 from src.db.session import get_session
-from src.services.coefficients import files_resolving_to
+from src.services.coefficients import files_applying_to, files_resolving_to
 
 router = APIRouter(prefix='/coefficient-sets', tags=['coefficient-sets'])
 
@@ -111,6 +111,12 @@ def _candidate_files(session: Session, vehicle_type: str | None) -> list[SourceF
     return files_resolving_to(session, vehicle_type, None)
 
 
+def _same_key(column, value):
+    """NULL-safe equality: SQL `= NULL` is never true, so a null key part has to
+    be compared with IS NULL for the «one confirmed per key» invariant to hold."""
+    return column.is_(None) if value is None else column == value
+
+
 def _set_or_404(set_id: int, session: Session) -> CoefficientSet:
     cs = session.get(CoefficientSet, set_id)
     if cs is None:
@@ -140,6 +146,8 @@ def _draft_from_comparison(payload: CoefficientSetCreate, session: Session) -> C
         params=params,
         vehicle_type=payload.vehicle_type,
         phone_model=payload.phone_model,
+        device_id=payload.device_id,
+        vehicle_id=payload.vehicle_id,
         status='draft',
         comparison_id=payload.comparison_id,
         stats_snapshot=_stats_snapshot(stats),
@@ -173,6 +181,8 @@ def _draft_from_aggregate(payload: CoefficientSetCreate, session: Session) -> Co
         params=params,
         vehicle_type=payload.vehicle_type,
         phone_model=payload.phone_model,
+        device_id=payload.device_id,
+        vehicle_id=payload.vehicle_id,
         status='draft',
         aggregate_comparison_id=payload.aggregate_comparison_id,
         stats_snapshot=_aggregate_snapshot(stats),
@@ -206,10 +216,14 @@ def list_sets(session: Session = Depends(get_session)):
 @router.post('/preview-resolution', response_model=PreviewResolutionOut)
 def preview_resolution(payload: PreviewResolutionIn,
                        session: Session = Depends(get_session)):
-    """Which uploaded files a set with this key would apply to — answered before
-    the operator confirms, so a phone_model that matches nothing is visible as 0
-    instead of silently producing a set that never resolves."""
-    files = files_resolving_to(session, payload.vehicle_type, payload.phone_model)
+    """Which uploaded files a set with this key would actually be applied to —
+    answered before the operator confirms, so a key that matches nothing is
+    visible as 0 instead of silently producing a set that never resolves. The
+    count is the true inverse of resolution: a file already won by a more
+    specific confirmed set is not promised here."""
+    files = files_applying_to(session, payload.model, payload.vehicle_type,
+                              payload.phone_model, payload.device_id,
+                              payload.vehicle_id)
     return PreviewResolutionOut(files_matched=len(files),
                                 filenames=[f.filename for f in files])
 
@@ -221,14 +235,17 @@ def confirm_set(set_id: int, payload: ConfirmIn, session: Session = Depends(get_
         raise HTTPException(
             409, f'підтвердити можна лише чернетку (поточний статус: {cs.status})')
 
+    # One confirmed set per FULL key: an identity-keyed set and the legacy phone
+    # set of the same vehicle are different keys and coexist.
     query = select(CoefficientSet).where(
         CoefficientSet.id != cs.id,
         CoefficientSet.model == cs.model,
-        CoefficientSet.vehicle_type == cs.vehicle_type,
-        CoefficientSet.status == 'confirmed')
-    query = query.where(CoefficientSet.phone_model.is_(None)
-                        if cs.phone_model is None
-                        else CoefficientSet.phone_model == cs.phone_model)
+        CoefficientSet.status == 'confirmed',
+        *[_same_key(column, value) for column, value in (
+            (CoefficientSet.vehicle_type, cs.vehicle_type),
+            (CoefficientSet.phone_model, cs.phone_model),
+            (CoefficientSet.device_id, cs.device_id),
+            (CoefficientSet.vehicle_id, cs.vehicle_id))])
     previous = session.scalars(query).first()
     archived_set_id = None
     if previous is not None:

@@ -223,7 +223,7 @@
           <th>Назва</th>
           <th>Модель</th>
           <th>Тип авто</th>
-          <th>Телефон</th>
+          <th>Ключ</th>
           <th>Статус</th>
           <th>Параметри</th>
           <th>ρ</th>
@@ -238,7 +238,7 @@
             <td>{{ set.name }}</td>
             <td>{{ set.model }}</td>
             <td>{{ set.vehicle_type ?? '—' }}</td>
-            <td>{{ set.phone_model ?? '—' }}</td>
+            <td [title]="keyTitle(set)">{{ keyLabel(set) }}</td>
             <td>
               <span class="chip"
                     [class.ok]="set.status === 'confirmed'"
@@ -378,9 +378,9 @@
       @if (confirmPreview(); as preview) {
         @if (preview.files_matched) {
           <p class="hint" id="confirm-preview" [title]="previewFilesTitle()">
-            Застосується до {{ preview.files_matched }} файлів
+            Впливатиме на {{ filesLabel(preview.files_matched) }}
             (vehicle_type={{ target.vehicle_type ?? '—' }},
-            телефон: {{ target.phone_model ?? 'будь-який' }})
+            {{ keyLabel(target) }})
           </p>
         } @else {
           <p class="error-banner" id="confirm-preview" role="alert">
@@ -406,7 +406,7 @@
          aria-labelledby="reanalyze-title" (click)="$event.stopPropagation()">
       <h3 id="reanalyze-title">Переаналіз наявних ранів</h3>
       <p>
-        Перерахувати рани для {{ target.candidates }} файлів
+        Переаналізувати {{ filesLabel(target.candidates) }}
         (vehicle_type={{ target.set.vehicle_type ?? '—' }})?
         Старі рани лишаться недоторканими.
       </p>

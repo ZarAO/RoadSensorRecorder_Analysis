@@ -65,6 +65,10 @@ class RunOut(BaseModel):
     # Enrichment (runs._to_out): the recording's device string exactly as
     # coefficient resolution matches on it; null for a pre-v3 recording
     phone_model: Optional[str] = None
+    # Contract v3.1 identity keys of the recording — the calibration key the
+    # set-creation dialog auto-fills; null for every older recording
+    device_id: Optional[str] = None
+    vehicle_id: Optional[str] = None
 
 
 class ComparisonCreate(BaseModel):
@@ -126,6 +130,10 @@ class CoefficientSetCreate(BaseModel):
     name: str
     vehicle_type: str
     phone_model: Optional[str] = None
+    # Auto-filled by the dialog from the run (contract v3.1); both set = the
+    # exact identity tier, both null = a legacy phone/vehicle-type key
+    device_id: Optional[str] = None
+    vehicle_id: Optional[str] = None
 
     @field_validator('model')
     @classmethod
@@ -134,14 +142,16 @@ class CoefficientSetCreate(BaseModel):
 
 
 class PreviewResolutionIn(BaseModel):
-    """The resolution key of a set the operator is about to create or confirm.
-    `model` is validated but does not narrow the count: a file matches a key by
-    vehicle type and phone, never by which equation the set calibrates."""
+    """The FULL resolution key of a set the operator is about to create or
+    confirm. `model` narrows the count only through the true inverse: a file
+    already won by a more specific confirmed set of the same model is excluded."""
 
     model: str
     # A set may carry no vehicle type (nothing resolves then) — 0 matches, not 422
     vehicle_type: Optional[str] = None
     phone_model: Optional[str] = None
+    device_id: Optional[str] = None
+    vehicle_id: Optional[str] = None
 
     @field_validator('model')
     @classmethod
@@ -163,6 +173,8 @@ class CoefficientSetOut(BaseModel):
     params: dict
     vehicle_type: Optional[str] = None
     phone_model: Optional[str] = None
+    device_id: Optional[str] = None
+    vehicle_id: Optional[str] = None
     status: str
     comparison_id: Optional[int] = None
     aggregate_comparison_id: Optional[int] = None

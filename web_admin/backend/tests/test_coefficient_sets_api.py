@@ -253,6 +253,98 @@ def test_preview_resolution_counts_files_per_phone_tier(client):
     assert bogus.status_code == 422
 
 
+def test_preview_resolution_is_the_true_inverse_of_resolution(client):
+    """A file already won by a MORE specific confirmed set must not be counted
+    for a less specific previewed key — the count promises only what the new set
+    would actually be applied to."""
+    from tests.test_coefficients import _add_set, _upload_with_device
+    _upload_with_device(client, 'van_s948.csv', 'samsung SM-S948B, android=16', 'van')
+    _upload_with_device(client, 'van_pixel.csv', 'google Pixel 9, android=15', 'van')
+
+    def preview(**key):
+        r = client.post('/api/coefficient-sets/preview-resolution',
+                        json={'model': 'eq6_bias', 'vehicle_type': 'van', **key})
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    # Nothing confirmed yet: the NULL tier would win both files
+    assert preview(phone_model=None)['files_matched'] == 2
+
+    _add_set(client.app.state.engine, name='van_s948_confirmed',
+             phone_model='samsung SM-S948B')
+    stolen = preview(phone_model=None)
+    assert stolen == {'files_matched': 1, 'filenames': ['van_pixel.csv']}
+    # The same key as the confirmed set still counts its own file (re-confirm),
+    # and a more specific key is never stolen from.
+    assert preview(phone_model='samsung SM-S948B')['files_matched'] == 1
+
+
+def test_preview_resolution_counts_the_identity_tier(client):
+    from tests.test_coefficients import (DEVICE_ID, VEHICLE_ID, _add_set,
+                                         _upload_with_device)
+    _upload_with_device(client, 'v31.csv', 'samsung SM-S948B, android=16', 'van',
+                        device_id=DEVICE_ID, vehicle_id=VEHICLE_ID)
+    _upload_with_device(client, 'legacy.csv', 'samsung SM-S948B, android=16', 'van')
+
+    def preview(**key):
+        r = client.post('/api/coefficient-sets/preview-resolution',
+                        json={'model': 'eq6_bias', 'vehicle_type': 'van', **key})
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    assert preview(phone_model='samsung SM-S948B', device_id=DEVICE_ID,
+                   vehicle_id=VEHICLE_ID) == {'files_matched': 1,
+                                              'filenames': ['v31.csv']}
+    # Half an identity resolves for nothing — visible as 0 before the confirm
+    assert preview(device_id=DEVICE_ID)['files_matched'] == 0
+    # A confirmed identity set steals its file from the phone tier, not the other way
+    _add_set(client.app.state.engine, name='identity_confirmed',
+             phone_model='samsung SM-S948B', device_id=DEVICE_ID,
+             vehicle_id=VEHICLE_ID)
+    assert preview(phone_model='samsung SM-S948B') == {'files_matched': 1,
+                                                       'filenames': ['legacy.csv']}
+    assert preview(phone_model='samsung SM-S948B', device_id=DEVICE_ID,
+                   vehicle_id=VEHICLE_ID)['files_matched'] == 1
+
+
+def test_confirm_archives_only_the_same_full_key(client, tmp_path):
+    """The «one confirmed per key» invariant runs on the FULL key: an identity
+    set and the legacy phone set of the same vehicle coexist."""
+    from tests.test_coefficients import DEVICE_ID, VEHICLE_ID
+    cmp_id = _make_done_comparison(client, tmp_path)
+
+    def draft(name, **key):
+        r = client.post('/api/coefficient-sets', json={
+            'comparison_id': cmp_id, 'model': 'eq6_bias', 'name': name,
+            'vehicle_type': 'van', **key})
+        assert r.status_code == 201, r.text
+        return r.json()
+
+    identity_v1 = draft('identity_v1', phone_model='samsung SM-S948B',
+                        device_id=DEVICE_ID, vehicle_id=VEHICLE_ID)
+    assert identity_v1['device_id'] == DEVICE_ID
+    assert identity_v1['vehicle_id'] == VEHICLE_ID
+
+    c1 = client.post(f"/api/coefficient-sets/{identity_v1['id']}/confirm", json={})
+    assert c1.status_code == 200, c1.text
+    assert c1.json()['archived_set_id'] is None
+
+    legacy = draft('legacy_phone', phone_model='samsung SM-S948B')
+    assert legacy['device_id'] is None and legacy['vehicle_id'] is None
+    c2 = client.post(f"/api/coefficient-sets/{legacy['id']}/confirm", json={})
+    assert c2.json()['archived_set_id'] is None      # different full key
+
+    identity_v2 = draft('identity_v2', phone_model='samsung SM-S948B',
+                        device_id=DEVICE_ID, vehicle_id=VEHICLE_ID)
+    c3 = client.post(f"/api/coefficient-sets/{identity_v2['id']}/confirm", json={})
+    assert c3.json()['archived_set_id'] == identity_v1['id']
+
+    statuses = {s['name']: s['status'] for s in client.get('/api/coefficient-sets').json()}
+    assert statuses['identity_v1'] == 'archived'
+    assert statuses['legacy_phone'] == 'confirmed'
+    assert statuses['identity_v2'] == 'confirmed'
+
+
 def test_delete_comparison_nulls_coefficient_set_fk(client, tmp_path):
     cmp_id = _make_done_comparison(client, tmp_path)
     draft = client.post('/api/coefficient-sets', json={

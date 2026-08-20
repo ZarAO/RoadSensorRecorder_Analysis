@@ -22,6 +22,7 @@ const RUN: RunOut = {
   finished_at: '2026-08-20T10:00:30Z', status: 'done',
   params: { low_speed_policy: 'invalid' }, result_dir: 'x',
   summary: null, error: null, phone_model: 'samsung SM-S948B',
+  device_id: null, vehicle_id: null,
 };
 
 const COMPARISON: ComparisonOut = {
@@ -50,7 +51,8 @@ const AGGREGATE: AggregateOut = {
 
 const DRAFT_SET: CoefficientSetOut = {
   id: 9, name: 'Sedan eq6 v1', model: 'eq6_bias', params: { bias: -1.55 },
-  vehicle_type: 'sedan', phone_model: null, status: 'draft', comparison_id: 3,
+  vehicle_type: 'sedan', phone_model: null, device_id: null, vehicle_id: null,
+  status: 'draft', comparison_id: 3,
   aggregate_comparison_id: null,
   stats_snapshot: {
     r2: 0.41, mae: 1.2, spearman_rho: 0.94, n_pairs: 20, mae_bias_corrected: 0.8,
@@ -165,11 +167,38 @@ describe('CalibrationPage', () => {
 
     expect(previewSpy).toHaveBeenCalledWith({
       model: 'eq6_bias', vehicle_type: 'sedan', phone_model: null,
+      device_id: null, vehicle_id: null,
     });
     const preview = host.querySelector('#confirm-preview')!;
-    expect(preview.textContent!.replace(/\s+/g, ' ')).toContain('Застосується до 3 файлів');
+    expect(preview.textContent!.replace(/\s+/g, ' ')).toContain('Впливатиме на 3 файли');
     expect(preview.getAttribute('title')).toBe('a.csv\nb.csv\nc.csv');
     expect(preview.classList.contains('error-banner')).toBe(false);
+  });
+
+  it('previews an identity-keyed set with the full key and a singular file', async () => {
+    const previewSpy = vi.fn(() => of({ files_matched: 1, filenames: ['drive.csv'] }));
+    const identitySet = {
+      ...DRAFT_SET, phone_model: 'samsung SM-S948B',
+      device_id: 'a1b2c3d4e5f60718', vehicle_id: 'veh-uuid',
+    };
+    const fixture = createPage(apiStub({
+      listCoefficientSets: () => of([identitySet]),
+      previewResolution: previewSpy as unknown as ApiService['previewResolution'],
+    }));
+    await fixture.whenStable();
+    const host = fixture.nativeElement as HTMLElement;
+
+    click(host, 'Підтвердити');
+    await fixture.whenStable();
+
+    expect(previewSpy).toHaveBeenCalledWith({
+      model: 'eq6_bias', vehicle_type: 'sedan', phone_model: 'samsung SM-S948B',
+      device_id: 'a1b2c3d4e5f60718', vehicle_id: 'veh-uuid',
+    });
+    const preview = host.querySelector('#confirm-preview')!;
+    const text = preview.textContent!.replace(/\s+/g, ' ');
+    expect(text).toContain('Впливатиме на 1 файл');
+    expect(text).toContain('цей телефон і авто (samsung SM-S948B)');
   });
 
   it('warns when no existing file matches the key, still allowing the confirm', async () => {

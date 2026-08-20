@@ -16,17 +16,36 @@ export interface PhoneOption {
   label: string;
   /** null = the set applies to any phone (phone_model IS NULL resolution tier) */
   value: string | null;
+  /** Contract v3.1: both set = the exact «this phone in this car» tier, which no
+   *  other phone and no other car can ever match. Both null on the other tiers. */
+  deviceId?: string | null;
+  vehicleId?: string | null;
 }
 
-/** The only two resolution tiers a set can target, built from the run's recorded
- *  device: the exact phone, or any phone of that vehicle type. A recording without
- *  a device line (pre-v3) offers the «any phone» tier alone — a typed device string
- *  would never match `phone_model_from_meta`, so it is not offered at all. */
-export function phoneOptionsFor(phoneModel: string | null | undefined): PhoneOption[] {
-  const anyPhone: PhoneOption = { label: 'Будь-який телефон цього типу авто', value: null };
+const ANY_PHONE: PhoneOption = {
+  label: 'Будь-який телефон цього типу авто', value: null, deviceId: null, vehicleId: null,
+};
+
+/** The resolution tiers a set can target, built from what the run actually
+ *  recorded — nothing here is ever typed by hand:
+ *   - contract v3.1 (device_id + vehicle_id): the exact phone-and-car identity;
+ *   - a device line only (pre-v3.1): the exact phone of that vehicle type;
+ *   - neither: the «any phone» tier alone.
+ *  A hand-typed device string would never match `phone_model_from_meta`, so it is
+ *  not offered at all. */
+export function phoneOptionsFor(phoneModel: string | null | undefined,
+                                deviceId: string | null = null,
+                                vehicleId: string | null = null): PhoneOption[] {
+  if (deviceId && vehicleId) {
+    return [{
+      label: `Цей телефон і авто (${phoneModel ?? deviceId})`,
+      value: phoneModel ?? null, deviceId, vehicleId,
+    }, ANY_PHONE];
+  }
   return phoneModel
-    ? [{ label: `Точний телефон (${phoneModel})`, value: phoneModel }, anyPhone]
-    : [anyPhone];
+    ? [{ label: `Точний телефон (${phoneModel})`, value: phoneModel,
+         deviceId: null, vehicleId: null }, ANY_PHONE]
+    : [ANY_PHONE];
 }
 
 /** The single «Створити набір коефіцієнтів» dialog, shared by the comparison and
@@ -68,21 +87,18 @@ export function phoneOptionsFor(phoneModel: string | null | undefined): PhoneOpt
           <input type="text" [value]="vehicle()" (input)="onVehicleInput($event)" />
         </label>
         <label class="field">
-          Модель телефону
-          <!-- Every caller passes phoneOptionsFor(run.phone_model), so the select is
-               what the operator sees. The free-text fallback below is a safety net for
-               a caller that knows no phone at all — kept because a typed value must
-               match phone_model_from_meta exactly, and a wrong one never resolves. -->
-          @if (phoneOptions().length) {
-            <select [value]="phone() ?? ''" (change)="onPhoneSelect($event)">
-              @for (option of phoneOptions(); track option.label) {
-                <option [value]="option.value ?? ''">{{ option.label }}</option>
-              }
-            </select>
-          } @else {
-            <input type="text" [value]="phone() ?? ''" (input)="onPhoneInput($event)"
-                   placeholder="(необов'язково)" />
-          }
+          Ключ калібрування
+          <!-- Machine keys only: every option comes from phoneOptionsFor(), built
+               from what the run recorded. No free-text entry exists, because a
+               typed value must match the parsed metadata exactly and a wrong one
+               would silently never resolve. The option value is the label, which
+               is unique per tier: two tiers may share the same phone string (or
+               none at all), and the posted key comes from the option object. -->
+          <select [value]="selected().label" (change)="onPhoneSelect($event)">
+            @for (option of phoneOptions(); track option.label) {
+              <option [value]="option.label">{{ option.label }}</option>
+            }
+          </select>
         </label>
 
         <p class="hint">
@@ -108,7 +124,9 @@ export class CreateSetDialog {
   /** Shown next to the disabled Eq.3 radio — the reason differs per provenance */
   readonly eq3DisabledReason = input('');
   readonly vehicleType = input('');
-  readonly phoneOptions = input<PhoneOption[]>([]);
+  /** Required: an empty list would leave the operator with no key at all, and a
+   *  silent default would guess a resolution tier the run never recorded. */
+  readonly phoneOptions = input.required<PhoneOption[]>();
   /** yyyy-MM-dd of the source's created_at: the suggested name stays reproducible
    *  instead of drifting with the wall clock. */
   readonly nameDate = input('');
@@ -117,8 +135,11 @@ export class CreateSetDialog {
   readonly closed = output<void>();
 
   protected readonly model = linkedSignal<SetModel>(() => this.defaultModel());
-  protected readonly phone = linkedSignal<string | null>(
-    () => this.phoneOptions()[0]?.value ?? null);
+  /** The chosen resolution tier as a whole option: the select's value alone
+   *  cannot carry the identity keys of the v3.1 tier. Most specific first, so
+   *  option 0 is the default. */
+  protected readonly selected = linkedSignal<PhoneOption>(
+    () => this.phoneOptions()[0] ?? ANY_PHONE);
   protected readonly submitting = signal(false);
   /** Creation errors live inside the dialog — the page banner sits under the backdrop */
   protected readonly error = signal<string | null>(null);
@@ -149,12 +170,11 @@ export class CreateSetDialog {
     this.typedVehicle.set((event.target as HTMLInputElement).value);
   }
 
-  protected onPhoneInput(event: Event): void {
-    this.phone.set((event.target as HTMLInputElement).value);
-  }
-
+  /** Read back by index, not by phone string: two tiers may carry the same phone
+   *  while keying differently. Nothing selected falls back to the widest tier. */
   protected onPhoneSelect(event: Event): void {
-    this.phone.set((event.target as HTMLSelectElement).value || null);
+    const index = (event.target as HTMLSelectElement).selectedIndex;
+    this.selected.set(this.phoneOptions()[index] ?? ANY_PHONE);
   }
 
   protected submit(): void {
@@ -169,7 +189,9 @@ export class CreateSetDialog {
       model: this.model(),
       name: this.name().trim(),
       vehicle_type: this.vehicle().trim(),
-      phone_model: (this.phone() ?? '').trim() || null,
+      phone_model: this.selected().value,
+      device_id: this.selected().deviceId ?? null,
+      vehicle_id: this.selected().vehicleId ?? null,
     }).subscribe({
       next: set => {
         this.submitting.set(false);

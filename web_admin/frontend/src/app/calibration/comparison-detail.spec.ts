@@ -25,7 +25,7 @@ const RUN: RunOut = {
     partial_count: 0, events_total: 0, incidents_total: 0, clean_stop: true,
     vehicle_type: 'sedan',
   },
-  error: null, phone_model: 'samsung SM-S948B',
+  error: null, phone_model: 'samsung SM-S948B', device_id: null, vehicle_id: null,
 };
 
 /** diffs: seg 1 → +1.4, seg 2 → +0.2, seg 3 → −2.5 (sorted table: 3, 1, 2) */
@@ -52,7 +52,8 @@ const CHART: ChartData = {
 
 const CREATED_SET: CoefficientSetOut = {
   id: 11, name: 'eq3_sedan_2026-08-20', model: 'eq3', params: { A: 146.23, B: -1.87 },
-  vehicle_type: 'sedan', phone_model: null, status: 'draft', comparison_id: 3,
+  vehicle_type: 'sedan', phone_model: null, device_id: null, vehicle_id: null,
+  status: 'draft', comparison_id: 3,
   aggregate_comparison_id: null, stats_snapshot: null, created_at: '2026-08-20T11:00:00Z',
   confirmed_at: null, confirmed_note: null,
 };
@@ -211,6 +212,7 @@ describe('ComparisonDetail', () => {
         vehicle_type: 'sedan',
         // Prefilled from the run — never a hand-typed device string
         phone_model: 'samsung SM-S948B',
+        device_id: null, vehicle_id: null,
       });
       expect(host.querySelector('#set-dialog')).toBeFalsy();
       expect(host.querySelector('.success-note')?.textContent)
@@ -237,15 +239,57 @@ describe('ComparisonDetail', () => {
       'Точний телефон (samsung SM-S948B)',
       'Будь-який телефон цього типу авто',
     ]);
-    expect(select.value).toBe('samsung SM-S948B');
+    expect(select.value).toBe('Точний телефон (samsung SM-S948B)');
 
-    select.value = '';
+    // The option value is the tier label; the posted key comes from the option
+    select.selectedIndex = 1;
     select.dispatchEvent(new Event('change'));
     await fixture.whenStable();
     click(dialog.querySelector('.dialog-actions')!, 'Створити');
     await fixture.whenStable();
 
     expect(createSpy).toHaveBeenCalledWith(expect.objectContaining({ phone_model: null }));
+  });
+
+  it('auto-fills the v3.1 identity key and posts it with the draft', async () => {
+    const createSpy = vi.fn(() => of(CREATED_SET));
+    const fixture = createPage(apiStub({
+      getRun: () => of({ ...RUN, device_id: 'a1b2c3d4e5f60718', vehicle_id: 'veh-uuid' }),
+      createCoefficientSet: createSpy as unknown as ApiService['createCoefficientSet'],
+    }));
+    await fixture.whenStable();
+    const host = fixture.nativeElement as HTMLElement;
+
+    click(host, 'Створити набір коефіцієнтів');
+    await fixture.whenStable();
+
+    const dialog = host.querySelector('#set-dialog')!;
+    const select = dialog.querySelector<HTMLSelectElement>('select')!;
+    expect(Array.from(select.options).map(option => option.textContent?.trim())).toEqual([
+      'Цей телефон і авто (samsung SM-S948B)',
+      'Будь-який телефон цього типу авто',
+    ]);
+
+    click(dialog.querySelector('.dialog-actions')!, 'Створити');
+    await fixture.whenStable();
+    expect(createSpy).toHaveBeenCalledWith(expect.objectContaining({
+      phone_model: 'samsung SM-S948B',
+      device_id: 'a1b2c3d4e5f60718',
+      vehicle_id: 'veh-uuid',
+    }));
+
+    // The «any phone» tier nulls the whole key, identity included
+    click(host, 'Створити набір коефіцієнтів');
+    await fixture.whenStable();
+    const reopened = host.querySelector<HTMLSelectElement>('#set-dialog select')!;
+    reopened.selectedIndex = 1;
+    reopened.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+    click(host.querySelector('#set-dialog .dialog-actions')!, 'Створити');
+    await fixture.whenStable();
+    expect(createSpy).toHaveBeenLastCalledWith(expect.objectContaining({
+      phone_model: null, device_id: null, vehicle_id: null,
+    }));
   });
 
   it('offers only the «any phone» option for a recording without a device line',
@@ -260,7 +304,8 @@ describe('ComparisonDetail', () => {
       await fixture.whenStable();
 
       const select = host.querySelector<HTMLSelectElement>('#set-dialog select')!;
-      expect(Array.from(select.options).map(option => option.value)).toEqual(['']);
+      expect(Array.from(select.options).map(option => option.value))
+      .toEqual(['Будь-який телефон цього типу авто']);
       expect(select.options[0].textContent?.trim())
         .toBe('Будь-який телефон цього типу авто');
     });
@@ -303,7 +348,7 @@ describe('ComparisonDetail', () => {
     click(host, 'Створити набір коефіцієнтів');
     await fixture.whenStable();
     const phone = host.querySelector<HTMLSelectElement>('#set-dialog select')!;
-    phone.value = '';
+    phone.selectedIndex = 1;
     phone.dispatchEvent(new Event('change'));
     await fixture.whenStable();
     click(host.querySelector('#set-dialog .dialog-actions')!, 'Створити');
@@ -316,7 +361,7 @@ describe('ComparisonDetail', () => {
 
     // The dialog is destroyed on close, so a reopened one starts from its inputs
     expect(host.querySelector<HTMLSelectElement>('#set-dialog select')!.value)
-      .toBe('samsung SM-S948B');
+      .toBe('Точний телефон (samsung SM-S948B)');
     expect(host.querySelector('#set-error')).toBeFalsy();
   });
 

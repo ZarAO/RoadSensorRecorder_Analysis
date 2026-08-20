@@ -42,7 +42,11 @@ export class AggregateDetail {
   /** Device of the first pooled pass — the passes are meant to be one phone in
    *  one vehicle, and «Будь-який телефон цього типу авто» covers a mixed set. */
   readonly phoneModel = signal<string | null>(null);
-  readonly phoneOptions = computed(() => phoneOptionsFor(this.phoneModel()));
+  /** Contract v3.1 identity of that same pass — the exact calibration key */
+  readonly deviceId = signal<string | null>(null);
+  readonly vehicleId = signal<string | null>(null);
+  readonly phoneOptions = computed(
+    () => phoneOptionsFor(this.phoneModel(), this.deviceId(), this.vehicleId()));
 
   readonly summary = computed(() => this.aggregate()?.summary ?? null);
 
@@ -126,6 +130,8 @@ export class AggregateDetail {
       next: run => {
         this.vehicleType.set(run.summary?.vehicle_type ?? '');
         this.phoneModel.set(run.phone_model);
+        this.deviceId.set(run.device_id);
+        this.vehicleId.set(run.vehicle_id);
       },
       // A missing run only costs the prefill — the operator can still type the
       // vehicle type, and the dialog falls back to the «any phone» tier

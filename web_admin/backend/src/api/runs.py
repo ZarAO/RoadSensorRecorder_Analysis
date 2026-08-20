@@ -18,7 +18,9 @@ from src.db.models import AnalysisRun, Comparison, SourceFile
 from src.db.session import get_session
 from src.services.aggregate import mark_stale_for_run
 from src.services.analysis import delete_run_artifacts, execute_run
-from src.services.coefficients import bias_of, phone_model_from_meta, resolve_for_meta
+from src.services.coefficients import (bias_of, device_id_from_meta,
+                                       phone_model_from_meta, resolve_for_meta,
+                                       vehicle_id_from_meta)
 from src.services.comparison import delete_comparison_artifacts, detach_coefficient_sets
 
 router = APIRouter(prefix='/runs', tags=['runs'])
@@ -27,9 +29,12 @@ router = APIRouter(prefix='/runs', tags=['runs'])
 def _to_out(run: AnalysisRun) -> RunOut:
     out = RunOut.model_validate(run)
     out.filename = run.file.filename if run.file else None
-    # The set-creation dialog offers exactly this string as the phone key, so it
-    # comes from the same helper resolution matches on (null for pre-v3 files).
-    out.phone_model = phone_model_from_meta(run.file.recording_meta if run.file else None)
+    # The set-creation dialog auto-fills exactly these keys, so they come from
+    # the same helpers resolution matches on (null for older recordings).
+    meta = run.file.recording_meta if run.file else None
+    out.phone_model = phone_model_from_meta(meta)
+    out.device_id = device_id_from_meta(meta)
+    out.vehicle_id = vehicle_id_from_meta(meta)
     return out
 
 

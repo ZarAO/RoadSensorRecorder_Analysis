@@ -7,6 +7,7 @@ import {
   AggregateOut, AggregateSummary, CoefficientSetOut, ComparisonOut, PreviewResolutionOut,
   ReferenceOut, RunOut,
 } from '../api/dto';
+import { filesCount } from '../shared/plural';
 
 const REFRESH_MS = 2000;
 /** Only 10 m reference forms are comparable with 100 m analyzer segments */
@@ -311,9 +312,11 @@ export class CalibrationPage {
     this.confirmPreview.set(null);
     this.confirmTarget.set(set);
     // A set whose key matches no uploaded file resolves for nothing — the count
-    // makes that visible before the confirm, without blocking it.
+    // makes that visible before the confirm, without blocking it. The FULL key
+    // goes out, so the answer is what resolution would really pick.
     this.api.previewResolution({
       model: set.model, vehicle_type: set.vehicle_type, phone_model: set.phone_model,
+      device_id: set.device_id, vehicle_id: set.vehicle_id,
     }).subscribe({
       next: preview => this.confirmPreview.set(preview),
       // A failed preview must not stand in the way of the decision
@@ -323,6 +326,25 @@ export class CalibrationPage {
 
   previewFilesTitle(): string {
     return (this.confirmPreview()?.filenames ?? []).join('\n');
+  }
+
+  /** «1 файл» / «3 файли» / «12 файлів» */
+  filesLabel(count: number): string {
+    return filesCount(count);
+  }
+
+  /** Which resolution tier the set is keyed on, in the operator's words */
+  keyLabel(set: CoefficientSetOut): string {
+    return set.device_id && set.vehicle_id
+      ? `цей телефон і авто (${set.phone_model ?? set.device_id})`
+      : `телефон: ${set.phone_model ?? 'будь-який'}`;
+  }
+
+  /** The raw identity keys behind keyLabel(), on hover */
+  keyTitle(set: CoefficientSetOut): string {
+    return set.device_id && set.vehicle_id
+      ? `device_id=${set.device_id}\nvehicle_id=${set.vehicle_id}`
+      : '';
   }
 
   onNoteInput(event: Event): void {

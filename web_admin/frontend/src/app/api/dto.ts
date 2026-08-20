@@ -71,6 +71,10 @@ export interface RunOut {
   /** The recording's device string exactly as coefficient resolution matches on
    *  it (backend enrichment); null for a pre-v3 recording without a device line. */
   phone_model: string | null;
+  /** Contract v3.1 identity keys the recorder writes into the file (ANDROID_ID
+   *  and the vehicle-profile UUID); null for every older recording. */
+  device_id: string | null;
+  vehicle_id: string | null;
 }
 
 export interface SegmentRow {
@@ -232,6 +236,10 @@ export interface CoefficientSetOut {
   params: { A?: number; B?: number; bias?: number };
   vehicle_type: string | null;
   phone_model: string | null;
+  /** Both set = the exact «this phone in this car» resolution tier (contract
+   *  v3.1); both null = a legacy phone / vehicle-type key. */
+  device_id: string | null;
+  vehicle_id: string | null;
   status: 'draft' | 'confirmed' | 'archived';
   comparison_id: number | null;
   aggregate_comparison_id: number | null;
@@ -242,7 +250,8 @@ export interface CoefficientSetOut {
 }
 
 /** POST /coefficient-sets/preview-resolution — how many uploaded files a set
- *  with the given (vehicle_type, phone_model) key would apply to. */
+ *  with the given FULL key would actually be applied to (files already won by a
+ *  more specific confirmed set are not counted). */
 export interface PreviewResolutionOut {
   files_matched: number;
   filenames: string[];

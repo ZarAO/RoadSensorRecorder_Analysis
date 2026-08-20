@@ -261,7 +261,12 @@ def test_init_db_migrates_existing_coefficient_sets_table(tmp_path):
         c.execute(text('CREATE TABLE coefficient_sets (id INTEGER PRIMARY KEY, name TEXT)'))
     from src.db.session import init_db
     init_db(engine)
-    cols = {col['name'] for col in inspect(engine).get_columns('coefficient_sets')}
-    assert 'aggregate_comparison_id' in cols
+    columns = {col['name']: col for col in inspect(engine).get_columns('coefficient_sets')}
+    assert 'aggregate_comparison_id' in columns
+    # Contract v3.1 identity keys are TEXT, not the INTEGER of the FK columns
+    assert {'device_id', 'vehicle_id'} <= set(columns)
+    assert str(columns['device_id']['type']) == 'TEXT'
+    assert str(columns['vehicle_id']['type']) == 'TEXT'
     init_db(engine)  # idempotent
     assert 'aggregate_comparisons' in inspect(engine).get_table_names()
+    assert len(inspect(engine).get_columns('coefficient_sets')) == len(columns)

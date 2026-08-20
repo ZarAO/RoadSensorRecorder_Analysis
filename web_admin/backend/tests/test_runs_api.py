@@ -81,11 +81,28 @@ def test_run_out_carries_the_recorded_phone_model(client, tmp_path, fake_analyze
     assert client.get(f"/api/runs/{run.json()['id']}").json()['phone_model'] \
         == 'samsung SM-S948B'
 
+    # A legacy recording carries no v3.1 identity keys — null, never a guess
+    assert run.json()['device_id'] is None and run.json()['vehicle_id'] is None
+
     # A pre-v3 recording carries no device line: null, never a guess
     rid = make_done_run(client, tmp_path, name='no_device.csv')
     assert client.get(f'/api/runs/{rid}').json()['phone_model'] is None
     assert [r['phone_model'] for r in client.get(f'/api/runs?file_id={fid}').json()] \
         == ['samsung SM-S948B']
+
+
+def test_run_out_carries_the_v31_identity_keys(client, fake_analyze):
+    """The set-creation dialog auto-fills the calibration key from the run, so
+    RunOut exposes the recorded identity exactly as resolution matches on it."""
+    from tests.test_coefficients import DEVICE_ID, VEHICLE_ID, _upload_with_device
+    fid = _upload_with_device(client, 'v31.csv', 'samsung SM-S948B, android=16',
+                              'van', device_id=DEVICE_ID, vehicle_id=VEHICLE_ID)
+    run = client.post('/api/runs', json={'file_id': fid, 'params': {}})
+    assert run.status_code == 201, run.text
+    assert run.json()['device_id'] == DEVICE_ID
+    assert run.json()['vehicle_id'] == VEHICLE_ID
+    detail = client.get(f"/api/runs/{run.json()['id']}").json()
+    assert (detail['device_id'], detail['vehicle_id']) == (DEVICE_ID, VEHICLE_ID)
 
 
 def test_failed_run_records_error(client, tmp_path, monkeypatch):
