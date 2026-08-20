@@ -1,0 +1,25 @@
+import { Routes } from '@angular/router';
+
+export const routes: Routes = [
+  { path: '', pathMatch: 'full', redirectTo: 'files' },
+  {
+    path: 'files',
+    loadComponent: () => import('./files/files-page').then(m => m.FilesPage),
+  },
+  {
+    path: 'runs',
+    loadComponent: () => import('./runs/runs-page').then(m => m.RunsPage),
+  },
+  {
+    path: 'runs/:id',
+    loadComponent: () => import('./runs/run-detail').then(m => m.RunDetail),
+  },
+  {
+    path: 'map',
+    loadComponent: () => import('./map/global-map-page').then(m => m.GlobalMapPage),
+  },
+  {
+    path: 'dashboard',
+    loadComponent: () => import('./dashboard/dashboard-page').then(m => m.DashboardPage),
+  },
+];

@@ -1,0 +1,109 @@
+// DTOs mirror web_admin/backend/src/api/schemas.py verbatim.
+
+export interface RecordingEvent {
+  t_ms: number;
+  type: string;
+  attrs: Record<string, string>;
+}
+
+export interface RecordingMeta {
+  schema: number | null;
+  preamble: Record<string, string>;
+  vehicle: Record<string, string>;
+  events: RecordingEvent[];
+  footer: Record<string, string> | null;
+  footer_count: number;
+  warnings: string[];
+  clean_stop: boolean;
+  incident_count: number;
+}
+
+export interface FileOut {
+  id: number;
+  filename: string;
+  size_bytes: number;
+  uploaded_at: string;
+  source_deleted: boolean;
+  duration_s: number | null;
+  fs_hz: number | null;
+  gps_coverage_ratio: number | null;
+  recording_meta: RecordingMeta | null;
+  runs_count: number;
+}
+
+export interface RunSummary {
+  segments_total: number;
+  km_total: number;
+  mean_iri_multi: number | null;
+  low_speed_count: number;
+  partial_count: number;
+  events_total: number;
+  incidents_total: number;
+  clean_stop: boolean | null;
+  vehicle_type: string | null;
+}
+
+export interface RunOut {
+  id: number;
+  file_id: number;
+  filename: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  status: 'queued' | 'running' | 'done' | 'failed';
+  params: { low_speed_policy?: string };
+  result_dir: string | null;
+  summary: RunSummary | null;
+  error: string | null;
+}
+
+export interface SegmentRow {
+  seg_id: number;
+  s_start: number;
+  s_end: number;
+  length_m: number;
+  grms: number | null;
+  iri_psd_raw: number | null;
+  iri_psd: number | null;
+  iri_multi: number | null;
+  mean_speed_kmh: number | null;
+  events_per_km: number | null;
+  partial: boolean;
+  speed_valid: boolean;
+  low_speed_class: string | null;
+  needs_class12_survey: boolean;
+  [key: string]: unknown;
+}
+
+export interface IriHistogramBin {
+  bin_start: number;
+  bin_end: number;
+  count: number;
+}
+
+export interface WorstSegment {
+  run_id: number;
+  filename: string;
+  seg_id: number;
+  iri_psd: number;
+  iri_multi: number | null;
+  needs_class12_survey: boolean;
+}
+
+export interface DashboardOut {
+  files_total: number;
+  runs_done: number;
+  km_total: number;
+  low_speed_total: number;
+  iri_histogram: IriHistogramBin[];
+  worst_segments: WorstSegment[];
+}
+
+export interface GeoJsonFeatureCollection {
+  type: 'FeatureCollection';
+  features: Array<{
+    type: 'Feature';
+    properties: Record<string, unknown>;
+    geometry: { type: string; coordinates: unknown };
+  }>;
+}
