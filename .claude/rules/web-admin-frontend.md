@@ -14,3 +14,13 @@
   «Потребує обстеження профілометром (клас 1/2)».
 - Unit tests: colocated `.spec.ts`, run via `ng test --watch=false` (vitest builder);
   stub `ApiService` with plain objects + rxjs `of()`.
+- Design tokens live in `src/design/tokens.json` (three layers, OKLCH, dark = default
+  `:root`, light = `[data-theme="light"]`); regenerate `tokens.css` with `npm run tokens`.
+  Components read ONLY `var(--...)` — no raw hex/px outside the primitive layer.
+  Exception: the IRI severity scale + #FF00FF magenta on maps is a data contract, not UI theme.
+- Style: control-room dark, Restrained color commitment (single sky accent <=10%);
+  no glow shadows, no glassmorphism panels, no side-stripe accents (ai-slop catalog).
+- Theme switch: ThemeService toggles `data-theme` on <html>, persisted in localStorage;
+  index.html applies it pre-paint. Map tiles follow the theme (CARTO dark/light).
+- All contrast pairs verified AA with the ui-quality-gates contrast.py — re-run it
+  after any token color change.

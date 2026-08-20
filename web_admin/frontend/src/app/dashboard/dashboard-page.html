@@ -1,43 +1,95 @@
 <h2>Дашборд</h2>
 
-@if (data(); as d) {
+@if (loading()) {
   <div class="cards">
-    <div class="card"><b>{{ d.files_total }}</b><span>файлів</span></div>
-    <div class="card"><b>{{ d.runs_done }}</b><span>успішних ранів</span></div>
-    <div class="card"><b>{{ d.km_total | number:'1.1-1' }}</b><span>км проаналізовано</span></div>
-    <div class="card"><b>{{ d.low_speed_total }}</b><span>low-speed сегментів</span></div>
-  </div>
-
-  <h3>Розподіл IRI_multi (повні сегменти з валідною швидкістю)</h3>
-  <div class="histogram">
-    @for (bin of d.iri_histogram; track bin.bin_start) {
-      <div class="bar-col" [title]="bin.count + ' сегментів'">
-        <div class="bar" [style.height.%]="bin.count / maxBinCount() * 100"></div>
-        <span class="bar-label">{{ bin.bin_start }}–{{ bin.bin_end }}</span>
-      </div>
+    @for (i of [1, 2, 3, 4]; track i) {
+      <div class="card"><div class="skeleton" style="height:4rem"></div></div>
     }
   </div>
+} @else if (data(); as d) {
+  <div class="cards">
+    <div class="card kpi-card rise-in">
+      <app-count-up [value]="d.km_total" [decimals]="1" />
+      <span>км проаналізовано</span>
+    </div>
+    <div class="card kpi-card rise-in">
+      <app-count-up [value]="d.files_total" />
+      <span>файлів</span>
+    </div>
+    <div class="card kpi-card rise-in">
+      <app-count-up [value]="d.runs_done" />
+      <span>успішних ранів</span>
+    </div>
+    <div class="card kpi-card rise-in" [class.attention]="d.low_speed_total > 0">
+      <app-count-up [value]="d.low_speed_total" />
+      <span>ділянок на обстеження (клас 1/2)</span>
+    </div>
+  </div>
 
-  <h3>Топ-10 найгірших сегментів (за IRI_psd)</h3>
-  <table class="worst">
-    <thead>
-      <tr><th>Ран</th><th>Файл</th><th>Сегмент</th><th>IRI_psd</th><th>IRI_multi</th></tr>
-    </thead>
-    <tbody>
-      @for (seg of d.worst_segments; track seg.run_id + '-' + seg.seg_id) {
-        <tr>
-          <td><a [routerLink]="['/runs', seg.run_id]">#{{ seg.run_id }}</a></td>
-          <td>{{ seg.filename }}</td>
-          <td>
-            {{ seg.seg_id }}
-            @if (seg.needs_class12_survey) { <span class="magenta">● клас 1/2</span> }
-          </td>
-          <td>{{ seg.iri_psd | number:'1.2-2' }}</td>
-          <td>{{ seg.iri_multi != null ? (seg.iri_multi | number:'1.2-2') : '—' }}</td>
-        </tr>
-      } @empty {
-        <tr><td colspan="5"><em>Ще немає успішних ранів.</em></td></tr>
+  <div class="grid">
+    <section class="card rise-in">
+      <h3>Розподіл IRI_multi</h3>
+      <p class="hint">Повні сегменти з валідною швидкістю ({{ totalBinned() }} сегм.)</p>
+      @if (totalBinned() > 0) {
+        <div class="histogram" role="img"
+             aria-label="Гістограма розподілу IRI_multi по сегментах">
+          @for (bin of d.iri_histogram; track bin.bin_start) {
+            <div class="bar-col"
+                 [title]="bin.bin_start + '–' + bin.bin_end + ' м/км: ' + bin.count + ' сегментів'">
+              <span class="bar-count" [class.visible]="bin.count > 0">{{ bin.count }}</span>
+              <div class="bar" [style.height.%]="bin.count / maxBinCount() * 100"></div>
+              <span class="bar-label">{{ bin.bin_start }}</span>
+            </div>
+          }
+        </div>
+      } @else {
+        <div class="empty-state">
+          <p>Ще немає сегментів із числовим IRI.</p>
+        </div>
       }
-    </tbody>
-  </table>
+    </section>
+
+    <section class="card rise-in">
+      <h3>Топ-10 найгірших сегментів</h3>
+      <p class="hint">За IRI_psd, останній успішний ран кожного файлу</p>
+      @if (d.worst_segments.length) {
+        <table class="data">
+          <thead>
+            <tr><th>Ран</th><th>Файл</th><th>Сегмент</th><th>IRI_psd</th><th>IRI_multi</th></tr>
+          </thead>
+          <tbody>
+            @for (seg of d.worst_segments; track seg.run_id + '-' + seg.seg_id) {
+              <tr>
+                <td><a [routerLink]="['/runs', seg.run_id]">#{{ seg.run_id }}</a></td>
+                <td class="filename">{{ seg.filename }}</td>
+                <td>
+                  {{ seg.seg_id }}
+                  @if (seg.needs_class12_survey) {
+                    <span class="chip survey">клас 1/2</span>
+                  }
+                </td>
+                <td>
+                  <div class="severity">
+                    <div class="severity-bar"
+                         [style.width.%]="seg.iri_psd / maxWorstIri() * 100"></div>
+                    <span>{{ seg.iri_psd | number:'1.2-2' }}</span>
+                  </div>
+                </td>
+                <td>{{ seg.iri_multi != null ? (seg.iri_multi | number:'1.2-2') : '—' }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      } @else {
+        <div class="empty-state">
+          <p>Ще немає успішних ранів.</p>
+          <a routerLink="/files"><button class="primary">До файлів</button></a>
+        </div>
+      }
+    </section>
+  </div>
+} @else {
+  <div class="empty-state">
+    <p>Не вдалося завантажити дашборд. Перевірте, чи запущений backend.</p>
+  </div>
 }

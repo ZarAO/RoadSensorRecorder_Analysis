@@ -6,19 +6,8 @@ type Kind = 'clean' | 'truncated' | 'legacy';
 
 @Component({
   selector: 'app-recording-badge',
-  template: `<span class="badge" [class]="'badge ' + kind()">{{ label() }}</span>`,
-  styles: `
-    .badge {
-      display: inline-block;
-      padding: 0.15rem 0.5rem;
-      border-radius: 4px;
-      font-size: 0.8rem;
-      white-space: nowrap;
-    }
-    .badge.clean { background: #dcfce7; color: #166534; }
-    .badge.truncated { background: #fee2e2; color: #991b1b; }
-    .badge.legacy { background: #f3f4f6; color: #6b7280; }
-  `,
+  template: `<span class="chip" [class.ok]="kind() === 'clean'"
+                   [class.bad]="kind() === 'truncated'">{{ label() }}</span>`,
 })
 export class RecordingBadge {
   readonly meta = input<RecordingMeta | null>(null);

@@ -4,19 +4,17 @@ import { RecordingMeta } from '../api/dto';
 
 @Component({
   selector: 'app-vehicle-chip',
-  template: `<span class="chip" [class.empty]="!hasProfile()">{{ label() }}</span>`,
-  styles: `
-    .chip {
-      display: inline-block;
-      padding: 0.15rem 0.5rem;
-      border-radius: 999px;
-      background: #dbeafe;
-      color: #1e40af;
-      font-size: 0.85rem;
-      white-space: nowrap;
+  template: `<span class="chip" [class.accent]="hasProfile()">
+    @if (hasProfile()) {
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M4 15l1.6-5.2A2 2 0 0 1 7.5 8h9a2 2 0 0 1 1.9 1.8L20 15v4h-2.5v-1.5h-11V19H4v-4Z"
+              stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+        <circle cx="8" cy="14.5" r="0.8" fill="currentColor"/>
+        <circle cx="16" cy="14.5" r="0.8" fill="currentColor"/>
+      </svg>
     }
-    .chip.empty { background: #f3f4f6; color: #6b7280; }
-  `,
+    {{ label() }}
+  </span>`,
 })
 export class VehicleChip {
   readonly meta = input<RecordingMeta | null>(null);

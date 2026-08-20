@@ -6,6 +6,7 @@ import { marked } from 'marked';
 
 import { ApiService } from '../api/api.service';
 import { RunOut, SegmentRow } from '../api/dto';
+import { CountUp } from '../shared/count-up';
 
 const PLOTS = [
   'speed_vs_distance', 'accel_vs_distance', 'metrics_vs_distance',
@@ -15,7 +16,7 @@ const REFRESH_MS = 2000;
 
 @Component({
   selector: 'app-run-detail',
-  imports: [DatePipe, DecimalPipe, RouterLink],
+  imports: [DatePipe, DecimalPipe, RouterLink, CountUp],
   templateUrl: './run-detail.html',
   styleUrl: './run-detail.css',
 })

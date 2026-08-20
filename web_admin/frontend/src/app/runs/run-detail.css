@@ -1,51 +1,86 @@
-.status { padding: 0.1rem 0.5rem; border-radius: 4px; font-size: 0.9rem; margin-left: 0.5rem; }
-.status.queued { background: #f3f4f6; color: #374151; }
-.status.running { background: #fef9c3; color: #854d0e; }
-.status.done { background: #dcfce7; color: #166534; }
-.status.failed { background: #fee2e2; color: #991b1b; }
+.page-head { margin-bottom: var(--space-4); }
+.page-head h2 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-1);
+}
+.meta-line { color: var(--color-muted-fg); font-size: var(--text-sm); margin: 0; }
 
-.meta-line { color: #6b7280; }
-.error { background: #fee2e2; color: #991b1b; padding: 0.75rem; border-radius: 4px; }
+.chip.status-running { animation: status-pulse 1.6s var(--ease-standard) infinite; }
+
+section.card { margin-bottom: var(--space-4); }
 
 .log {
-  background: #111827;
-  color: #d1d5db;
-  padding: 0.75rem;
-  border-radius: 6px;
+  background: var(--navy-950);
+  color: var(--navy-200);
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
   max-height: 24rem;
   overflow-y: auto;
-  font-size: 0.85rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  margin: 0;
 }
 
-.cards { display: flex; gap: 1rem; flex-wrap: wrap; margin: 1rem 0; }
-.card {
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 0.75rem 1.25rem;
-  text-align: center;
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
 }
-.card b { display: block; font-size: 1.3rem; }
-.card span { color: #6b7280; font-size: 0.85rem; }
+.kpi-card app-count-up, .kpi-card b {
+  display: block;
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-bold);
+  letter-spacing: -0.02em;
+  line-height: var(--leading-tight);
+}
+.kpi-card span:last-child {
+  color: var(--color-muted-fg);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
 
-.plots { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem; }
-.plots img { width: 100%; border: 1px solid #e5e7eb; border-radius: 6px; }
+.plots {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr));
+  gap: var(--space-4);
+}
+.plots img {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 12 / 5;
+  object-fit: contain;
+  background: var(--white, #fff);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  transition: transform var(--duration-fast) var(--ease-standard);
+}
+.plots a:hover img { transform: scale(1.01); }
 
-.folium { width: 100%; height: 480px; border: 1px solid #e5e7eb; border-radius: 6px; }
+.folium {
+  width: 100%;
+  height: 480px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
 
 .table-wrap { overflow-x: auto; }
-table.segments { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
-table.segments th, table.segments td {
-  padding: 0.3rem 0.6rem;
-  border-bottom: 1px solid #e5e7eb;
-  text-align: right;
-}
-table.segments th:first-child, table.segments td:first-child { text-align: left; }
-tr.survey { background: #fdf4ff; }
+tr.survey { background: color-mix(in oklch, var(--color-survey) 6%, transparent); }
 tr.partial { opacity: 0.6; }
-.magenta { color: #ff00ff; font-weight: 600; }
+.chip.survey {
+  background: transparent;
+  border: 1px solid var(--color-survey);
+  color: var(--color-survey);
+}
 
-.report { border-top: 1px solid #e5e7eb; padding-top: 1rem; }
-.report :is(h1, h2, h3) { margin-top: 1.25rem; }
-.report table { border-collapse: collapse; }
-.report td, .report th { border: 1px solid #e5e7eb; padding: 0.25rem 0.5rem; }
+/* report.md is authored for light backgrounds: keep it readable in both themes */
+.report :is(h1, h2, h3) { margin-top: var(--space-6); }
+.report table { border-collapse: collapse; font-size: var(--text-sm); }
+.report td, .report th {
+  border: 1px solid var(--color-border);
+  padding: var(--space-1) var(--space-2);
+}
+.report code { word-break: break-word; }

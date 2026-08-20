@@ -1,90 +1,122 @@
 @if (run(); as currentRun) {
-  <h2>
-    Ран #{{ currentRun.id }} — {{ currentRun.filename }}
-    <span class="status" [class]="'status ' + currentRun.status">{{ currentRun.status }}</span>
-  </h2>
-  <p class="meta-line">
-    Створено {{ currentRun.created_at | date:'yyyy-MM-dd HH:mm:ss' }}
-    @if (currentRun.finished_at) { · завершено {{ currentRun.finished_at | date:'HH:mm:ss' }} }
-    · політика: <code>{{ currentRun.params.low_speed_policy ?? 'invalid' }}</code>
-    · <a routerLink="/runs">до списку</a>
-  </p>
+  <div class="page-head">
+    <div>
+      <h2>
+        Ран #{{ currentRun.id }} — {{ currentRun.filename }}
+        <span class="chip"
+              [class.ok]="currentRun.status === 'done'"
+              [class.bad]="currentRun.status === 'failed'"
+              [class.warn]="currentRun.status === 'running'"
+              [class.status-running]="currentRun.status === 'running'">
+          {{ currentRun.status }}</span>
+      </h2>
+      <p class="meta-line">
+        Створено {{ currentRun.created_at | date:'yyyy-MM-dd HH:mm:ss' }}
+        @if (currentRun.finished_at) { · завершено {{ currentRun.finished_at | date:'HH:mm:ss' }} }
+        · політика: <code>{{ currentRun.params.low_speed_policy ?? 'invalid' }}</code>
+        · <a routerLink="/runs">до списку</a>
+      </p>
+    </div>
+  </div>
 
   @if (currentRun.error) {
-    <pre class="error">{{ currentRun.error }}</pre>
+    <pre class="error-banner">{{ currentRun.error }}</pre>
   }
 
   @if (currentRun.status === 'queued' || currentRun.status === 'running') {
-    <h3>Лог виконання</h3>
-    <pre class="log">@for (line of logLines(); track $index) {{{ line }}
+    <section class="card rise-in">
+      <h3>Лог виконання</h3>
+      <pre class="log" aria-live="polite">@for (line of logLines(); track $index) {{{ line }}
 }</pre>
+    </section>
   }
 
   @if (currentRun.status === 'done') {
     @if (currentRun.summary; as summary) {
       <div class="cards">
-        <div class="card"><b>{{ summary.segments_total }}</b><span>сегментів</span></div>
-        <div class="card"><b>{{ summary.km_total | number:'1.2-2' }}</b><span>км</span></div>
-        <div class="card">
-          <b>{{ summary.mean_iri_multi != null ? (summary.mean_iri_multi | number:'1.2-2') : '—' }}</b>
+        <div class="card kpi-card rise-in">
+          <app-count-up [value]="summary.segments_total" /><span>сегментів</span>
+        </div>
+        <div class="card kpi-card rise-in">
+          <app-count-up [value]="summary.km_total" [decimals]="2" /><span>км</span>
+        </div>
+        <div class="card kpi-card rise-in">
+          <b class="num">{{ summary.mean_iri_multi != null
+            ? (summary.mean_iri_multi | number:'1.2-2') : '—' }}</b>
           <span>сер. IRI_multi</span>
         </div>
-        <div class="card"><b>{{ summary.low_speed_count }}</b><span>low-speed</span></div>
-        <div class="card"><b>{{ summary.incidents_total }}</b><span>інцидентів</span></div>
+        <div class="card kpi-card rise-in">
+          <app-count-up [value]="summary.low_speed_count" /><span>low-speed</span>
+        </div>
+        <div class="card kpi-card rise-in">
+          <app-count-up [value]="summary.incidents_total" /><span>інцидентів</span>
+        </div>
       </div>
     }
 
-    <h3>Графіки</h3>
-    <div class="plots">
-      @for (plot of plots; track plot) {
-        <a [href]="artifactUrl('plots/' + plot + '.pdf')" target="_blank">
-          <img [src]="artifactUrl('plots/' + plot + '.png')" [alt]="plot" />
-        </a>
+    <section class="card rise-in">
+      <h3>Графіки</h3>
+      <div class="plots">
+        @for (plot of plots; track plot) {
+          <a [href]="artifactUrl('plots/' + plot + '.pdf')" target="_blank"
+             [attr.aria-label]="'Відкрити PDF: ' + plot">
+            <img [src]="artifactUrl('plots/' + plot + '.png')" [alt]="'Графік ' + plot"
+                 loading="lazy" width="1200" height="500" />
+          </a>
+        }
+      </div>
+    </section>
+
+    <section class="card rise-in">
+      <h3>Мапа сегментів</h3>
+      @if (mapUrl(); as url) {
+        <iframe [src]="url" class="folium" title="Мапа сегментів"></iframe>
       }
-    </div>
+    </section>
 
-    <h3>Мапа сегментів</h3>
-    @if (mapUrl(); as url) {
-      <iframe [src]="url" class="folium" title="Мапа сегментів"></iframe>
-    }
-
-    <h3>Сегменти</h3>
-    <div class="table-wrap">
-      <table class="segments">
-        <thead>
-          <tr>
-            <th>seg</th><th>s, м</th><th>довжина</th><th>швидкість, км/год</th>
-            <th>Grms</th><th>IRI_psd</th><th>IRI_multi</th>
-            <th>подій/км</th><th>клас</th>
-          </tr>
-        </thead>
-        <tbody>
-          @for (row of segments(); track row.seg_id) {
-            <tr [class.survey]="row.needs_class12_survey" [class.partial]="row.partial">
-              <td>{{ row.seg_id }}</td>
-              <td>{{ row.s_start | number:'1.0-0' }}–{{ row.s_end | number:'1.0-0' }}</td>
-              <td>{{ row.length_m | number:'1.0-0' }}</td>
-              <td>{{ row.mean_speed_kmh != null ? (row.mean_speed_kmh | number:'1.0-1') : '—' }}</td>
-              <td>{{ row.grms != null ? (row.grms | number:'1.4-4') : '—' }}</td>
-              <td>{{ row.iri_psd != null ? (row.iri_psd | number:'1.2-2') : '—' }}</td>
-              <td>{{ iriMultiLabel(row) }}</td>
-              <td>{{ row.events_per_km != null ? (row.events_per_km | number:'1.1-1') : '—' }}</td>
-              <td>
-                @if (row.needs_class12_survey) {
-                  <span class="magenta">● клас 1/2</span>
-                }
-                {{ row.low_speed_class }}
-                @if (row.partial) { <em>partial</em> }
-              </td>
+    <section class="card rise-in">
+      <h3>Сегменти</h3>
+      <div class="table-wrap">
+        <table class="data">
+          <thead>
+            <tr>
+              <th>seg</th><th>s, м</th><th>довжина</th><th>швидкість, км/год</th>
+              <th>Grms</th><th>IRI_psd</th><th>IRI_multi</th>
+              <th>подій/км</th><th>клас</th>
             </tr>
-          }
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            @for (row of segments(); track row.seg_id) {
+              <tr [class.survey]="row.needs_class12_survey" [class.partial]="row.partial">
+                <td>{{ row.seg_id }}</td>
+                <td>{{ row.s_start | number:'1.0-0' }}–{{ row.s_end | number:'1.0-0' }}</td>
+                <td>{{ row.length_m | number:'1.0-0' }}</td>
+                <td>{{ row.mean_speed_kmh != null ? (row.mean_speed_kmh | number:'1.0-1') : '—' }}</td>
+                <td>{{ row.grms != null ? (row.grms | number:'1.4-4') : '—' }}</td>
+                <td>{{ row.iri_psd != null ? (row.iri_psd | number:'1.2-2') : '—' }}</td>
+                <td>{{ iriMultiLabel(row) }}</td>
+                <td>{{ row.events_per_km != null ? (row.events_per_km | number:'1.1-1') : '—' }}</td>
+                <td>
+                  @if (row.needs_class12_survey) {
+                    <span class="chip survey">клас 1/2</span>
+                  }
+                  {{ row.low_speed_class }}
+                  @if (row.partial) { <em>partial</em> }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </section>
 
-    <h3>Звіт</h3>
-    @if (reportHtml(); as html) {
-      <article class="report" [innerHTML]="html"></article>
-    }
+    <section class="card rise-in report-card">
+      <h3>Звіт</h3>
+      @if (reportHtml(); as html) {
+        <article class="report" [innerHTML]="html"></article>
+      } @else {
+        <div class="skeleton" style="height:8rem"></div>
+      }
+    </section>
   }
 }
