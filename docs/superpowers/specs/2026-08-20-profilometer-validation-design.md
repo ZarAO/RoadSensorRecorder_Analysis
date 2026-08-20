@@ -20,7 +20,10 @@
 
 ## 2. Data inventory (from recon, 2026-08-20)
 
-**Ground truth** — «Форма даних про рівність за IRI», measured 2026-06-16,
+**Ground truth** — «Форма даних про рівність за IRI», measured 2026-08-20
+SIMULTANEOUSLY with the smartphone (both instruments in the profilometer
+vehicle, same pass; the form's date cell reads 2026-06-16 — stale template
+metadata per the operator),
 steps 10/100/1000 m, parsed to tidy CSVs in
 `storage/field_measurements/derived/`:
 
@@ -148,11 +151,12 @@ profilometer ground truth. Reconciliation applied here:
 
 ## 8. Threats to validity (reported in every deliverable)
 
-- **Time gap:** profilometer 2026-06-16 vs smartphone 2026-08-20 (2 months;
-  summer — low structural change expected, but unverified).
-- **Lane ambiguity on М-03:** filename «смуга 2» vs form cell lane 1; dual
-  carriageway; our lane unrecorded. Т1016 (single carriageway, 100% overlap)
-  is the cleaner pair.
+- **Time gap: NONE (corrected 2026-08-20 by the operator).** Both instruments
+  measured on the same pass in the same vehicle; the form's date cell
+  (2026-06-16) is stale template metadata.
+- **Lane ambiguity on М-03: resolved** — same vehicle, same lane by
+  construction; the filename/metadata conflict concerns only the form's own
+  labeling, not the pairing.
 - **Channel semantics assumed** (8 lateral tracks averaged); single-channel
   sensitivity reported.
 - **One vehicle/phone for calibration** (worn-suspension van — likely
@@ -202,13 +206,11 @@ p-values are not to be quoted as precision claims. The bias correction of
 Eq.6 is reported both in-sample (optimistic by construction) and LORO.
 
 **A1.4 Corrected threat statements (supersede §8 wording).**
-- Lane on М-03: a lane offset is a systematic difference of pavement surface
-  (different rutting/fatigue), NOT an error absorbed by a longitudinal
-  tolerance; the form metadata (lane 1) contradicts the filename («смуга 2»)
-  and the conflict is unresolved. М-03 results carry this unquantified threat.
-- Time gap: June 16 → August 20 spans the peak road-repair season; "low
-  structural change" is NOT assumed. The roughest Т1016 windows (which carry
-  the fit's leverage) are exactly the most likely to have been repaired.
+- Lane and time gap: RETIRED as threats (operator correction 2026-08-20):
+  the smartphone rode in the profilometer vehicle on the same pass, so the
+  pairing is same-lane, same-time by construction. The form's date cell
+  (2026-06-16) and the filename «смуга 2» vs metadata lane 1 are recording
+  artifacts of the form itself.
 - Channel semantics: correlation structure cannot distinguish lateral tracks
   from repeated passes or processing variants; mean(ch1..ch8) is an assumed
   lane summary, not a wheelpath IRI (ASTM MRI uses two wheelpaths). The
