@@ -139,16 +139,20 @@ def segment_midpoints(segments_df: pd.DataFrame, gps_track: pd.DataFrame) -> pd.
 def load_form_10m(csv_path: str) -> pd.DataFrame:
     """
     The 10 m form table as a chainage-indexed reference profile:
-    iri_ref_10 = mean(ch1..ch8), midpoint coordinate and chainage per 10 m row.
+    iri_ref_10 = mean(ch1..ch8) plus the individual channels (for the
+    single-channel sensitivity analysis), midpoint coordinate and chainage.
     """
     df = pd.read_csv(csv_path, encoding='utf-8')
-    return pd.DataFrame({
+    out = pd.DataFrame({
         'iri_ref_10': df[REFERENCE_CHANNELS].mean(axis=1),
         'lat_mid': (df['lat_start'] + df['lat_end']) / 2.0,
         'lon_mid': (df['lon_start'] + df['lon_end']) / 2.0,
         'chainage_m': ((df['km_start'] * 1000.0 + df['m_start'])
                        + (df['km_end'] * 1000.0 + df['m_end'])) / 2.0,
     })
+    for channel in REFERENCE_CHANNELS:
+        out[f'{channel}_10'] = df[channel]
+    return out
 
 
 def windowed_reference(seg_df: pd.DataFrame, form_10m: pd.DataFrame,
@@ -188,7 +192,10 @@ def windowed_reference(seg_df: pd.DataFrame, form_10m: pd.DataFrame,
         chain_hi = max(ref_chain[i_a], ref_chain[i_b])
         if chain_hi - chain_lo > max_window_m:
             continue  # endpoints projected onto distant parts (loop/ambiguity)
-        in_window = (ref_chain >= chain_lo) & (ref_chain <= chain_hi)
+        # Half-open upper bound: a boundary 10 m row belongs to ONE window only
+        # (audit 2026-08-20: inclusive bounds shared ~9.7% of rows between
+        # adjacent windows)
+        in_window = (ref_chain >= chain_lo) & (ref_chain < chain_hi)
         if int(np.sum(in_window)) < min_rows_in_window:
             continue
         row = seg.to_dict()
@@ -198,6 +205,11 @@ def windowed_reference(seg_df: pd.DataFrame, form_10m: pd.DataFrame,
             'match_dist_m': worst,
             'n_ref_rows': int(np.sum(in_window)),
         })
+        for channel in REFERENCE_CHANNELS:
+            column = f'{channel}_10'
+            if column in form_10m.columns:
+                row[f'iri_ref_{channel[4:]}'] = float(
+                    np.mean(form_10m[column].to_numpy(float)[in_window]))
         rows.append(row)
 
     if not rows:

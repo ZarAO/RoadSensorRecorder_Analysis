@@ -90,3 +90,43 @@ def test_fit_eq3_speed_recovers_speed_term():
     assert fit['C_speed'] == pytest.approx(-0.05, abs=0.005)
     assert fit['B'] == pytest.approx(3.0, abs=0.2)
     assert fit['r2'] > 0.98
+
+
+def test_loro_linear_matches_dedicated_loro():
+    from calibrate import loro, loro_linear
+    rng = np.random.default_rng(SEED)
+    pairs = pd.concat([_pairs(road='A', rng=rng), _pairs(road='B', rng=rng)],
+                      ignore_index=True)
+    generic = loro_linear(pairs, ['psd_sqrt_scalar'])
+    dedicated = loro(pairs)
+    for road in ('A', 'B'):
+        assert generic[road]['mae'] == pytest.approx(dedicated[road]['mae'], rel=1e-9)
+
+
+def test_loro_bias_correction_out_of_sample():
+    from calibrate import loro_bias_correction
+    pairs = pd.concat([
+        _pairs(road='A', noise=0.0),
+        _pairs(road='B', noise=0.0),
+    ], ignore_index=True)
+    # iri_multi = iri_ref - 1 on both roads -> transferred k = -1, MAE ~ 0
+    out = loro_bias_correction(pairs)
+    for road in ('A', 'B'):
+        assert out[road]['k_train'] == pytest.approx(-1.0, abs=1e-9)
+        assert out[road]['mae'] == pytest.approx(0.0, abs=1e-9)
+
+
+def test_effective_n_white_noise_and_persistent():
+    from calibrate import effective_n
+    rng = np.random.default_rng(SEED)
+    white = pd.Series(rng.normal(0, 1, 500))
+    assert effective_n(white)['n_eff'] > 400          # ~n for white noise
+    persistent = pd.Series(np.repeat(rng.normal(0, 1, 50), 10))
+    assert effective_n(persistent)['n_eff'] < 150     # strongly reduced
+
+
+def test_influence_on_eq3_reports_drops():
+    from calibrate import influence_on_eq3
+    out = influence_on_eq3(_pairs(), drop_counts=(1, 5))
+    assert set(out) == {'full', 'drop_1_roughest', 'drop_5_roughest'}
+    assert out['drop_5_roughest']['n'] == 115

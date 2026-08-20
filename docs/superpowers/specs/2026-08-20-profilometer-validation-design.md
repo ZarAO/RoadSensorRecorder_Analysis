@@ -167,3 +167,56 @@ profilometer ground truth. Reconciliation applied here:
 No modification of pipeline physics (filters, bands, segmentation); no Eq.6
 refit; no web-admin integration of study outputs (possible Phase 2+); no
 claims beyond the two roads / one vehicle / one phone actually measured.
+
+## Amendment A1 (2026-08-20, after the first iteration + adversarial review)
+
+Documented changes to §3/§5/§8 — the original text above is kept for the
+record; this section overrides where it conflicts.
+
+**A1.1 Primary matching switched to a windowed 10 m reference.** The first
+iteration exposed a systematic grid-phase offset between the two independent
+100 m partitions (constant ~41 m on Т1016, ~27 m on М-03): nearest-interval
+matching mixes ~40% of a neighboring interval into every pair. The primary
+pairing is now: project each segment's geojson endpoints onto the 10 m form
+chainage (endpoint tolerance 60 m) and average the 10 m reference IRI over
+that half-open window; windows with < 9 reference rows are excluded
+(boundary-degraded). §3's original statement that the 10 m step "is not used
+for the primary fit" is superseded: the 10 m rows are AVERAGED over ~100 m
+windows, so no sub-resolution claim is made. The original nearest-100 matcher
+is retained as a sensitivity check.
+
+**A1.2 No device-wide Eq.3 coefficient is published.** Per-road Eq.3 slopes
+disagree in sign (М-03 ≈ 0/negative, n.s. — range restriction; Т1016 positive)
+— the pooled slope is a two-road contrast (df=1 between clusters), not a
+device property. The planned `UA_2026_TRANSIT_S948B` set is therefore NOT
+shipped; the CLI flags remain for future multi-road calibration. Gates P0.1:
+honestly failed.
+
+**A1.3 Reporting rules.** Per-road numbers are the headline; pooled values
+are always labeled as carrying the between-road contrast. Every fitted model
+(count disclosed) is reported with LORO. A speed-only baseline quantifies
+speed endogeneity (the driver slows on rough spots, so speed itself predicts
+the reference; any speed-bearing model partly measures driver behavior).
+Effective sample sizes under lag-1 autocorrelation are reported; nominal-n
+p-values are not to be quoted as precision claims. The bias correction of
+Eq.6 is reported both in-sample (optimistic by construction) and LORO.
+
+**A1.4 Corrected threat statements (supersede §8 wording).**
+- Lane on М-03: a lane offset is a systematic difference of pavement surface
+  (different rutting/fatigue), NOT an error absorbed by a longitudinal
+  tolerance; the form metadata (lane 1) contradicts the filename («смуга 2»)
+  and the conflict is unresolved. М-03 results carry this unquantified threat.
+- Time gap: June 16 → August 20 spans the peak road-repair season; "low
+  structural change" is NOT assumed. The roughest Т1016 windows (which carry
+  the fit's leverage) are exactly the most likely to have been repaired.
+- Channel semantics: correlation structure cannot distinguish lateral tracks
+  from repeated passes or processing variants; mean(ch1..ch8) is an assumed
+  lane summary, not a wheelpath IRI (ASTM MRI uses two wheelpaths). The
+  lateral gradient differs between roads (Т1016 monotone 0.59 m/km spread,
+  18% of mean), which perturbs the between-road contrast. Single-channel
+  sensitivity is reported.
+- М-03 null result: the profilometer's Spearman-Brown composite reliability
+  on М-03 gives an attainable correlation ceiling ≈ 0.97, so the null is a
+  genuine smartphone sensitivity limit in the 1.1–1.8 m/km band, not
+  reference noise.
+

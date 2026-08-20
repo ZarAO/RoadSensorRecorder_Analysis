@@ -1,6 +1,16 @@
 """
-End-to-end validation/calibration study (spec:
-docs/superpowers/specs/2026-08-20-profilometer-validation-design.md).
+End-to-end validation/calibration study.
+
+Spec: docs/superpowers/specs/2026-08-20-profilometer-validation-design.md
+(including Amendment A1: windowed 10 m reference as the primary matching).
+
+Reporting principles (after the adversarial review of 2026-08-20):
+- per-road numbers are the headline; pooled numbers are always labeled as
+  carrying the between-road contrast (n_roads = 2, one bit of information);
+- every model fitted is reported with its out-of-sample (LORO) counterpart;
+- speed endogeneity is quantified with a speed-only baseline;
+- no device-wide Eq.3 coefficient is claimed: the per-road slopes disagree
+  in sign, so the pooled slope is a road-contrast artifact.
 
 Deterministic: same inputs -> byte-identical matched_pairs.csv and stats.json.
 Run from the repo root:
@@ -20,102 +30,134 @@ REPO_ROOT = STUDY_DIR.parents[1]
 sys.path.insert(0, str(STUDY_DIR))
 
 from calibrate import (  # noqa: E402
-    bland_altman, fit_eq3, fit_eq3_speed, fit_grms_speed, loro, validation_stats,
+    bland_altman, effective_n, fit_eq3, fit_linear, influence_on_eq3,
+    loro_bias_correction, loro_linear, validation_stats,
 )
 from match import (  # noqa: E402
     REFERENCE_CHANNELS, load_form_10m, load_form_intervals, match_segments,
     segment_midpoints_from_geojson, windowed_reference,
 )
 
-# Study inputs (fixed by the spec §2): the two ground-truth pairings
+# Study inputs (spec §2): the two ground-truth pairings
 DATASETS = [
     {
         'road': 'М-03',
         'form_csv': 'storage/field_measurements/derived/М-03_км19-км30смуга2_100.csv',
         'form_10m_csv': 'storage/field_measurements/derived/М-03_км19-км30смуга2_10.csv',
         'segments_csv': 'storage/results/field_new_sensor_data_20260820_100807/road_segments.csv',
-        'recording_csv': 'storage/field_measurements/my_measurements/new/sensor_data_20260820_100807.csv',
     },
     {
         'road': 'Т1016',
         'form_csv': 'storage/field_measurements/derived/Т1016_км17-км0+200зворотній_100.csv',
         'form_10m_csv': 'storage/field_measurements/derived/Т1016_км17-км0+200зворотній_10.csv',
         'segments_csv': 'storage/results/field_new_sensor_data_20260820_102552/road_segments.csv',
-        'recording_csv': 'storage/field_measurements/my_measurements/new/sensor_data_20260820_102552.csv',
     },
 ]
 
-TOLERANCE_PRIMARY_M = 60.0
-TOLERANCE_SENSITIVITY_M = [40.0, 60.0, 80.0]
+# Primary matcher parameters (windowed 10 m reference, spec Amendment A1)
+MATCHING = {
+    'method': 'windowed_10m_reference',
+    'endpoint_tolerance_m': 60.0,
+    'min_ref_rows': 9,       # audit: boundary-degraded windows (<9 rows) excluded
+    'max_window_m': 160.0,
+    'window_bounds': 'half-open [lo, hi)',
+}
+NEAREST100_TOLERANCES_M = [40.0, 60.0, 80.0]
 GATES = {'r2_min': 0.85, 'mae_max': 0.5}
-COEFFICIENT_SET_NAME = 'UA_2026_TRANSIT_S948B'
 
-PAIR_COLUMNS = ['road', 'seg_id', 'chainage_m', 'match_dist_m', 'n_ref_rows',
-                'iri_ref', 'psd_sqrt_scalar', 'grms', 'mean_speed_kmh',
-                'iri_psd_raw', 'iri_multi']
+PAIR_COLUMNS = (['road', 'seg_id', 'chainage_m', 'match_dist_m', 'n_ref_rows',
+                 'iri_ref', 'psd_sqrt_scalar', 'grms', 'mean_speed_kmh',
+                 'iri_psd_raw', 'iri_multi']
+                + [f'iri_ref_{c[4:]}' for c in REFERENCE_CHANNELS])
+
+MODELS = {
+    'eq3': ['psd_sqrt_scalar'],
+    'eq3_speed': ['psd_sqrt_scalar', 'mean_speed_kmh'],
+    'grms_speed': ['grms', 'mean_speed_kmh'],
+    'speed_only': ['mean_speed_kmh'],   # endogeneity baseline, NOT a candidate
+}
 
 
 def _segment_geometry(ds) -> pd.DataFrame:
     segments = pd.read_csv(REPO_ROOT / ds['segments_csv'])
-    # Segment geometry from the run's own geojson (same s-grid as the metrics)
     geojson = Path(REPO_ROOT / ds['segments_csv']).parent / 'roughness.geojson'
     return segment_midpoints_from_geojson(segments, str(geojson))
 
 
 def build_pairs() -> pd.DataFrame:
-    """
-    Primary pairing: windowed 10 m reference (grid-phase-free, spec §3 as
-    amended after the first iteration — see study report §matching).
-    """
     frames = []
     for ds in DATASETS:
         form10 = load_form_10m(str(REPO_ROOT / ds['form_10m_csv']))
-        matched = windowed_reference(_segment_geometry(ds), form10)
+        matched = windowed_reference(
+            _segment_geometry(ds), form10,
+            endpoint_tolerance_m=MATCHING['endpoint_tolerance_m'],
+            min_rows_in_window=MATCHING['min_ref_rows'],
+            max_window_m=MATCHING['max_window_m'])
         matched['road'] = ds['road']
-        frames.append(matched[PAIR_COLUMNS])
+        frames.append(matched[[c for c in PAIR_COLUMNS if c in matched.columns]])
     return pd.concat(frames, ignore_index=True)
 
 
 def build_pairs_nearest_100(tolerance_m: float) -> pd.DataFrame:
-    """Sensitivity variant: nearest-100 m-interval matching (grid phase kept)."""
+    """Sensitivity variant: the spec's original nearest-100 m matcher."""
     frames = []
     for ds in DATASETS:
         intervals = load_form_intervals(str(REPO_ROOT / ds['form_csv']))
         matched = match_segments(_segment_geometry(ds), intervals,
                                  tolerance_m=tolerance_m)
         matched['road'] = ds['road']
-        keep = [c for c in PAIR_COLUMNS if c in matched.columns]
-        frames.append(matched[keep])
+        frames.append(matched[[c for c in PAIR_COLUMNS if c in matched.columns]])
     return pd.concat(frames, ignore_index=True)
 
 
 def profilometer_noise_floor() -> dict:
     """
-    Inter-channel agreement of the reference device per road at the 100 m step:
-    the mean within-interval std across ch1..ch8 (how much the device disagrees
-    with itself laterally) and the mean pairwise channel correlation. Serves as
-    the noise floor when interpreting smartphone-vs-reference correlations.
+    Reference self-agreement per road at 100 m, INCLUDING the attainable
+    correlation ceiling via Spearman-Brown (composite reliability of the 8
+    channels): if the ceiling is high, a null smartphone correlation is a
+    genuine sensitivity failure, not reference noise.
     """
     out = {}
     for ds in DATASETS:
         df = pd.read_csv(REPO_ROOT / ds['form_csv'], encoding='utf-8')
         channels = df[REFERENCE_CHANNELS]
         corr = channels.corr(method='pearson').to_numpy()
-        upper = corr[np.triu_indices_from(corr, k=1)]
+        mean_r = float(np.mean(corr[np.triu_indices_from(corr, k=1)]))
+        k = len(REFERENCE_CHANNELS)
+        composite_reliability = (k * mean_r) / (1 + (k - 1) * mean_r)
         out[ds['road']] = {
             'mean_within_interval_std': float(channels.std(axis=1, ddof=1).mean()),
             'mean_iri_ref': float(channels.mean(axis=1).mean()),
             'std_iri_ref_between_intervals': float(channels.mean(axis=1).std(ddof=1)),
-            'mean_pairwise_channel_pearson': float(np.mean(upper)),
+            'mean_pairwise_channel_pearson': mean_r,
+            'composite_reliability_spearman_brown': float(composite_reliability),
+            'attainable_correlation_ceiling': float(np.sqrt(composite_reliability)),
             'n_intervals': int(len(df)),
         }
     return out
 
 
 def per_road_and_pooled(pairs: pd.DataFrame, fn) -> dict:
-    out = {'pooled': fn(pairs)}
+    out = {road: fn(group) for road, group in pairs.groupby('road')}
+    out['pooled_CAUTION_between_road_contrast'] = fn(pairs)
+    return out
+
+
+def single_channel_sensitivity(pairs: pd.DataFrame) -> dict:
+    """
+    D1 sensitivity (spec §2): Spearman of iri_multi vs each single reference
+    channel, per road — does the channel choice change the conclusion?
+    """
+    from scipy import stats as sps
+    out = {}
     for road, group in pairs.groupby('road'):
-        out[road] = fn(group)
+        entry = {}
+        for channel in REFERENCE_CHANNELS:
+            col = f'iri_ref_{channel[4:]}'
+            if col in group.columns:
+                rho = sps.spearmanr(group['iri_multi'], group[col]).statistic
+                entry[channel] = round(float(rho), 4)
+        out[road] = entry
     return out
 
 
@@ -128,79 +170,96 @@ def main() -> None:
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1. Matched pairs (primary: windowed 10 m reference)
     pairs = build_pairs()
     n_per_road = pairs.groupby('road').size().to_dict()
-    print(f'Matched pairs (windowed 10 m reference): {n_per_road}')
+    print(f'Matched pairs (windowed 10 m reference, >= {MATCHING["min_ref_rows"]} rows): {n_per_road}')
 
-    # 2. Pre-calibration validation
+    # --- Validation (per road first, pooled labeled) ---
     validation = {
         'sqrt_psd': per_road_and_pooled(pairs, lambda d: validation_stats(d, 'psd_sqrt_scalar')),
         'grms': per_road_and_pooled(pairs, lambda d: validation_stats(d, 'grms')),
         'iri_multi_generic': per_road_and_pooled(pairs, lambda d: validation_stats(d, 'iri_multi')),
     }
     ba_before = per_road_and_pooled(pairs, lambda d: bland_altman(d, 'iri_multi'))
-    # Bias-corrected Eq.6: the fitted slopes reproduce the book's structure
-    # (grms 53.1 vs 50.3, speed -0.089 vs -0.06), so a constant-offset
-    # correction of iri_multi is the minimal calibration of that family
+
+    # --- All models: in-sample AND out-of-sample, plus the endogeneity baseline ---
+    fits = {name: fit_linear(pairs, cols) for name, cols in MODELS.items()}
+    loro_all = {name: loro_linear(pairs, cols) for name, cols in MODELS.items()}
+    eq3_per_road = {road: fit_eq3(group) for road, group in pairs.groupby('road')}
+    eq3_pooled = fit_eq3(pairs)   # kept for Theil-Sen + stderr diagnostics only
+
+    # --- Bias-corrected Eq.6: in-sample AND transferred (LORO) ---
     iri_multi_bias = float((pairs['iri_multi'] - pairs['iri_ref']).mean())
     pairs['iri_multi_bias_corrected'] = pairs['iri_multi'] - iri_multi_bias
-    validation['iri_multi_bias_corrected'] = per_road_and_pooled(
+    bias_corrected_stats = per_road_and_pooled(
         pairs, lambda d: validation_stats(d, 'iri_multi_bias_corrected'))
+    bias_loro = loro_bias_correction(pairs)
 
-    # 3. Calibration
-    fit = fit_eq3(pairs)
-    fit_per_road = {road: fit_eq3(group) for road, group in pairs.groupby('road')}
-    fit_loro = loro(pairs)
-    fit_grms = fit_grms_speed(pairs)
-    fit_speed_aug = fit_eq3_speed(pairs)
-    pairs['iri_calibrated'] = fit['A'] * pairs['psd_sqrt_scalar'] + fit['B']
+    # --- Diagnostics the adversarial review demanded ---
+    autocorrelation = {
+        road: {'iri_ref': effective_n(group.sort_values('chainage_m')['iri_ref']),
+               'iri_multi': effective_n(group.sort_values('chainage_m')['iri_multi'])}
+        for road, group in pairs.groupby('road')
+    }
+    influence = influence_on_eq3(pairs)
+    channel_sensitivity = single_channel_sensitivity(pairs)
+
+    # Calibrated column for the after-plot: the pooled line is DIAGNOSTIC ONLY
+    pairs['iri_calibrated'] = eq3_pooled['A'] * pairs['psd_sqrt_scalar'] + eq3_pooled['B']
     ba_after = per_road_and_pooled(pairs, lambda d: bland_altman(d, 'iri_calibrated'))
-    calibrated_stats = per_road_and_pooled(pairs, lambda d: validation_stats(d, 'iri_calibrated'))
 
-    # 4. Matching-method sensitivity: nearest-100m variant per tolerance
-    sensitivity = {}
-    for tol in TOLERANCE_SENSITIVITY_M:
-        alt = build_pairs_nearest_100(tol)
-        alt_fit = fit_eq3(alt)
-        sensitivity[f'nearest100_{tol:.0f}m'] = {
+    sensitivity_nearest = {}
+    for tol in NEAREST100_TOLERANCES_M:
+        alt_fit = fit_eq3(build_pairs_nearest_100(tol))
+        sensitivity_nearest[f'nearest100_{tol:.0f}m'] = {
             k: alt_fit[k] for k in ('A', 'B', 'r2', 'mae', 'n')}
 
-    # 5. Gates verdict (spec §5)
-    negative_calibrated = int((pairs['iri_calibrated'] < 0).sum())
+    # --- Gates (spec §5), honest framing ---
     gates = {
-        'r2_pooled': fit['r2'],
-        'r2_gate': GATES['r2_min'],
-        'r2_pass': bool(fit['r2'] > GATES['r2_min']),
-        'mae_pooled': fit['mae'],
-        'mae_gate': GATES['mae_max'],
-        'mae_pass': bool(fit['mae'] < GATES['mae_max']),
-        'negative_calibrated_iri': negative_calibrated,
-        'negative_pass': bool(negative_calibrated == 0),
+        'eq3_pooled_r2': eq3_pooled['r2'],
+        'eq3_pooled_mae': eq3_pooled['mae'],
+        'eq3_r2_pass': bool(eq3_pooled['r2'] > GATES['r2_min']),
+        'eq3_mae_pass': bool(eq3_pooled['mae'] < GATES['mae_max']),
+        'negative_calibrated_iri_note': (
+            'algebraically zero for any fit with A>0, B>0 over sqrtPSD>=0 — '
+            'a property of the fitted line, not empirical evidence'),
+        'bias_corrected_eq6_mae_in_sample': None,   # filled below
+        'bias_corrected_eq6_mae_loro': {
+            road: entry['mae'] for road, entry in bias_loro.items()},
+        'verdict': (
+            'Eq.3 device-wide calibration NOT achievable on this data: per-road '
+            'slopes disagree in sign (М-03 within-road slope ~0/negative, n.s.), '
+            'so the pooled slope reflects the two-road contrast (df=1). No '
+            'coefficient set is shipped. The transferable finding is ranking '
+            'validity of iri_multi on the rough road and a bias correction that '
+            'passes MAE<0.5 on М-03 (out-of-sample) but not on Т1016.'),
     }
-    gates['all_pass'] = bool(gates['r2_pass'] and gates['mae_pass'] and gates['negative_pass'])
+    gates['bias_corrected_eq6_mae_in_sample'] = bias_corrected_stats[
+        'pooled_CAUTION_between_road_contrast']['mae']
 
     stats = {
         'study_date': args.study_date,
-        'coefficient_set': COEFFICIENT_SET_NAME,
-        'tolerance_m': TOLERANCE_PRIMARY_M,
+        'matching': MATCHING,
         'n_pairs': {str(k): int(v) for k, v in n_per_road.items()},
-        'validation_before_calibration': validation,
+        'validation': validation,
         'bland_altman_iri_multi_before': ba_before,
+        'bland_altman_pooled_line_after': ba_after,
+        'models_in_sample': fits,
+        'models_loro': loro_all,
+        'eq3_per_road': eq3_per_road,
+        'eq3_pooled_diagnostic': eq3_pooled,
         'iri_multi_pooled_bias': iri_multi_bias,
-        'eq3_fit': fit,
-        'eq3_fit_per_road': fit_per_road,
-        'eq3_loro': fit_loro,
+        'iri_multi_bias_corrected': bias_corrected_stats,
+        'bias_correction_loro': bias_loro,
         'profilometer_noise_floor': profilometer_noise_floor(),
-        'grms_speed_fit': fit_grms,
-        'eq3_speed_augmented_fit': fit_speed_aug,
-        'calibrated_stats': calibrated_stats,
-        'bland_altman_calibrated_after': ba_after,
-        'tolerance_sensitivity': sensitivity,
+        'autocorrelation_effective_n': autocorrelation,
+        'eq3_influence_analysis': influence,
+        'single_channel_sensitivity_spearman': channel_sensitivity,
+        'matcher_sensitivity_nearest100': sensitivity_nearest,
+        'models_fitted_count_disclosure': len(MODELS),
         'gates': gates,
     }
 
-    # 6. Persist (sorted keys -> deterministic bytes)
     pairs_out = pairs.sort_values(['road', 'seg_id']).reset_index(drop=True)
     pairs_out.to_csv(out_dir / 'matched_pairs.csv', index=False,
                      encoding='utf-8', lineterminator='\n', float_format='%.10g')
@@ -208,56 +267,87 @@ def main() -> None:
         json.dumps(stats, ensure_ascii=False, indent=1, sort_keys=True),
         encoding='utf-8')
 
-    # 7. Figures
+    # --- Figures ---
     from figures import bland_altman_plot, chainage_overlay, scatter_fit
     figures_dir = out_dir / 'figures'
     written = []
-    written += scatter_fit(pairs, fit, figures_dir)
+    written += scatter_fit(pairs, eq3_pooled, figures_dir)
     written += bland_altman_plot(pairs, 'iri_multi',
                                  'До калібрування: IRI_multi (GENERIC)',
                                  figures_dir, 'fig2a_bland_altman_before')
-    written += bland_altman_plot(pairs, 'iri_calibrated',
-                                 'Після калібрування Eq.3',
-                                 figures_dir, 'fig2b_bland_altman_after')
+    written += bland_altman_plot(pairs, 'iri_multi_bias_corrected',
+                                 'Після корекції зсуву Eq.6 (+1.55 м/км)',
+                                 figures_dir, 'fig2b_bland_altman_bias_corrected')
     for ds in DATASETS:
-        written += chainage_overlay(pairs, ds['road'], figures_dir)
+        written += chainage_overlay(pairs, ds['road'], figures_dir,
+                                    calibrated_col='iri_multi_bias_corrected')
 
-    # 8. UA summary report
+    # --- UA summary (per-road first; every qualifier included) ---
+    v_multi = validation['iri_multi_generic']
+    nf = stats['profilometer_noise_floor']
     lines = [
         '# Звіт дослідження: смартфон vs профілометр',
         '',
-        f'- Дата дослідження: {args.study_date}; набір коефіцієнтів: `{COEFFICIENT_SET_NAME}`',
-        '- Пар сегмент↔еталон (віконний 10 м еталон): '
+        f"- Дата: {args.study_date}. Матчинг: віконний 10 м еталон "
+        f"(толеранс {MATCHING['endpoint_tolerance_m']:.0f} м, вікно ≥ {MATCHING['min_ref_rows']} рядків, "
+        "напіввідкриті межі). Пар: "
         + ', '.join(f'{k}: {v}' for k, v in sorted(n_per_road.items())),
+        f"- Моделей підігнано: {len(MODELS)} (розкриття проти model-selection optimism); "
+        'усі оцінені й in-sample, й leave-one-road-out (LORO).',
         '',
-        '## Валідація до калібрування (пул обох доріг)',
-        f"- Spearman ρ (√PSD vs IRI): {validation['sqrt_psd']['pooled']['spearman_rho']:.3f} "
-        f"(p={validation['sqrt_psd']['pooled']['spearman_p']:.2e})",
-        f"- Pearson r (√PSD vs IRI): {validation['sqrt_psd']['pooled']['pearson_r']:.3f}",
-        f"- Spearman ρ (Grms vs IRI): {validation['grms']['pooled']['spearman_rho']:.3f}",
-        f"- IRI_multi (GENERIC): зсув {validation['iri_multi_generic']['pooled']['bias']:+.2f} м/км, "
-        f"MAE {validation['iri_multi_generic']['pooled']['mae']:.2f} м/км",
+        '## Головні результати — по дорогах (чесний заголовок)',
+        f"- **Т1016** (категорія 2, IRI 1.2–14.7): iri_multi vs профілометр "
+        f"Spearman ρ = {v_multi['Т1016']['spearman_rho']:.3f}, Pearson r = {v_multi['Т1016']['pearson_r']:.3f} "
+        f"(n = {v_multi['Т1016']['n']}; ефективний n ≈ {autocorrelation['Т1016']['iri_ref']['n_eff']:.0f} "
+        'через автокореляцію) — сильна рангова валідність на дорозі з реальним діапазоном шорсткості.',
+        f"- **М-03** (категорія 1, IRI 1.1–1.8): ρ = {v_multi['М-03']['spearman_rho']:.3f} (n.s.). "
+        f"Стеля кореляції за надійністю еталона ≈ {nf['М-03']['attainable_correlation_ceiling']:.2f} — "
+        'отже це реальна межа чутливості смартфона у вузькому діапазоні рівних доріг, а не шум еталона.',
+        f"- Пул обох доріг (ρ = {v_multi['pooled_CAUTION_between_road_contrast']['spearman_rho']:.3f}) "
+        'свідомо НЕ є заголовком: він несе переважно контраст «Т1016 шорсткіша за М-03» '
+        '(дві дороги = один ступінь свободи між кластерами).',
         '',
-        '## Калібрування Eq.3 (пул, OLS)',
-        f"- A = {fit['A']:.4f} ± {fit['A_stderr']:.4f}; B = {fit['B']:.4f} ± {fit['B_stderr']:.4f} "
-        f"(Theil–Sen: A={fit['A_theil_sen']:.4f}, B={fit['B_theil_sen']:.4f})",
-        f"- R² = {fit['r2']:.3f}; MAE = {fit['mae']:.3f} м/км; RMSE = {fit['rmse']:.3f} м/км; n = {fit['n']}",
+        '## Ендогенність швидкості (розкриття)',
+        f"- Швидкість сама по собі (без акселерометра) дає R² = {fits['speed_only']['r2']:.3f}, "
+        f"MAE = {fits['speed_only']['mae']:.3f} — краще за чисту Eq.3 "
+        f"(R² = {fits['eq3']['r2']:.3f}, MAE = {fits['eq3']['mae']:.3f}). Водій сповільнюється на поганих "
+        'ділянках, тому будь-яка модель зі швидкістю частково міряє поведінку водія, а не лише вібрацію.',
         '',
-        '## Leave-one-road-out',
+        '## Калібрування Eq.3 — головний висновок',
+        f"- Всередині доріг слопи несумісні: М-03 A = {eq3_per_road['М-03']['A']:.1f} "
+        f"(r² = {eq3_per_road['М-03']['r2']:.3f}, n.s.), Т1016 A = {eq3_per_road['Т1016']['A']:.1f} "
+        f"(r² = {eq3_per_road['Т1016']['r2']:.3f}). Пул A = {eq3_pooled['A']:.1f} — артефакт контрасту двох "
+        f"доріг (df=1); Theil–Sen дає {eq3_pooled['A_theil_sen']:.1f}, а викидання 5 найгрубших пар "
+        f"(1.8% даних) зсуває A до {influence['drop_5_roughest']['A']:.1f} — фіт нестійкий.",
+        '- **Приладовий набір коефіцієнтів Eq.3 НЕ публікується** — двох доріг недостатньо; '
+        f"гейти P0.1 не пройдено (R² = {eq3_pooled['r2']:.3f} < {GATES['r2_min']}, "
+        f"MAE = {eq3_pooled['mae']:.3f} > {GATES['mae_max']}). Це чесний негативний результат.",
+        '- Гейт «нуль від\'ємних каліброваних IRI» алгебраїчно гарантований формою фіту (A>0, B>0) '
+        'і не є емпіричним свідченням.',
+        '',
+        '## Що працює: корекція зсуву Eq.6',
+        f"- Наш незалежний фіт відтворює структуру Eq.6: коеф. Grms {fits['grms_speed']['coef']['grms']:.1f} "
+        f"(книжковий 50.3), швидкості {fits['grms_speed']['coef']['mean_speed_kmh']:.3f} (книжковий −0.06) — "
+        'форма рівняння підтверджується незалежними даними.',
+        f"- Постійний зсув Eq.6 (GENERIC): {iri_multi_bias:+.3f} м/км. Корекція: in-sample MAE = "
+        f"{bias_corrected_stats['pooled_CAUTION_between_road_contrast']['mae']:.3f} "
+        f"(оптимістична за побудовою); out-of-sample (LORO): М-03 {bias_loro['М-03']['mae']:.3f} м/км "
+        f"(проходить гейт 0.5), Т1016 {bias_loro['Т1016']['mae']:.3f} м/км (НЕ проходить).",
+        '',
+        '## LORO всіх моделей (out-of-sample MAE, м/км)',
     ]
-    for road, entry in sorted(fit_loro.items()):
+    for name in MODELS:
+        entry = loro_all[name]
         lines.append(
-            f"- Тест на {road} (фіт на іншій дорозі: A={entry['A_train']:.3f}, "
-            f"B={entry['B_train']:.3f}): R²={entry['r2']:.3f}, MAE={entry['mae']:.3f} м/км, "
-            f"n={entry['n_test']}")
+            f"- {name}: М-03 = {entry['М-03']['mae']:.3f}, Т1016 = {entry['Т1016']['mae']:.3f} "
+            '(R² по дорогах непорівнянні — дисперсії еталона різняться у ~14 разів)')
     lines += [
         '',
-        '## Гейти (roadmap P0.1)',
-        f"- R² > {GATES['r2_min']}: {'PASS' if gates['r2_pass'] else 'FAIL'} ({fit['r2']:.3f})",
-        f"- MAE < {GATES['mae_max']} м/км: {'PASS' if gates['mae_pass'] else 'FAIL'} ({fit['mae']:.3f})",
-        f"- Від'ємних каліброваних IRI: {negative_calibrated} "
-        f"({'PASS' if gates['negative_pass'] else 'FAIL'})",
-        f"- Підсумок: {'УСІ ГЕЙТИ ПРОЙДЕНО' if gates['all_pass'] else 'Є НЕПРОЙДЕНІ ГЕЙТИ — набір експериментальний'}",
+        '## Чутливість',
+        "- Вибір каналу еталона (Spearman iri_multi vs ch1..ch8, Т1016): "
+        + ', '.join(f"{k[-3:]}: {v:.2f}" for k, v in channel_sensitivity['Т1016'].items()),
+        f"- Альтернативний матчинг (nearest-100, 60 м): R² = {sensitivity_nearest['nearest100_60m']['r2']:.3f} "
+        f"проти {fits['eq3']['r2']:.3f} у первинного — висновки не змінюються.",
         '',
         '_Повні числа: stats.json; пари: matched_pairs.csv; фігури: figures/_',
     ]
@@ -267,8 +357,7 @@ def main() -> None:
     print(f'✓ {out_dir / "stats.json"}')
     print(f'✓ {len(written)} figure files')
     print(f'✓ {out_dir / "study_report.md"}')
-    print(f"Gates: {'ALL PASS' if gates['all_pass'] else 'NOT ALL PASSED'} "
-          f"(R²={fit['r2']:.3f}, MAE={fit['mae']:.3f}, negatives={negative_calibrated})")
+    print('Verdict:', gates['verdict'][:110] + '…')
 
 
 if __name__ == '__main__':
