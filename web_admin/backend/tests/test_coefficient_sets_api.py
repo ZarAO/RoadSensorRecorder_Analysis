@@ -345,6 +345,87 @@ def test_confirm_archives_only_the_same_full_key(client, tmp_path):
     assert statuses['identity_v2'] == 'confirmed'
 
 
+def test_confirm_identity_set_archives_on_the_identity_key_only(client, tmp_path):
+    """Tier 1 resolves on (model, device_id, vehicle_id) and ignores
+    vehicle_type/phone_model, so the confirm invariant must archive on exactly
+    that key. Otherwise two confirmed sets own the same phone+car, and archiving
+    the newer one by hand silently resurrects the older calibration."""
+    from tests.test_coefficients import DEVICE_ID, VEHICLE_ID
+    cmp_id = _make_done_comparison(client, tmp_path)
+
+    def draft(name, **key):
+        r = client.post('/api/coefficient-sets', json={
+            'comparison_id': cmp_id, 'model': 'eq6_bias', 'name': name, **key})
+        assert r.status_code == 201, r.text
+        return r.json()
+
+    first = draft('identity_van', vehicle_type='van',
+                  phone_model='samsung SM-S948B',
+                  device_id=DEVICE_ID, vehicle_id=VEHICLE_ID)
+    c1 = client.post(f"/api/coefficient-sets/{first['id']}/confirm", json={})
+    assert c1.status_code == 200, c1.text
+    assert c1.json()['archived_set_id'] is None
+
+    # Same phone and same car profile, but a different vehicle_type and a
+    # different phone string: still the SAME tier-1 key, so the old one goes
+    second = draft('identity_sedan', vehicle_type='sedan',
+                   phone_model='google Pixel 9',
+                   device_id=DEVICE_ID, vehicle_id=VEHICLE_ID)
+    c2 = client.post(f"/api/coefficient-sets/{second['id']}/confirm", json={})
+    assert c2.json()['archived_set_id'] == first['id']
+
+    # Another car of the same phone is a different tier-1 key and coexists
+    other_car = draft('identity_other_car', vehicle_type='sedan',
+                      phone_model='google Pixel 9',
+                      device_id=DEVICE_ID, vehicle_id='veh-other-uuid')
+    c3 = client.post(f"/api/coefficient-sets/{other_car['id']}/confirm", json={})
+    assert c3.json()['archived_set_id'] is None
+
+    statuses = {s['name']: s['status'] for s in client.get('/api/coefficient-sets').json()}
+    assert statuses == {'identity_van': 'archived', 'identity_sedan': 'confirmed',
+                        'identity_other_car': 'confirmed'}
+
+
+def test_confirm_legacy_set_keeps_the_full_key(client, tmp_path):
+    """Without BOTH identity keys the set resolves at tier 2/3, which compares
+    vehicle_type and phone_model — so the invariant stays on the full NULL-safe
+    key there, and a half identity does not collapse into the tier-1 branch."""
+    from tests.test_coefficients import DEVICE_ID
+    cmp_id = _make_done_comparison(client, tmp_path)
+
+    def draft(name, **key):
+        r = client.post('/api/coefficient-sets', json={
+            'comparison_id': cmp_id, 'model': 'eq6_bias', 'name': name,
+            'vehicle_type': 'van', **key})
+        assert r.status_code == 201, r.text
+        return r.json()
+
+    s948_v1 = draft('legacy_s948_v1', phone_model='samsung SM-S948B')
+    assert client.post(f"/api/coefficient-sets/{s948_v1['id']}/confirm",
+                       json={}).json()['archived_set_id'] is None
+
+    # A different phone of the same vehicle type is a different key
+    pixel = draft('legacy_pixel', phone_model='google Pixel 9')
+    assert client.post(f"/api/coefficient-sets/{pixel['id']}/confirm",
+                       json={}).json()['archived_set_id'] is None
+
+    # A half identity keeps the full key too (device_id is part of it), so it
+    # never archives the legacy set it otherwise shares vehicle+phone with
+    half = draft('half_identity', phone_model='samsung SM-S948B',
+                 device_id=DEVICE_ID)
+    assert client.post(f"/api/coefficient-sets/{half['id']}/confirm",
+                       json={}).json()['archived_set_id'] is None
+
+    # Same full key as the first set: that one, and only that one, is archived
+    s948_v2 = draft('legacy_s948_v2', phone_model='samsung SM-S948B')
+    assert client.post(f"/api/coefficient-sets/{s948_v2['id']}/confirm",
+                       json={}).json()['archived_set_id'] == s948_v1['id']
+
+    statuses = {s['name']: s['status'] for s in client.get('/api/coefficient-sets').json()}
+    assert statuses == {'legacy_s948_v1': 'archived', 'legacy_pixel': 'confirmed',
+                        'half_identity': 'confirmed', 'legacy_s948_v2': 'confirmed'}
+
+
 def test_delete_comparison_nulls_coefficient_set_fk(client, tmp_path):
     cmp_id = _make_done_comparison(client, tmp_path)
     draft = client.post('/api/coefficient-sets', json={

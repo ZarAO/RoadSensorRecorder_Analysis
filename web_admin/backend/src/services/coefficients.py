@@ -154,8 +154,17 @@ def files_applying_to(session: Session, model: str, vehicle_type: str | None,
     specific confirmed set is excluded — resolve() would keep picking that set,
     so promising the file here would be a lie.
 
-    An equally specific winner is the same key by construction (the file matched
-    both), so a re-confirm of an existing key still counts its own files.
+    An equally specific winner resolves on the SAME TIER KEY as the previewed one
+    (both matched the file at that tier), so a re-confirm of an existing key still
+    counts its own files. That is only "the same key" for tiers 2-3, where the
+    tier key is the whole key; at tier 1 the winner shares the (device_id,
+    vehicle_id) pair but its vehicle_type/phone_model columns may differ, because
+    tier 1 never compares them.
+
+    Asymmetry with the reanalyze offer: this is keyed on the previewed tier, so an
+    identity key with vehicle_type=None still counts its files (tier 1 ignores the
+    vehicle type), while `_candidate_files` — deliberately vehicle-wide — offers
+    none. See its docstring.
     """
     tier = key_tier(phone_model, device_id, vehicle_id)
     applying = []

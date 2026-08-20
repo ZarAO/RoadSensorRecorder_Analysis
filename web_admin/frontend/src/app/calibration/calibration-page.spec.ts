@@ -215,8 +215,9 @@ describe('CalibrationPage', () => {
     await fixture.whenStable();
 
     const preview = host.querySelector('#confirm-preview')!;
-    expect(preview.textContent)
-      .toContain('Жоден наявний файл не збігається — перевірте телефон/тип авто');
+    expect(preview.textContent!.replace(/\s+/g, ' '))
+      .toContain('Наразі жоден файл не резолвиться на цей набір '
+        + '(можливо, їх перекриває специфічніший підтверджений набір).');
     expect(preview.classList.contains('error-banner')).toBe(true);
 
     // The decision stays human: confirming is still possible

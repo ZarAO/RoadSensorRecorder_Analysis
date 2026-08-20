@@ -1,8 +1,9 @@
 """
 CoefficientSet API (Phase 3): draft a set from a comparison's fitted
-stats.json, confirm it (archiving the previous confirmed set for the same FULL
-key — model, vehicle_type, phone_model, device_id, vehicle_id), archive, and
-reanalyze the files of the matching vehicle under the freshly confirmed set.
+stats.json, confirm it (archiving the previous confirmed set of the same
+RESOLUTION key — (model, device_id, vehicle_id) for an identity-keyed set,
+(model, vehicle_type, phone_model, device_id, vehicle_id) otherwise), archive,
+and reanalyze the files of the matching vehicle under the freshly confirmed set.
 
 Resolution itself lives in src.services.coefficients; this router only manages
 the CoefficientSet lifecycle and reuses runs._create_and_submit so a
@@ -105,9 +106,19 @@ def _load_artifact_json(result_dir: str | None, name: str, subject: str) -> dict
 
 def _candidate_files(session: Session, vehicle_type: str | None) -> list[SourceFile]:
     """Reanalyze candidates: every file of the vehicle type, whatever phone
-    recorded it. A phone-specific set still changes which set resolves for the
-    other phones of the same vehicle (the NULL tier may sit underneath), so the
-    reanalyze offer stays deliberately vehicle-wide."""
+    recorded it and whatever identity keys it carries.
+
+    Deliberately vehicle-wide for simplicity — it is NOT the set's own file list.
+    Re-running more files than the set will win is harmless: every new run
+    resolves its own coefficients through resolve(), so an extra file simply gets
+    re-analyzed under whatever set already applied to it. The cost is extra runs,
+    never a wrong calibration.
+
+    Consequence (asymmetry with the confirm preview): an identity-keyed set whose
+    vehicle_type is NULL previews its files — tier 1 ignores vehicle_type — while
+    this returns [], because a NULL vehicle type matches no file here. Such a set
+    therefore shows "N files" before the confirm and 0 reanalyze candidates
+    after it. Accepted: the operator's own runs still resolve it correctly."""
     return files_resolving_to(session, vehicle_type, None)
 
 
@@ -235,17 +246,27 @@ def confirm_set(set_id: int, payload: ConfirmIn, session: Session = Depends(get_
         raise HTTPException(
             409, f'підтвердити можна лише чернетку (поточний статус: {cs.status})')
 
-    # One confirmed set per FULL key: an identity-keyed set and the legacy phone
-    # set of the same vehicle are different keys and coexist.
+    # One confirmed set per RESOLUTION key — the columns the matching tier
+    # actually compares, so the archive can never be narrower than resolution:
+    #  - identity set (both ids): tier 1 matches on (model, device_id,
+    #    vehicle_id) and ignores vehicle_type/phone_model, so those two columns
+    #    must be ignored here too. Comparing them would let two confirmed sets
+    #    own the same phone+car, and archiving the newer one by hand would
+    #    silently resurrect the older calibration.
+    #  - otherwise (legacy / half identity): the full NULL-safe key, because
+    #    tiers 2-3 compare vehicle_type and phone_model and require both
+    #    identity columns to be NULL. An identity-keyed set and the legacy phone
+    #    set of the same vehicle are therefore different keys and coexist.
+    key_columns = ((CoefficientSet.device_id, cs.device_id),
+                   (CoefficientSet.vehicle_id, cs.vehicle_id))
+    if not (cs.device_id and cs.vehicle_id):
+        key_columns = ((CoefficientSet.vehicle_type, cs.vehicle_type),
+                       (CoefficientSet.phone_model, cs.phone_model)) + key_columns
     query = select(CoefficientSet).where(
         CoefficientSet.id != cs.id,
         CoefficientSet.model == cs.model,
         CoefficientSet.status == 'confirmed',
-        *[_same_key(column, value) for column, value in (
-            (CoefficientSet.vehicle_type, cs.vehicle_type),
-            (CoefficientSet.phone_model, cs.phone_model),
-            (CoefficientSet.device_id, cs.device_id),
-            (CoefficientSet.vehicle_id, cs.vehicle_id))])
+        *[_same_key(column, value) for column, value in key_columns])
     previous = session.scalars(query).first()
     archived_set_id = None
     if previous is not None:
