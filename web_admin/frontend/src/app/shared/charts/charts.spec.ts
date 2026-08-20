@@ -143,6 +143,42 @@ describe('ScatterChart', () => {
 });
 
 describe('ProfileChart', () => {
+  /** jsdom reports a 0x0 box for every element, which would make toChart bail out. */
+  function stubBox(svg: SVGSVGElement): void {
+    svg.getBoundingClientRect = () => ({
+      x: 0, y: 0, left: 0, top: 0, right: CHART_W, bottom: CHART_H,
+      width: CHART_W, height: CHART_H, toJSON: () => ({}),
+    }) as DOMRect;
+  }
+  const CHART_W = 640;
+  const CHART_H = 400;
+
+  function pointer(target: Element, type: string, clientX: number): void {
+    target.dispatchEvent(new PointerEvent(type, {
+      clientX, clientY: 200, pointerId: 1, bubbles: true,
+    }));
+  }
+
+  async function createProfile() {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({ imports: [ProfileChart] });
+    const fixture = TestBed.createComponent(ProfileChart);
+    fixture.componentRef.setInput('points', PROFILE);
+    await fixture.whenStable();
+    const svg = (fixture.nativeElement as HTMLElement).querySelector('svg')!;
+    stubBox(svg);
+    const ranges: ([number, number] | null)[] = [];
+    fixture.componentInstance.range.subscribe(range => ranges.push(range));
+    return { fixture, svg, ranges };
+  }
+
+  function band(host: HTMLElement): { x0: number; x1: number } | null {
+    const rect = host.querySelector('rect.brush');
+    if (!rect) return null;
+    const x0 = Number(rect.getAttribute('x'));
+    return { x0, x1: x0 + Number(rect.getAttribute('width')) };
+  }
+
   it('renders the three IRI profiles, the corrected one dashed', async () => {
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({ imports: [ProfileChart] });
@@ -158,6 +194,62 @@ describe('ProfileChart', () => {
     expect(paths[0].getAttribute('d')).toMatch(/^M[\d.]+ [\d.]+( L[\d.]+ [\d.]+){2}$/);
     expect(paths[2].getAttribute('stroke-dasharray')).toBe('6 4');
     expect(host.textContent).toContain('Пікетаж, км');
+  });
+
+  it('keeps the drag alive when the pointer leaves and commits it on release', async () => {
+    const { fixture, svg, ranges } = await createProfile();
+    const host = fixture.nativeElement as HTMLElement;
+
+    pointer(svg, 'pointerdown', 148);
+    pointer(svg, 'pointermove', 448);
+    await fixture.whenStable();
+    expect(band(host)).toEqual({ x0: 148, x1: 448 });
+
+    // pointerleave must drop the crosshair only — the captured drag survives
+    svg.dispatchEvent(new PointerEvent('pointerleave', { pointerId: 1 }));
+    await fixture.whenStable();
+    expect(host.querySelectorAll('line.crosshair').length).toBe(0);
+    expect(band(host)).toEqual({ x0: 148, x1: 448 });
+
+    // Pointer capture routes the release back to the SVG: band and filter agree
+    pointer(svg, 'pointerup', 448);
+    await fixture.whenStable();
+    expect(band(host)).toEqual({ x0: 148, x1: 448 });
+    expect(ranges.length).toBe(1);
+    expect(ranges[0]![0]).toBeCloseTo(0.03472, 4);
+    expect(ranges[0]![1]).toBeCloseTo(0.13889, 4);
+  });
+
+  it('tracks the band again after the pointer re-enters mid-drag', async () => {
+    const { fixture, svg, ranges } = await createProfile();
+    const host = fixture.nativeElement as HTMLElement;
+
+    pointer(svg, 'pointerdown', 148);
+    pointer(svg, 'pointermove', 448);
+    svg.dispatchEvent(new PointerEvent('pointerleave', { pointerId: 1 }));
+    pointer(svg, 'pointermove', 348);
+    pointer(svg, 'pointerup', 348);
+    await fixture.whenStable();
+
+    expect(band(host)).toEqual({ x0: 148, x1: 348 });
+    expect(ranges.length).toBe(1);
+    expect(ranges[0]![1]).toBeCloseTo(0.10417, 4);
+  });
+
+  it('clamps the band and the emitted range to the plot rect', async () => {
+    const { fixture, svg, ranges } = await createProfile();
+    const host = fixture.nativeElement as HTMLElement;
+
+    pointer(svg, 'pointerdown', -60);
+    pointer(svg, 'pointermove', 900);
+    pointer(svg, 'pointerup', 900);
+    await fixture.whenStable();
+
+    // PLOT.x0 = 48, PLOT.x1 = 624 — never over the axis labels
+    expect(band(host)).toEqual({ x0: 48, x1: 624 });
+    // and never extrapolated past the chainage extent (0 … 0.2 km)
+    expect(ranges[0]![0]).toBeCloseTo(0, 10);
+    expect(ranges[0]![1]).toBeCloseTo(0.2, 10);
   });
 });
 

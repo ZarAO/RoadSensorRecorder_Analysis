@@ -256,6 +256,9 @@
       <p class="hint">
         Набір створюється як чернетка — на рани він впливає лише після підтвердження.
       </p>
+      @if (createError(); as message) {
+        <p class="error-banner" id="set-error" role="alert">{{ message }}</p>
+      }
       <div class="dialog-actions">
         <button (click)="setOpen.set(false)">Скасувати</button>
         <button class="primary" (click)="submitCreate()" [disabled]="!canCreate()">Створити</button>

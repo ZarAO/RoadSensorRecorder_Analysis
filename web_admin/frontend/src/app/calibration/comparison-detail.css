@@ -150,6 +150,10 @@ h3 + .hint { margin: calc(-1 * var(--space-2)) 0 var(--space-4); }
 }
 .dialog .radio.disabled { color: var(--color-faint-fg); }
 .dialog .radio small { color: var(--color-muted-fg); margin-left: var(--space-2); }
+.dialog .error-banner {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-sm);
+}
 .dialog-actions {
   display: flex;
   justify-content: flex-end;

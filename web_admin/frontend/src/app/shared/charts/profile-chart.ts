@@ -115,6 +115,9 @@ export class ProfileChart {
   protected onDown(event: PointerEvent): void {
     const at = this.toChart(event);
     if (!at) return;
+    // Capture the pointer: a release outside the SVG must still reach onUp, otherwise
+    // the painted band would survive with no range emitted (and vice versa on re-entry).
+    this.svgRef()?.nativeElement.setPointerCapture?.(event.pointerId);
     this.dragStart = at.x;
     this.brush.set({ x0: at.x, x1: at.x });
   }
@@ -151,8 +154,9 @@ export class ProfileChart {
     ]);
   }
 
+  /** Only the hover crosshair goes: the drag is pointer-captured, so it stays alive
+   *  until onUp either commits the range or clears the band — never half of each. */
   protected onLeave(): void {
-    this.dragStart = null;
     this.hover.set(null);
   }
 
@@ -184,8 +188,11 @@ export class ProfileChart {
     if (!svg) return null;
     const rect = svg.getBoundingClientRect();
     if (!rect.width || !rect.height) return null;
+    const x = ((event.clientX - rect.left) / rect.width) * CHART.width;
     return {
-      x: ((event.clientX - rect.left) / rect.width) * CHART.width,
+      // Clamped to the plot rect: the band must never be painted over the axis labels
+      // and invertScale must never extrapolate past the data extent.
+      x: Math.min(PLOT.x1, Math.max(PLOT.x0, x)),
       y: ((event.clientY - rect.top) / rect.height) * CHART.height,
     };
   }

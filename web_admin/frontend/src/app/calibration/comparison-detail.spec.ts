@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 
 import { ApiService } from '../api/api.service';
 import { ChartData, CoefficientSetOut, ComparisonOut, RunOut } from '../api/dto';
@@ -122,7 +122,7 @@ describe('ComparisonDetail', () => {
     const host = fixture.nativeElement as HTMLElement;
     const chips = Array.from(host.querySelectorAll('#gates .chip'));
     expect(chips.length).toBe(2);
-    // r2 = 0.41 < 0.85 and corrected MAE = mean(|diff - bias|) = 1.55 > 0.5
+    // r2 = 0.41 < 0.85 and corrected MAE = mean(|diff - bias|) = 1.883 > 0.5
     expect(chips[0].textContent?.replace(/\s+/g, ' ').trim()).toBe('R² 0.41 < 0.85');
     expect(chips[0].classList.contains('warn')).toBe(true);
     expect(chips[1].textContent).toContain('> 0.5');
@@ -215,6 +215,61 @@ describe('ComparisonDetail', () => {
       expect(host.querySelector('.success-note')?.textContent)
         .toContain('eq3_sedan_2026-08-20');
     });
+
+  it('shows a failed creation inside the dialog and keeps it open for a retry', async () => {
+    const fixture = createPage(apiStub({
+      createCoefficientSet: (() => throwError(
+        () => ({ error: { detail: 'набір з такою назвою вже існує' } }),
+      )) as unknown as ApiService['createCoefficientSet'],
+    }));
+    await fixture.whenStable();
+    const host = fixture.nativeElement as HTMLElement;
+
+    click(host, 'Створити набір коефіцієнтів');
+    await fixture.whenStable();
+    click(host.querySelector('#set-dialog .dialog-actions')!, 'Створити');
+    await fixture.whenStable();
+
+    // The page-level banner sits under the fixed backdrop, so the message must be
+    // rendered inside the dialog element itself.
+    const dialog = host.querySelector('#set-dialog');
+    expect(dialog).toBeTruthy();
+    expect(dialog!.querySelector('#set-error')?.textContent)
+      .toContain('набір з такою назвою вже існує');
+    expect(host.querySelector('.success-note')).toBeFalsy();
+    // Retry is possible: the submit button is enabled again
+    expect(dialog!.querySelector<HTMLButtonElement>('.dialog-actions .primary')!.disabled)
+      .toBe(false);
+  });
+
+  it('resets the phone model and the error when the dialog is reopened', async () => {
+    const fixture = createPage(apiStub({
+      createCoefficientSet: (() => throwError(
+        () => ({ error: { detail: 'набір з такою назвою вже існує' } }),
+      )) as unknown as ApiService['createCoefficientSet'],
+    }));
+    await fixture.whenStable();
+    const host = fixture.nativeElement as HTMLElement;
+
+    click(host, 'Створити набір коефіцієнтів');
+    await fixture.whenStable();
+    const phone = host.querySelector<HTMLInputElement>('#set-dialog input[placeholder]')!;
+    phone.value = 'Pixel 7';
+    phone.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+    click(host.querySelector('#set-dialog .dialog-actions')!, 'Створити');
+    await fixture.whenStable();
+
+    click(host.querySelector('#set-dialog .dialog-actions')!, 'Скасувати');
+    await fixture.whenStable();
+    click(host, 'Створити набір коефіцієнтів');
+    await fixture.whenStable();
+
+    expect(fixture.componentInstance.phoneModel()).toBe('');
+    expect(host.querySelector<HTMLInputElement>('#set-dialog input[placeholder]')!.value)
+      .toBe('');
+    expect(host.querySelector('#set-error')).toBeFalsy();
+  });
 
   it('blocks the eq3 model and the Eq.3 formula when the fit is degenerate', async () => {
     const degenerate: ChartData = {

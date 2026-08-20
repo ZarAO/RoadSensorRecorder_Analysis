@@ -63,6 +63,8 @@ export class ComparisonDetail {
   readonly phoneModel = signal('');
   readonly submitting = signal(false);
   readonly createdSet = signal<CoefficientSetOut | null>(null);
+  /** Creation errors live inside the dialog — the page banner sits under the backdrop */
+  readonly createError = signal<string | null>(null);
   private readonly nameTouched = signal(false);
 
   readonly summary = computed(() => this.comparison()?.summary ?? null);
@@ -184,7 +186,9 @@ export class ComparisonDetail {
     this.setModel.set('eq6_bias');
     this.nameTouched.set(false);
     this.setName.set(this.defaultName('eq6_bias'));
+    this.phoneModel.set('');
     this.createdSet.set(null);
+    this.createError.set(null);
     this.setOpen.set(true);
   }
 
@@ -212,7 +216,7 @@ export class ComparisonDetail {
     const comparison = this.comparison();
     if (!comparison || !this.canCreate()) return;
     this.submitting.set(true);
-    this.error.set(null);
+    this.createError.set(null);
     this.api.createCoefficientSet({
       comparison_id: comparison.id,
       model: this.setModel(),
@@ -225,7 +229,9 @@ export class ComparisonDetail {
         this.setOpen.set(false);
         this.createdSet.set(set);
       },
-      error: err => { this.submitting.set(false); this.error.set(this.describe(err)); },
+      // The dialog stays open so the operator can fix the name (a same-day repeat
+      // collides with the deterministic default) and retry.
+      error: err => { this.submitting.set(false); this.createError.set(this.describe(err)); },
     });
   }
 
