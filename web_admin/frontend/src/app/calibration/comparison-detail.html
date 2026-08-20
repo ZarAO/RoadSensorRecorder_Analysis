@@ -1,0 +1,265 @@
+<div class="page-head">
+  <div>
+    <h2>Порівняння #{{ comparisonId }}</h2>
+    <a routerLink="/calibration">← до калібрування</a>
+  </div>
+  @if (comparison()?.status === 'done') {
+    <button class="primary" (click)="openSetDialog()">Створити набір коефіцієнтів</button>
+  }
+</div>
+
+@if (error(); as message) {
+  <p class="error-banner" role="alert">{{ message }}</p>
+}
+
+@if (createdSet(); as set) {
+  <p class="success-note" role="status">
+    Створено чернетку набору «{{ set.name }}» (модель {{ set.model }}) —
+    <a routerLink="/calibration">підтвердьте його на вкладці «Калібрування»</a>.
+  </p>
+}
+
+@if (loading()) {
+  <div class="card"><div class="skeleton" style="height:6rem"></div></div>
+} @else if (comparison(); as detail) {
+  <section class="card rise-in meta">
+    <dl>
+      <div><dt>Ран</dt><dd><a [routerLink]="['/runs', detail.run_id]">#{{ detail.run_id }}</a>
+        {{ detail.run_filename ?? '' }}</dd></div>
+      <div><dt>Еталон</dt><dd>{{ detail.reference_road ?? '—' }}</dd></div>
+      <div><dt>Створено</dt><dd>{{ detail.created_at | date:'yyyy-MM-dd HH:mm' }}</dd></div>
+      <div><dt>Статус</dt><dd>
+        <span class="chip"
+              [class.ok]="detail.status === 'done'"
+              [class.bad]="detail.status === 'failed'"
+              [class.warn]="detail.status === 'running'">{{ detail.status }}</span>
+      </dd></div>
+    </dl>
+  </section>
+
+  @if (detail.status === 'failed') {
+    <p class="error-banner" role="alert">
+      Порівняння не вдалося: {{ detail.error ?? 'без деталей' }}
+    </p>
+  } @else if (detail.status !== 'done') {
+    <p class="status-note" role="status">
+      Порівняння ще у черзі (статус: {{ detail.status }}) —
+      графіки й статистика з'являться після завершення.
+    </p>
+  } @else {
+    @if (summary(); as stats) {
+      <div class="cards">
+        <div class="card kpi-card rise-in">
+          <app-count-up [value]="stats.spearman_rho" [decimals]="2" />
+          <span>ρ Спірмена</span>
+        </div>
+        <div class="card kpi-card rise-in">
+          <app-count-up [value]="stats.pearson_r" [decimals]="2" />
+          <span>r Пірсона</span>
+        </div>
+        <div class="card kpi-card rise-in">
+          <app-count-up [value]="stats.mae" [decimals]="2" />
+          <span>MAE, м/км</span>
+        </div>
+        <div class="card kpi-card rise-in">
+          <app-count-up [value]="stats.bias" [decimals]="2" />
+          <span>Зсув, м/км</span>
+        </div>
+        <div class="card kpi-card rise-in">
+          <app-count-up [value]="stats.n_pairs" />
+          <span>пар сегмент/еталон</span>
+        </div>
+        <div class="card kpi-card rise-in">
+          <app-count-up [value]="stats.n_eff" [decimals]="1" />
+          <span>n_eff (ефективна вибірка)</span>
+        </div>
+      </div>
+    }
+
+    <section class="card rise-in" id="gates">
+      <h3>Індикатори якості</h3>
+      <div class="chip-row">
+        @if (r2() !== null) {
+          <span class="chip" [class.ok]="r2Pass()" [class.warn]="!r2Pass()">
+            R² {{ fmt(r2()) }} {{ r2Pass() ? '≥' : '<' }} 0.85
+          </span>
+        } @else {
+          <span class="chip">R²: фіт вироджений — недоступно</span>
+        }
+        @if (correctedMae() !== null) {
+          <span class="chip" [class.ok]="maePass()" [class.warn]="!maePass()">
+            MAE після корекції {{ fmt(correctedMae()) }} {{ maePass() ? '≤' : '>' }} 0.5
+          </span>
+        } @else {
+          <span class="chip">MAE після корекції: недоступно</span>
+        }
+      </div>
+      <p class="hint">Індикатори, не автоматичне рішення</p>
+    </section>
+
+    @if (chart(); as data) {
+      <section class="card rise-in">
+        <h3>√PSD проти IRI профілометра</h3>
+        <app-scatter-chart [points]="data.scatter" [fit]="data.eq3_fit"
+                           [selectedSegId]="selectedSegId()"
+                           (segClick)="selectSeg($event)" />
+      </section>
+
+      <section class="card rise-in">
+        <h3>Профіль IRI за пікетажем</h3>
+        <app-profile-chart [points]="data.profile" (range)="onRange($event)" />
+        @if (brushRange(); as range) {
+          <p class="hint">
+            Виділено {{ fmt(range[0]) }}–{{ fmt(range[1]) }} км — таблиця пар відфільтрована.
+            <button (click)="onRange(null)">Скинути виділення</button>
+          </p>
+        }
+      </section>
+
+      <section class="card rise-in">
+        <h3>Бленд-Альтман (до корекції)</h3>
+        <app-ba-chart [points]="data.bland_altman" [bias]="data.bias" [loa]="loa()" />
+        <p class="hint">
+          Зсув {{ signed(data.bias) }} м/км; межі узгодженості
+          {{ signed(loa()[0]) }} … {{ signed(loa()[1]) }} м/км (зсув ± 1.96σ різниць).
+        </p>
+      </section>
+
+      <section class="card rise-in formulas">
+        <h3>Формули</h3>
+        @if (eq3Formula(); as formula) {
+          <p class="formula">
+            <i>IRI</i><sub>Eq.3</sub> = {{ formula.a }} · √<span class="fn">PSD</span>
+            {{ formula.sign }} {{ formula.b }}
+          </p>
+        } @else {
+          <p class="formula degenerate">
+            <i>IRI</i><sub>Eq.3</sub> = <i>A</i> · √<span class="fn">PSD</span> + <i>B</i> —
+            фіт вироджений — недоступно
+          </p>
+        }
+        <p class="formula">
+          <i>IRI</i><sub>кориг</sub> = <i>IRI</i><sub>multi</sub> − ({{ biasText() }})
+        </p>
+        <p class="hint">
+          √<span class="fn">PSD</span> — скалярна міра спектральної щільності вертикального
+          прискорення у смузі 0.5–6 Гц, м/км на одиницю g/√Гц;
+          зсув — систематична різниця смартфона відносно профілометра.
+        </p>
+      </section>
+
+      <section class="card rise-in figures">
+        <h3>Рисунки (PNG / PDF)</h3>
+        <ul class="figure-list">
+          @for (figure of figures; track figure.name) {
+            <li>
+              <span>{{ figure.label }}</span>
+              <a [href]="figureUrl(figure.name, 'png')" target="_blank" rel="noopener">PNG</a>
+              <a [href]="figureUrl(figure.name, 'pdf')" target="_blank" rel="noopener">PDF</a>
+            </li>
+          }
+        </ul>
+        <p class="hint">
+          Накладання за пікетажем (fig3_chainage_&lt;дорога&gt;) містить назву дороги
+          у назві файлу, тому доступне лише в каталозі артефактів порівняння.
+        </p>
+      </section>
+
+      <section class="card rise-in">
+        <h3>Пари «сегмент ↔ еталон»</h3>
+        <p class="hint">
+          Сортовано за |різницею| ↓; підсвічено 10% найбільших розбіжностей.
+          Показано {{ visiblePairs().length }} із {{ pairs().length }}.
+          Клік по рядку або по точці на діаграмі синхронізує виділення.
+        </p>
+        <div class="table-wrap">
+          <table class="data" id="pairs-table">
+            <thead>
+              <tr>
+                <th>Сегмент</th>
+                <th>Пікетаж, км</th>
+                <th>IRI еталона</th>
+                <th>IRI смартфона</th>
+                <th>Різниця</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (row of visiblePairs(); track row.seg_id) {
+                <tr [class.hot]="row.hot" [class.selected]="row.seg_id === selectedSegId()"
+                    (click)="selectSeg(row.seg_id)">
+                  <td>{{ row.seg_id }}</td>
+                  <td>{{ fmt(row.chainage_km) }}</td>
+                  <td>{{ fmt(row.iri_ref) }}</td>
+                  <td>{{ fmt(row.iri_multi) }}</td>
+                  <td>{{ signed(row.diff) }}</td>
+                </tr>
+              } @empty {
+                <tr>
+                  <td colspan="5">
+                    <div class="empty-state">
+                      <p>У виділеному діапазоні пар немає.</p>
+                    </div>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </section>
+    } @else {
+      <div class="card"><div class="skeleton" style="height:12rem"></div></div>
+    }
+  }
+} @else {
+  <div class="empty-state">
+    <p>Порівняння не знайдено.</p>
+    <a routerLink="/calibration"><button class="primary">До калібрування</button></a>
+  </div>
+}
+
+@if (setOpen()) {
+  <div class="dialog-backdrop" (click)="setOpen.set(false)">
+    <div class="dialog card" id="set-dialog" role="dialog" aria-modal="true"
+         aria-labelledby="set-title" (click)="$event.stopPropagation()">
+      <h3 id="set-title">Створити набір коефіцієнтів</h3>
+
+      <fieldset class="field models">
+        <legend>Модель</legend>
+        <label class="radio">
+          <input type="radio" name="model" value="eq6_bias"
+                 [checked]="setModel() === 'eq6_bias'" (change)="selectModel('eq6_bias')" />
+          <span>Eq.6 — корекція зсуву <small>рекомендовано</small></span>
+        </label>
+        <label class="radio" [class.disabled]="fitDegenerate()">
+          <input type="radio" name="model" value="eq3" [checked]="setModel() === 'eq3'"
+                 [disabled]="fitDegenerate()" (change)="selectModel('eq3')" />
+          <span>Eq.3 — <i>A</i> · √PSD + <i>B</i>
+            @if (fitDegenerate()) { <small>фіт вироджений — недоступно</small> }
+          </span>
+        </label>
+      </fieldset>
+
+      <label class="field">
+        Назва
+        <input type="text" [value]="setName()" (input)="onNameInput($event)" />
+      </label>
+      <label class="field">
+        Тип авто
+        <input type="text" [value]="vehicleType()" (input)="onVehicleInput($event)" />
+      </label>
+      <label class="field">
+        Модель телефону
+        <input type="text" [value]="phoneModel()" (input)="onPhoneInput($event)"
+               placeholder="(необов'язково)" />
+      </label>
+
+      <p class="hint">
+        Набір створюється як чернетка — на рани він впливає лише після підтвердження.
+      </p>
+      <div class="dialog-actions">
+        <button (click)="setOpen.set(false)">Скасувати</button>
+        <button class="primary" (click)="submitCreate()" [disabled]="!canCreate()">Створити</button>
+      </div>
+    </div>
+  </div>
+}

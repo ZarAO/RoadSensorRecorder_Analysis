@@ -23,6 +23,10 @@ export const routes: Routes = [
     loadComponent: () => import('./calibration/calibration-page').then(m => m.CalibrationPage),
   },
   {
+    path: 'calibration/comparisons/:id',
+    loadComponent: () => import('./calibration/comparison-detail').then(m => m.ComparisonDetail),
+  },
+  {
     path: 'dashboard',
     loadComponent: () => import('./dashboard/dashboard-page').then(m => m.DashboardPage),
   },

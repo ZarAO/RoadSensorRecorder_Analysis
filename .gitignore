@@ -190,6 +190,8 @@ storage/results/
 
 # Web admin
 web_admin/backend/admin.db
+# Uploaded profilometer reference forms + parsed intervals (runtime data)
+storage/reference/
 web_admin/frontend/node_modules/
 web_admin/frontend/dist/
 web_admin/frontend/.angular/

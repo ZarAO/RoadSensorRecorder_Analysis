@@ -1,0 +1,79 @@
+/* Shared styling for the comparison SVG charts (scatter / profile / Bland-Altman).
+   Series colors live here so all three charts stay one visual system. */
+
+:host { display: block; }
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+  margin-bottom: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--color-muted-fg);
+}
+.legend-item { display: inline-flex; align-items: center; gap: var(--space-2); }
+.legend .hint { color: var(--color-faint-fg); margin-left: auto; }
+
+/* Swatches: a 2px rule for line series, a filled disc for dot series */
+.legend i {
+  display: inline-block;
+  width: 1.25rem;
+  border-top: 2px solid currentColor;
+}
+.legend i.dashed { border-top-style: dashed; }
+.legend i.dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: currentColor;
+}
+.legend i.accent { color: var(--color-accent); }
+.legend i.reference { color: var(--color-fg); }
+.legend i.corrected { color: var(--color-success); }
+
+.chart-wrap { position: relative; }
+
+svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  touch-action: none;
+}
+
+.grid { stroke: var(--color-border); stroke-width: 1; }
+.axis-line { stroke: var(--color-border-strong); stroke-width: 1; }
+text.axis,
+text.axis-title { fill: var(--color-muted-fg); font-size: 11px; }
+
+.dot { fill: var(--color-accent); cursor: pointer; }
+.dot.selected { stroke: var(--color-fg); stroke-width: 2; }
+
+.fit,
+.line-ref { fill: none; stroke: var(--color-fg); stroke-width: 2; }
+.line-multi { fill: none; stroke: var(--color-accent); stroke-width: 2; }
+.line-corrected { fill: none; stroke: var(--color-success); stroke-width: 2; }
+
+.crosshair { stroke: var(--color-border-strong); stroke-width: 1; }
+.brush { fill: var(--color-accent-muted); opacity: 0.35; }
+
+.bias-line { stroke: var(--color-accent); stroke-width: 2; }
+.loa { stroke: var(--color-fg); stroke-width: 2; }
+
+.tip {
+  position: absolute;
+  z-index: 2;
+  pointer-events: none;
+  transform: translate(-50%, -130%);
+  max-width: 14rem;
+  background: var(--color-surface-raised);
+  color: var(--color-fg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-e2);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+.tip b { font-weight: var(--weight-medium); }
