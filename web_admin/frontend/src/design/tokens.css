@@ -114,7 +114,7 @@
 }
 
 /* === DARK === */
-[data-theme="dark"]{
+[data-theme="light"]{
   --color-bg: var(--paper);
   --color-fg: var(--ink);
   --color-surface: var(--white);

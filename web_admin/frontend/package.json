@@ -7,7 +7,7 @@
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
-    "tokens": "python C:/DEV/ai-agents/plugins/frontend-toolkit/skills/design-system/scripts/tokens_to_css.py src/design/tokens.json | sed s/data-theme=\"dark\"/data-theme=\"light\"/ > src/design/tokens.css"
+    "tokens": "node tools/gen-tokens.mjs"
   },
   "private": true,
   "packageManager": "npm@11.17.0",
