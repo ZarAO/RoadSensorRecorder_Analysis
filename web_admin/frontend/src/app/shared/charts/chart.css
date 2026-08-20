@@ -55,6 +55,10 @@ text.axis-title { fill: var(--color-muted-fg); font-size: 11px; }
 .line-multi { fill: none; stroke: var(--color-accent); stroke-width: 2; }
 .line-corrected { fill: none; stroke: var(--color-success); stroke-width: 2; }
 
+/* Generic multi-series line chart: each series sets its own stroke inline */
+.line { fill: none; stroke-width: 2; }
+.band { fill: var(--color-accent-muted); opacity: 0.35; stroke: none; }
+
 .crosshair { stroke: var(--color-border-strong); stroke-width: 1; }
 .brush { fill: var(--color-accent-muted); opacity: 0.35; }
 

@@ -140,6 +140,32 @@ export interface ReferenceOut {
   comparisons_count: number;
 }
 
+/** One row of the stored intervals_{step_m}m.csv, plus the backend-computed
+ *  iri_ref = mean(ch1..ch8). Columns mirror reference_forms.DATA_COLUMNS. */
+export interface ReferenceIntervalRow {
+  km_start: number;
+  m_start: number;
+  km_end: number;
+  m_end: number;
+  iri_ch1: number | null;
+  iri_ch2: number | null;
+  iri_ch3: number | null;
+  iri_ch4: number | null;
+  iri_ch5: number | null;
+  iri_ch6: number | null;
+  iri_ch7: number | null;
+  iri_ch8: number | null;
+  iri_ch9: number | null;
+  iri_ch10: number | null;
+  lat_start: number;
+  lon_start: number;
+  alt_start: number;
+  lat_end: number;
+  lon_end: number;
+  alt_end: number;
+  iri_ref: number | null;
+}
+
 export interface ComparisonSummary {
   n_pairs: number;
   spearman_rho: number;

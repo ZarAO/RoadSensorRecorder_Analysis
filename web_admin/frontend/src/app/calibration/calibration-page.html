@@ -41,7 +41,7 @@
         @for (reference of references(); track reference.id) {
           <tr [class.deleted]="reference.source_deleted">
             <td>
-              {{ reference.road_name }}
+              <a routerLink="/calibration/references/{{ reference.id }}">{{ reference.road_name }}</a>
               <small>{{ reference.filename }}</small>
             </td>
             <td>{{ fmt(reference.step_m, 0) }}</td>

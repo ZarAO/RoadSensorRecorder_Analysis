@@ -4,7 +4,7 @@ import { Observable } from 'rxjs';
 
 import {
   ArtifactEntry, ChartData, CoefficientSetOut, ComparisonOut, ConfirmOut, DashboardOut, FileOut,
-  GeoJsonFeatureCollection, ReferenceOut, RunOut, SegmentRow,
+  GeoJsonFeatureCollection, ReferenceIntervalRow, ReferenceOut, RunOut, SegmentRow,
 } from './dto';
 
 @Injectable({ providedIn: 'root' })
@@ -92,8 +92,20 @@ export class ApiService {
     return this.http.post<ReferenceOut>(`${this.base}/references`, form);
   }
 
+  getReference(id: number): Observable<ReferenceOut> {
+    return this.http.get<ReferenceOut>(`${this.base}/references/${id}`);
+  }
+
   deleteReference(id: number): Observable<void> {
     return this.http.delete<void>(`${this.base}/references/${id}`);
+  }
+
+  getReferenceIntervals(id: number): Observable<ReferenceIntervalRow[]> {
+    return this.http.get<ReferenceIntervalRow[]>(`${this.base}/references/${id}/intervals`);
+  }
+
+  getReferenceGeojson(id: number): Observable<GeoJsonFeatureCollection> {
+    return this.http.get<GeoJsonFeatureCollection>(`${this.base}/references/${id}/geojson`);
   }
 
   createComparison(runId: number, referenceId: number): Observable<ComparisonOut> {

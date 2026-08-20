@@ -1,0 +1,107 @@
+@if (error(); as message) {
+  <p class="error-banner" role="alert">{{ message }}</p>
+}
+
+@if (reference(); as ref) {
+  <div class="page-head">
+    <div>
+      <h2>Еталон #{{ ref.id }} «{{ ref.road_name }}»</h2>
+      <a routerLink="/calibration">← до калібрування</a>
+    </div>
+  </div>
+
+  <section class="card rise-in meta">
+    <dl>
+      <div><dt>Файл</dt><dd>{{ ref.filename }}</dd></div>
+      <div><dt>Завантажено</dt><dd>{{ ref.uploaded_at | date:'yyyy-MM-dd HH:mm' }}</dd></div>
+      <div><dt>Напрямок</dt><dd>{{ ref.direction ?? '—' }}</dd></div>
+      <div><dt>Смуга</dt><dd>{{ ref.lane ?? '—' }}</dd></div>
+      <div><dt>Категорія</dt><dd>{{ ref.category ?? '—' }}</dd></div>
+      <div><dt>Крок, м</dt><dd>{{ fmt(ref.step_m, 0) }}</dd></div>
+      <div><dt>Дата вимірювання</dt><dd>{{ ref.measured_at ?? '—' }}</dd></div>
+      <div><dt>Інтервалів</dt><dd>{{ ref.intervals_count }}</dd></div>
+      <div><dt>Пікетаж, км</dt><dd>{{ fmt(ref.chainage_span_m / 1000) }}</dd></div>
+      <div><dt>Bbox</dt><dd>{{ ref.bbox ? ref.bbox.join(', ') : '—' }}</dd></div>
+      <div><dt>Порівнянь</dt><dd>{{ ref.comparisons_count }}</dd></div>
+      <div><dt>Джерело</dt><dd>
+        @if (ref.source_deleted) {
+          <span class="chip">видалено</span>
+        } @else {
+          <span class="chip ok">доступне</span>
+        }
+      </dd></div>
+    </dl>
+
+    @if (ref.parse_warnings.length) {
+      <div class="warnings">
+        <h4>Попередження розбору ({{ ref.parse_warnings.length }})</h4>
+        <ul>
+          @for (warning of ref.parse_warnings; track $index) {
+            <li>{{ warning }}</li>
+          }
+        </ul>
+      </div>
+    }
+  </section>
+
+  <section class="card rise-in">
+    <h3>Мапа інтервалів</h3>
+    @if (geo(); as fc) {
+      <app-segment-map class="ref-map" [data]="fc" [metricKey]="'iri_ref'" />
+    } @else {
+      <p class="no-map">Геодані інтервалів недоступні.</p>
+    }
+  </section>
+
+  <section class="card rise-in">
+    <h3>Профіль IRI профілометра</h3>
+    <app-multi-line-chart [series]="profileSeries()"
+                          xLabel="Пікетаж, км" yLabel="IRI, м/км" />
+  </section>
+
+  <section class="card rise-in">
+    <h3>Інтервали</h3>
+    <p class="hint">Показано {{ pageLabel() }}</p>
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>№</th>
+            <th>Пікетаж, км</th>
+            <th>IRI еталона</th>
+            <th>Діапазон каналів</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of pageRows(); track row.interval_id) {
+            <tr>
+              <td>{{ row.interval_id }}</td>
+              <td>{{ fmt(row.chainage_km) }}</td>
+              <td>{{ fmt(row.iri_ref) }}</td>
+              <td>{{ row.channel_range }}</td>
+            </tr>
+          } @empty {
+            <tr>
+              <td colspan="4">
+                <div class="empty-state">
+                  <p>Інтервалів немає.</p>
+                </div>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+    <div class="pagination">
+      <button (click)="prevPage()" [disabled]="page() === 0">← Попередні</button>
+      <button (click)="nextPage()" [disabled]="page() >= pageCount() - 1">Наступні →</button>
+    </div>
+  </section>
+} @else if (loading()) {
+  <div class="card"><div class="skeleton" style="height:6rem"></div></div>
+} @else {
+  <div class="empty-state">
+    <p>Еталон не знайдено.</p>
+    <a routerLink="/calibration"><button class="primary">До калібрування</button></a>
+  </div>
+}

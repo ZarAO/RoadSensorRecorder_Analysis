@@ -27,6 +27,10 @@ export const routes: Routes = [
     loadComponent: () => import('./calibration/comparison-detail').then(m => m.ComparisonDetail),
   },
   {
+    path: 'calibration/references/:id',
+    loadComponent: () => import('./calibration/reference-detail').then(m => m.ReferenceDetail),
+  },
+  {
     path: 'dashboard',
     loadComponent: () => import('./dashboard/dashboard-page').then(m => m.DashboardPage),
   },

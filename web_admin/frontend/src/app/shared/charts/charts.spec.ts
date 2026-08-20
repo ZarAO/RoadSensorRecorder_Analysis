@@ -3,6 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { ChartBAPoint, ChartProfilePoint, ChartScatterPoint } from '../../api/dto';
 import { BaChart } from './ba-chart';
 import { extent, invertScale, linearScale, niceTicks, tickLabel } from './chart-scale';
+import { BandPoint, LineSeries, MultiLineChart } from './multi-line-chart';
 import { ProfileChart } from './profile-chart';
 import { ScatterChart } from './scatter-chart';
 
@@ -271,5 +272,87 @@ describe('BaChart', () => {
     expect(host.querySelectorAll('circle.dot').length).toBe(3);
     expect(host.textContent).toContain('зсув');
     expect(host.textContent).toContain('±1.96σ');
+  });
+});
+
+const SERIES_A: LineSeries = {
+  label: 'Ряд A', colorVar: '--color-fg',
+  points: [{ x: 0, y: 2.0 }, { x: 1, y: 3.5 }, { x: 2, y: 5.0 }],
+};
+const SERIES_B: LineSeries = {
+  label: 'Ряд B', colorVar: '--color-accent', dashed: true,
+  points: [{ x: 0, y: 3.4 }, { x: 1, y: 5.1 }, { x: 2, y: 6.8 }],
+};
+const BAND: BandPoint[] = [
+  { x: 0, lo: 1.5, hi: 2.5 }, { x: 1, lo: 3.0, hi: 4.0 }, { x: 2, lo: 4.5, hi: 5.5 },
+];
+/** PLOT.x0 / PLOT.x1 from chart-scale (CHART.left / CHART.width - CHART.right) */
+const PLOT_X0 = 48;
+const PLOT_X1 = 624;
+
+describe('MultiLineChart', () => {
+  function createFixture(series: LineSeries[], band: BandPoint[] | null = null) {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({ imports: [MultiLineChart] });
+    const fixture = TestBed.createComponent(MultiLineChart);
+    fixture.componentRef.setInput('series', series);
+    fixture.componentRef.setInput('band', band);
+    return fixture;
+  }
+
+  it('renders one path per series, with the dashed series carrying a dasharray', async () => {
+    const fixture = createFixture([SERIES_A, SERIES_B]);
+    await fixture.whenStable();
+
+    const host = fixture.nativeElement as HTMLElement;
+    const paths = Array.from(host.querySelectorAll('path.line'));
+    expect(paths.length).toBe(2);
+    expect(paths[0].getAttribute('d')).toMatch(/^M[\d.]+ [\d.]+( L[\d.]+ [\d.]+){2}$/);
+    expect(paths[0].getAttribute('stroke-dasharray')).toBeNull();
+    expect(paths[1].getAttribute('stroke-dasharray')).toBe('6 4');
+    expect(host.querySelectorAll('.legend-item').length).toBe(2);
+    expect(host.textContent).toContain('Ряд A');
+    expect(host.textContent).toContain('Ряд B');
+  });
+
+  it('renders no band path when band is null, and one when provided', async () => {
+    const withoutBand = createFixture([SERIES_A]);
+    await withoutBand.whenStable();
+    expect((withoutBand.nativeElement as HTMLElement).querySelectorAll('path.band').length).toBe(0);
+
+    const withBand = createFixture([SERIES_A], BAND);
+    await withBand.whenStable();
+    const bandPaths = (withBand.nativeElement as HTMLElement).querySelectorAll('path.band');
+    expect(bandPaths.length).toBe(1);
+    // Closed area path: starts at the first hi, ends back with Z
+    expect(bandPaths[0].getAttribute('d')).toMatch(/^M[\d.]+ [\d.]+.*Z$/);
+  });
+
+  it('lists every series value in the tooltip at the nearest hovered x', async () => {
+    const fixture = createFixture([SERIES_A, SERIES_B]);
+    await fixture.whenStable();
+    const svg = (fixture.nativeElement as HTMLElement).querySelector('svg')!;
+    svg.getBoundingClientRect = () => ({
+      x: 0, y: 0, left: 0, top: 0, right: 640, bottom: 400, width: 640, height: 400,
+      toJSON: () => ({}),
+    }) as DOMRect;
+
+    // Hover near the middle point (x=1 of 0..2 domain maps to the plot midpoint)
+    svg.dispatchEvent(new PointerEvent('pointermove', {
+      clientX: (PLOT_X0 + PLOT_X1) / 2, clientY: 200, bubbles: true,
+    }));
+    await fixture.whenStable();
+
+    const host = fixture.nativeElement as HTMLElement;
+    const tip = host.querySelector('.tip');
+    expect(tip).toBeTruthy();
+    expect(tip!.textContent).toContain('Ряд A');
+    expect(tip!.textContent).toContain('3.50');
+    expect(tip!.textContent).toContain('Ряд B');
+    expect(tip!.textContent).toContain('5.10');
+
+    svg.dispatchEvent(new PointerEvent('pointerleave', { bubbles: true }));
+    await fixture.whenStable();
+    expect(host.querySelector('.tip')).toBeFalsy();
   });
 });
