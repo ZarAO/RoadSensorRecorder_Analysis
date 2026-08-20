@@ -5,7 +5,7 @@ Pydantic response/request schemas mirrored by the frontend DTOs.
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 class FileOut(BaseModel):
@@ -84,3 +84,45 @@ class ComparisonOut(BaseModel):
     error: Optional[str] = None
     run_filename: Optional[str] = None
     reference_road: Optional[str] = None
+
+
+class CoefficientSetCreate(BaseModel):
+    comparison_id: int
+    model: str
+    name: str
+    vehicle_type: str
+    phone_model: Optional[str] = None
+
+    @field_validator('model')
+    @classmethod
+    def _model_must_be_known(cls, v: str) -> str:
+        if v not in ('eq3', 'eq6_bias'):
+            raise ValueError("model must be one of 'eq3', 'eq6_bias'")
+        return v
+
+
+class CoefficientSetOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True, protected_namespaces=())
+
+    id: int
+    name: str
+    model: str
+    params: dict
+    vehicle_type: Optional[str] = None
+    phone_model: Optional[str] = None
+    status: str
+    comparison_id: Optional[int] = None
+    stats_snapshot: Optional[dict] = None
+    created_at: datetime
+    confirmed_at: Optional[datetime] = None
+    confirmed_note: Optional[str] = None
+
+
+class ConfirmIn(BaseModel):
+    note: Optional[str] = None
+
+
+class ConfirmOut(BaseModel):
+    set: CoefficientSetOut
+    archived_set_id: Optional[int] = None
+    reanalyze_candidates: int
