@@ -196,3 +196,6 @@ web_admin/frontend/.angular/
 
 # Field data (large, private): decide per-file what to publish
 storage/field_measurements/
+
+# Field CSVs uploaded through the admin (copies of field_measurements)
+storage/data/sensor_data_20260820_*.csv
