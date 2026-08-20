@@ -10,6 +10,7 @@ comparison (one road), so nothing here is pooled across roads.
 
 import json
 import math
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -212,6 +213,11 @@ def _write_figures(pairs: pd.DataFrame, stats: dict, bias: float,
 def _result_dir_for(settings: Settings, comparison_id: int) -> Path:
     stamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
     return settings.storage_results_dir / 'comparisons' / f'cmp{comparison_id}_{stamp}'
+
+
+def delete_comparison_artifacts(comparison: Comparison) -> None:
+    if comparison.result_dir:
+        shutil.rmtree(comparison.result_dir, ignore_errors=True)
 
 
 def execute_comparison(comparison_id: int, engine, settings: Settings) -> None:

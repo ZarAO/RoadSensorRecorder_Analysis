@@ -41,6 +41,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(health_router, prefix='/api')
 
+    from src.api.comparisons import router as comparisons_router
     from src.api.dashboard import router as dashboard_router
     from src.api.files import router as files_router
     from src.api.global_map import router as global_map_router
@@ -51,6 +52,7 @@ def create_app() -> FastAPI:
     app.include_router(global_map_router, prefix='/api')
     app.include_router(dashboard_router, prefix='/api')
     app.include_router(references_router, prefix='/api')
+    app.include_router(comparisons_router, prefix='/api')
     return app
 
 

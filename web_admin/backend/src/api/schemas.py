@@ -62,3 +62,25 @@ class RunOut(BaseModel):
     result_dir: Optional[str] = None
     summary: Optional[dict] = None
     error: Optional[str] = None
+
+
+class ComparisonCreate(BaseModel):
+    run_id: int
+    reference_id: int
+    params: dict = {}
+
+
+class ComparisonOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    run_id: int
+    reference_id: int
+    created_at: datetime
+    status: str
+    params: dict
+    result_dir: Optional[str] = None
+    summary: Optional[dict] = None
+    error: Optional[str] = None
+    run_filename: Optional[str] = None
+    reference_road: Optional[str] = None

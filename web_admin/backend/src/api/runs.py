@@ -14,10 +14,11 @@ from sqlalchemy.orm import Session
 
 from src.api.schemas import RunCreate, RunOut
 from src.core.config import get_settings
-from src.db.models import AnalysisRun, SourceFile
+from src.db.models import AnalysisRun, Comparison, SourceFile
 from src.db.session import get_session
 from src.services.analysis import delete_run_artifacts, execute_run
 from src.services.coefficients import bias_of, resolve_for_meta
+from src.services.comparison import delete_comparison_artifacts
 
 router = APIRouter(prefix='/runs', tags=['runs'])
 
@@ -114,6 +115,17 @@ def get_artifact(run_id: int, name: str, session: Session = Depends(get_session)
     return FileResponse(target)
 
 
+@router.get('/{run_id}/artifact-list')
+def get_artifact_list(run_id: int, session: Session = Depends(get_session)):
+    run = _run_or_404(run_id, session)
+    base = Path(run.result_dir) if run.result_dir else None
+    if base is None or not base.is_dir():
+        raise HTTPException(404, 'Run has no artifacts yet')
+    rows = [{'name': p.relative_to(base).as_posix(), 'size_bytes': p.stat().st_size}
+            for p in base.rglob('*') if p.is_file()]
+    return sorted(rows, key=lambda r: r['name'])
+
+
 @router.get('/{run_id}/segments')
 def get_segments(run_id: int, session: Session = Depends(get_session)):
     run = _run_or_404(run_id, session)
@@ -167,6 +179,13 @@ def delete_run(run_id: int, session: Session = Depends(get_session)):
     run = session.get(AnalysisRun, run_id)
     if run is None:
         raise HTTPException(404, 'Run not found')
+    # A comparison's FK points at this run: deleting the run first would orphan
+    # it, so its rows and result_dir are removed first (controller ruling #1).
+    comparisons = session.scalars(
+        select(Comparison).where(Comparison.run_id == run.id)).all()
+    for comparison in comparisons:
+        delete_comparison_artifacts(comparison)
+        session.delete(comparison)
     delete_run_artifacts(run)
     session.delete(run)
     session.commit()
