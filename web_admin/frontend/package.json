@@ -6,7 +6,8 @@
     "start": "ng serve",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
-    "test": "ng test"
+    "test": "ng test",
+    "tokens": "python C:/DEV/ai-agents/plugins/frontend-toolkit/skills/design-system/scripts/tokens_to_css.py src/design/tokens.json | sed s/data-theme=\"dark\"/data-theme=\"light\"/ > src/design/tokens.css"
   },
   "private": true,
   "packageManager": "npm@11.17.0",
@@ -17,6 +18,7 @@
     "@angular/forms": "^22.1.0",
     "@angular/platform-browser": "^22.1.0",
     "@angular/router": "^22.1.0",
+    "@fontsource-variable/inter": "^5.3.0",
     "leaflet": "^1.9.4",
     "marked": "^18.0.10",
     "rxjs": "~7.8.0",

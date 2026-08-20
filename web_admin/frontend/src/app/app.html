@@ -1,11 +1,40 @@
 <header class="topbar">
-  <span class="brand">Road Quality Admin</span>
-  <nav>
+  <a routerLink="/" class="brand" aria-label="Road Quality Admin — на головну">
+    <svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+      <path d="M6 24 C10 16, 8 10, 14 4" stroke="var(--color-faint-fg)"
+            stroke-width="5" stroke-linecap="round"/>
+      <path d="M14 24 C18 16, 16 10, 22 4" stroke="var(--color-accent)"
+            stroke-width="5" stroke-linecap="round"/>
+      <path d="M10 23 C14 15, 12 11, 18 5" stroke="var(--color-bg)"
+            stroke-width="1.5" stroke-dasharray="3 3.5" stroke-linecap="round"/>
+    </svg>
+    <span>Road Quality <b>Admin</b></span>
+  </a>
+
+  <nav aria-label="Основна навігація">
     <a routerLink="/files" routerLinkActive="active">Файли</a>
-    <a routerLink="/runs" routerLinkActive="active">Результати</a>
+    <a routerLink="/runs" routerLinkActive="active"
+       [routerLinkActiveOptions]="{ exact: false }">Результати</a>
     <a routerLink="/map" routerLinkActive="active">Глобальна мапа</a>
     <a routerLink="/dashboard" routerLinkActive="active">Дашборд</a>
   </nav>
+
+  <button class="theme-toggle" (click)="themeService.toggle()"
+          [attr.aria-label]="themeService.theme() === 'dark'
+            ? 'Увімкнути світлу тему' : 'Увімкнути темну тему'">
+    @if (themeService.theme() === 'dark') {
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <circle cx="12" cy="12" r="4.5" stroke="currentColor" stroke-width="2"/>
+        <path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+    } @else {
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5Z"
+              stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+      </svg>
+    }
+  </button>
 </header>
 
 <main class="content">

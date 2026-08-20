@@ -1,36 +1,83 @@
+:host {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
 .topbar {
+  position: sticky;
+  top: 0;
+  z-index: 1100;
   display: flex;
   align-items: center;
-  gap: 2rem;
-  padding: 0.75rem 1.5rem;
-  background: #1f2937;
-  color: #f9fafb;
+  gap: var(--space-8);
+  padding: 0 var(--space-6);
+  min-height: 3.5rem;
+  background: var(--header-bg);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--header-border);
 }
 
 .brand {
-  font-weight: 700;
-  font-size: 1.1rem;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-fg);
+  font-size: var(--text-base);
+  letter-spacing: -0.01em;
 }
+.brand:hover { text-decoration: none; }
+.brand b { font-weight: var(--weight-bold); }
 
 .topbar nav {
   display: flex;
-  gap: 1rem;
+  gap: var(--space-1);
+  flex: 1;
 }
 
-.topbar a {
-  color: #d1d5db;
-  text-decoration: none;
-  padding: 0.25rem 0.5rem;
-  border-radius: 4px;
+.topbar nav a {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 3.5rem;
+  padding: 0 var(--space-4);
+  color: var(--color-muted-fg);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  transition: color var(--duration-fast) var(--ease-standard);
 }
+.topbar nav a:hover { color: var(--color-fg); text-decoration: none; }
 
-.topbar a.active {
-  background: #374151;
-  color: #ffffff;
+/* Animated active indicator: a bar that grows in under the active tab */
+.topbar nav a::after {
+  content: '';
+  position: absolute;
+  left: var(--space-4);
+  right: var(--space-4);
+  bottom: 0;
+  height: 2px;
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  transform: scaleX(0);
+  transition: transform var(--duration-normal) var(--ease-standard);
 }
+.topbar nav a.active { color: var(--color-fg); }
+.topbar nav a.active::after { transform: scaleX(1); }
+
+.theme-toggle {
+  min-width: 2.75rem;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-muted-fg);
+}
+.theme-toggle:hover { color: var(--color-fg); }
 
 .content {
-  padding: 1.5rem;
-  max-width: 1200px;
-  margin: 0 auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-6) clamp(var(--space-4), 3vw, var(--space-12));
+  width: 100%;
 }

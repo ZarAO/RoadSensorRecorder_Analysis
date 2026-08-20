@@ -1,11 +1,20 @@
 <!doctype html>
-<html lang="en">
+<html lang="uk" data-theme="dark">
 <head>
   <meta charset="utf-8">
-  <title>Frontend</title>
+  <title>Road Quality Admin</title>
   <base href="/">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <script>
+    // Apply the stored theme before first paint to avoid a flash
+    try {
+      var theme = localStorage.getItem('rqa-theme');
+      if (theme === 'light' || theme === 'dark') {
+        document.documentElement.dataset.theme = theme;
+      }
+    } catch (e) { /* storage unavailable: keep the dark default */ }
+  </script>
 </head>
 <body>
   <app-root></app-root>
