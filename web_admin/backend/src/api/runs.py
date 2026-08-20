@@ -2,7 +2,13 @@
 Runs API: create/queue, run-all-unanalyzed, list, detail, delete.
 """
 
+import time
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -69,6 +75,70 @@ def get_run(run_id: int, session: Session = Depends(get_session)):
     if run is None:
         raise HTTPException(404, 'Run not found')
     return _to_out(run)
+
+
+def _run_or_404(run_id: int, session: Session) -> AnalysisRun:
+    run = session.get(AnalysisRun, run_id)
+    if run is None:
+        raise HTTPException(404, 'Run not found')
+    return run
+
+
+@router.get('/{run_id}/artifacts/{name:path}')
+def get_artifact(run_id: int, name: str, session: Session = Depends(get_session)):
+    run = _run_or_404(run_id, session)
+    if not run.result_dir:
+        raise HTTPException(404, 'Run has no artifacts yet')
+    base = Path(run.result_dir).resolve()
+    target = (base / name).resolve()
+    if not target.is_relative_to(base):
+        raise HTTPException(403, 'Path escapes the run directory')
+    if not target.is_file():
+        raise HTTPException(404, f"No artifact '{name}'")
+    return FileResponse(target)
+
+
+@router.get('/{run_id}/segments')
+def get_segments(run_id: int, session: Session = Depends(get_session)):
+    run = _run_or_404(run_id, session)
+    csv_path = Path(run.result_dir or '') / 'road_segments.csv'
+    if not csv_path.is_file():
+        raise HTTPException(404, 'road_segments.csv not found')
+    df = pd.read_csv(csv_path)
+    # NaN -> null: strict JSON parsers reject NaN, and a missing metric must
+    # never surface as a number (analyzer invariant)
+    return df.replace({np.nan: None}).to_dict('records')
+
+
+@router.get('/{run_id}/log')
+def get_log(run_id: int, follow: bool = True,
+            session: Session = Depends(get_session)):
+    run = _run_or_404(run_id, session)
+    log_path = Path(run.log_path) if run.log_path else None
+    if log_path is None or not log_path.is_file():
+        raise HTTPException(404, 'No log for this run')
+
+    if not follow:
+        return PlainTextResponse(log_path.read_text(encoding='utf-8', errors='replace'))
+
+    engine = session.get_bind().engine
+
+    def _stream():
+        with open(log_path, 'r', encoding='utf-8', errors='replace') as f:
+            while True:
+                line = f.readline()
+                if line:
+                    yield f"data: {line.rstrip()}\n\n"
+                    continue
+                # No new content: stop when the run has left 'running'
+                with Session(engine) as poll_session:
+                    current = poll_session.get(AnalysisRun, run_id)
+                    if current is None or current.status not in ('queued', 'running'):
+                        yield "event: done\ndata: \n\n"
+                        return
+                time.sleep(0.5)
+
+    return StreamingResponse(_stream(), media_type='text/event-stream')
 
 
 @router.delete('/{run_id}', status_code=204)
