@@ -64,6 +64,22 @@ def test_full_v3_file_parses_everything(tmp_path):
     assert meta.clean_stop and meta.footer_count == 1 and meta.warnings == []
 
 
+def test_contract_v31_device_id_and_vehicle_id_keys(tmp_path):
+    # Contract v3.1 pin: the recorder writes '# device_id=' right after '# device: '
+    # and '# vehicle_id=' as the first line of the vehicle block. These are the exact
+    # keys the web-admin backend reads, so freeze both the key names and the fact that
+    # device_id stays a separate preamble entry rather than folding into 'device'.
+    preamble = V3_PREAMBLE.replace(
+        "# nominal_rate_hz=100\n", "# device_id=abc123\n# nominal_rate_hz=100\n")
+    block = "# vehicle_id=u-1\n" + VEHICLE_BLOCK
+    meta = parse_recording_metadata(write(tmp_path, preamble + block + HEADER + ROWS))
+    assert meta.preamble["device_id"] == "abc123"
+    assert meta.preamble["device"] == "SYNTHETIC TEST, android=14"
+    assert meta.vehicle["vehicle_id"] == "u-1"
+    assert len(meta.vehicle) == 12
+    assert meta.warnings == []
+
+
 def test_bare_file_without_comments(tmp_path):
     meta = parse_recording_metadata(write(tmp_path, HEADER + ROWS))
     assert meta.schema is None and meta.preamble == {} and meta.vehicle == {}
