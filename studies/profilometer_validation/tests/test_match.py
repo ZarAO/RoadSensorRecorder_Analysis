@@ -168,6 +168,34 @@ def test_segment_midpoints_from_geojson_positional(tmp_path):
     assert mids['lon_mid'].iloc[0] == 30.5
 
 
+def test_segment_midpoints_from_geojson_accepts_point_geometry(tmp_path):
+    """A segment with fewer than 2 grid points is written as Point geometry
+    (a flat [lon, lat] pair) — its single vertex is midpoint, start and end."""
+    import json
+    from profilometer_validation.match import segment_midpoints_from_geojson
+
+    segments = _segments([0, 1], [0.0, 100.0])
+    features = [
+        {'type': 'Feature', 'properties': {},
+         'geometry': {'type': 'LineString',
+                      'coordinates': [[LON0, LAT0], [LON0, LAT0 + 0.0005],
+                                      [LON0, LAT0 + 0.001]]}},
+        {'type': 'Feature', 'properties': {},
+         'geometry': {'type': 'Point', 'coordinates': [LON0, LAT0 + 0.0015]}},
+    ]
+    p = tmp_path / 'roughness.geojson'
+    p.write_text(json.dumps({'type': 'FeatureCollection', 'features': features}),
+                 encoding='utf-8')
+
+    mids = segment_midpoints_from_geojson(segments, str(p))
+    assert list(mids['seg_id']) == [0, 1]
+    point_row = mids[mids['seg_id'] == 1].iloc[0]
+    assert point_row['lat_mid'] == pytest.approx(LAT0 + 0.0015)
+    assert point_row['lon_mid'] == pytest.approx(LON0)
+    assert point_row['lat_a'] == point_row['lat_b'] == point_row['lat_mid']
+    assert point_row['lon_a'] == point_row['lon_b'] == point_row['lon_mid']
+
+
 def test_segment_midpoints_from_geojson_count_mismatch_raises(tmp_path):
     import json
     from profilometer_validation.match import segment_midpoints_from_geojson

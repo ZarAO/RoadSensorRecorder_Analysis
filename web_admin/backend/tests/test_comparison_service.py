@@ -1,5 +1,4 @@
 import json
-import numpy as np
 import pandas as pd
 from pathlib import Path
 from sqlalchemy.orm import Session
@@ -43,7 +42,6 @@ def _make_reference(ref_dir: Path, n10=100):
 
 
 def test_execute_comparison_end_to_end(client, tmp_path):
-    import os
     from src.core.config import get_settings
     from src.db.models import AnalysisRun, Comparison, ReferenceDataset, SourceFile
     from src.services.comparison import execute_comparison
@@ -74,6 +72,27 @@ def test_execute_comparison_end_to_end(client, tmp_path):
         assert list((rd / 'figures').glob('*.png'))
         chart = json.loads((rd / 'chart_data.json').read_text(encoding='utf-8'))
         assert {'scatter', 'profile', 'bland_altman', 'eq3_fit', 'bias'} <= set(chart)
+
+
+def test_geojson_bbox_handles_point_features(tmp_path):
+    """The analyzer emits Point geometry (a flat [lon, lat] pair) for a segment
+    with fewer than 2 grid points — the bbox must cover it, not crash."""
+    from src.services.comparison import _geojson_bbox
+
+    features = [
+        {'type': 'Feature', 'properties': {},
+         'geometry': {'type': 'LineString',
+                      'coordinates': [[30.5, 50.0], [30.6, 50.1]]}},
+        {'type': 'Feature', 'properties': {},
+         'geometry': {'type': 'Point', 'coordinates': [30.4, 50.2]}},
+        {'type': 'Feature', 'properties': {},
+         'geometry': {'type': 'LineString', 'coordinates': []}},
+    ]
+    p = tmp_path / 'mixed.geojson'
+    p.write_text(json.dumps({'type': 'FeatureCollection', 'features': features}),
+                 encoding='utf-8')
+
+    assert _geojson_bbox(p) == (50.0, 30.4, 50.2, 30.6)
 
 
 def test_comparison_bbox_mismatch_fails_with_explanation(client, tmp_path):

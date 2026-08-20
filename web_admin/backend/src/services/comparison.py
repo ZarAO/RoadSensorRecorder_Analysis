@@ -70,7 +70,12 @@ def _geojson_bbox(geojson_path: Path) -> tuple:
     collection = json.loads(geojson_path.read_text(encoding='utf-8'))
     lats, lons = [], []
     for feature in collection.get('features', []):
-        for point in (feature.get('geometry', {}).get('coordinates') or []):
+        coordinates = feature.get('geometry', {}).get('coordinates') or []
+        # The analyzer emits Point geometry (a flat [lon, lat] pair) for a segment
+        # with fewer than 2 grid points, LineString (a list of pairs) otherwise.
+        if coordinates and not isinstance(coordinates[0], (list, tuple)):
+            coordinates = [coordinates]
+        for point in coordinates:
             lons.append(float(point[0]))
             lats.append(float(point[1]))
     if not lats:
@@ -106,7 +111,7 @@ def _check_reference(reference: ReferenceDataset | None, settings: Settings) -> 
         raise ComparisonError('еталон не знайдено')
     if reference.source_deleted:
         raise ComparisonError('еталон видалено — файл еталонних інтервалів більше не доступний')
-    if int(reference.step_m) != 10:
+    if reference.step_m != 10:
         raise ComparisonError(
             f'еталон має бути 10 м формою (крок цього еталона: {reference.step_m:g} м)')
     intervals_path = reference_dir(settings, reference) / f'intervals_{int(reference.step_m)}m.csv'

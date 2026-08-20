@@ -3,6 +3,7 @@ Publication-grade figures for the validation study (scienceplots, PDF+PNG).
 Axis labels in Ukrainian (dissertation language), units always present.
 """
 
+import re
 from pathlib import Path
 
 import matplotlib
@@ -82,4 +83,10 @@ def chainage_overlay(pairs: pd.DataFrame, road: str, out_dir: Path,
     ax.set_ylabel('IRI, м/км')
     ax.set_title(road, fontsize=8)
     ax.legend(fontsize=7)
-    return _save(fig, out_dir, f'fig3_chainage_{road.replace("-", "").replace("М", "M").replace("Т", "T")}')
+    # The title keeps the raw road name; the file name must survive any road
+    # label (a path or Cyrillic character in it would break savefig), so after
+    # the М/Т transliteration everything outside [A-Za-z0-9_] is dropped.
+    # 'М-03' -> 'M03' and 'Т1016' -> 'T1016' stay byte-identical to before.
+    slug = re.sub(r'[^A-Za-z0-9_]', '',
+                  road.replace('-', '').replace('М', 'M').replace('Т', 'T')) or 'road'
+    return _save(fig, out_dir, f'fig3_chainage_{slug}')

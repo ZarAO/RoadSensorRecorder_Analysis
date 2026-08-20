@@ -73,6 +73,9 @@ def segment_midpoints_from_geojson(segments_df: pd.DataFrame,
     smearing 100 m matches — observed in the first study iteration).
 
     GeoJSON order is [lon, lat]. Midpoint = middle vertex of the LineString.
+    A segment with fewer than 2 grid points is written as Point geometry (a flat
+    [lon, lat] pair instead of a list of pairs); it is normalized to a
+    single-vertex list, so its midpoint, start and end are that one vertex.
     The geojson carries no seg_id property, but its features are written from
     the SAME DataFrame (same order) as road_segments.csv — the alignment is
     positional and is guarded by a feature-count == row-count check.
@@ -96,6 +99,8 @@ def segment_midpoints_from_geojson(segments_df: pd.DataFrame,
             starts.append((np.nan, np.nan))
             ends.append((np.nan, np.nan))
             continue
+        if not isinstance(coords[0], (list, tuple)):
+            coords = [coords]   # Point geometry: one flat [lon, lat] pair
         lon, lat = coords[len(coords) // 2]
         mids.append((lat, lon))
         starts.append((coords[0][1], coords[0][0]))
