@@ -729,3 +729,30 @@ Layer → Add Layer → Add Vector Layer → roughness.geojson
 Author, A., Author, B. (2025). Improving Smartphone-Based Road Roughness Estimation via Gravity Alignment. 
 Journal of Transportation Engineering, XX(Y), pages. DOI: XX.XXXX/XXXXX
 ```
+
+---
+
+## Веб-адмінка
+
+Локальна адмінка для повного циклу: завантаження CSV → запуск аналізу → перегляд
+результатів (звіт, графіки, folium-мапа) → глобальна Leaflet-мапа всіх зон → дашборд.
+Дизайн: `docs/superpowers/specs/2026-08-19-web-admin-design.md`.
+
+**Запуск (два термінали):**
+
+```powershell
+# Backend (FastAPI, http://127.0.0.1:8000)
+cd web_admin/backend
+..\..\.venv\Scripts\python.exe -m uvicorn src.main:app --reload
+
+# Frontend (Angular dev server, http://localhost:4200)
+cd web_admin/frontend
+npx ng serve --proxy-config proxy.conf.json
+```
+
+- Прев'ю файлу при завантаженні показує профіль авто і бейдж запису
+  (чиста зупинка / обірваний / pre-v2.1) з `recording_meta`.
+- Сторінка рану рендерить `report.md`, графіки, таблицю сегментів (без числового
+  IRI для low-speed — інваріант аналізатора) і folium-мапу.
+- Тести backend: `cd web_admin/backend && python -m pytest` (стаб аналізатора;
+  повний цикл — `-m slow`). Тести frontend: `npx ng test --watch=false`.

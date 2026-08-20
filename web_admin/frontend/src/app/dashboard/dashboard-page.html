@@ -1,0 +1,43 @@
+<h2>Дашборд</h2>
+
+@if (data(); as d) {
+  <div class="cards">
+    <div class="card"><b>{{ d.files_total }}</b><span>файлів</span></div>
+    <div class="card"><b>{{ d.runs_done }}</b><span>успішних ранів</span></div>
+    <div class="card"><b>{{ d.km_total | number:'1.1-1' }}</b><span>км проаналізовано</span></div>
+    <div class="card"><b>{{ d.low_speed_total }}</b><span>low-speed сегментів</span></div>
+  </div>
+
+  <h3>Розподіл IRI_multi (повні сегменти з валідною швидкістю)</h3>
+  <div class="histogram">
+    @for (bin of d.iri_histogram; track bin.bin_start) {
+      <div class="bar-col" [title]="bin.count + ' сегментів'">
+        <div class="bar" [style.height.%]="bin.count / maxBinCount() * 100"></div>
+        <span class="bar-label">{{ bin.bin_start }}–{{ bin.bin_end }}</span>
+      </div>
+    }
+  </div>
+
+  <h3>Топ-10 найгірших сегментів (за IRI_psd)</h3>
+  <table class="worst">
+    <thead>
+      <tr><th>Ран</th><th>Файл</th><th>Сегмент</th><th>IRI_psd</th><th>IRI_multi</th></tr>
+    </thead>
+    <tbody>
+      @for (seg of d.worst_segments; track seg.run_id + '-' + seg.seg_id) {
+        <tr>
+          <td><a [routerLink]="['/runs', seg.run_id]">#{{ seg.run_id }}</a></td>
+          <td>{{ seg.filename }}</td>
+          <td>
+            {{ seg.seg_id }}
+            @if (seg.needs_class12_survey) { <span class="magenta">● клас 1/2</span> }
+          </td>
+          <td>{{ seg.iri_psd | number:'1.2-2' }}</td>
+          <td>{{ seg.iri_multi != null ? (seg.iri_multi | number:'1.2-2') : '—' }}</td>
+        </tr>
+      } @empty {
+        <tr><td colspan="5"><em>Ще немає успішних ранів.</em></td></tr>
+      }
+    </tbody>
+  </table>
+}

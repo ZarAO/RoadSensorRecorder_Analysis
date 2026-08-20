@@ -1,0 +1,19 @@
+<h2>Глобальна мапа</h2>
+
+<div class="toolbar">
+  <button (click)="rebuild()" [disabled]="busy()">
+    {{ busy() ? 'Оновлюється…' : 'Оновити глобальну мапу' }}
+  </button>
+  <span class="count">Сегментів: {{ featureCount() }}</span>
+</div>
+
+<div #map class="map"></div>
+
+<div class="legend">
+  <span><i style="background:#16a34a"></i> IRI &lt; 2.5</span>
+  <span><i style="background:#eab308"></i> 2.5–4</span>
+  <span><i style="background:#f97316"></i> 4–6</span>
+  <span><i style="background:#dc2626"></i> ≥ 6</span>
+  <span><i style="background:#FF00FF"></i> Потребує обстеження профілометром (клас 1/2)</span>
+  <span><i style="background:#9ca3af"></i> IRI недоступний</span>
+</div>
