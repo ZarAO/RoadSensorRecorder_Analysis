@@ -18,3 +18,12 @@
   artifacts dir. Auth deliberately absent for now — add as middleware/Depends seam.
 - Tests: httpx TestClient + `RQA_QUEUE_INLINE=1`; stub `src.services.analysis.analyze`
   via monkeypatch; the real analyzer runs only in `@pytest.mark.slow` smoke tests.
+- Reference intervals are stored as a derived CSV consumed by
+  `profilometer_validation.match.load_form_10m` — never re-derive them from the
+  xlsx elsewhere. Comparison artifacts (`matched_pairs.csv`, `stats.json`,
+  `chart_data.json`, `figures/`) live under `storage/results/comparisons/`.
+- Coefficient resolution happens ONLY via `src/services/coefficients.resolve_for_meta`
+  — no duplicated resolution logic in routers or the analysis service. Book
+  constants (the published Eq.3/Eq.6 defaults) never live in the DB; an
+  unresolved model means the analyzer keeps them from code. Any client-supplied
+  `params['coefficients']` is always stripped before resolution (anti-spoofing).

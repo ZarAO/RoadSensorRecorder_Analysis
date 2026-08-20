@@ -20,7 +20,9 @@ CLI має два обов'язкові параметри — `--input` і `--o
 20 км/год (див. [08](08_user_guide_and_cli_reference.md)).
 
 **Веб-адмінка:** `web_admin/` (FastAPI + Angular 22) — керування файлами,
-ранами, глобальна мапа, дашборд; див. розділ у `08_user_guide_and_cli_reference.md`.
+ранами, глобальна мапа, дашборд; Phase 3 (2026-08-20) додав еталони
+профілометра, порівняння ран↔еталон і підтверджувані набори коефіцієнтів
+IRI; див. розділ у `08_user_guide_and_cli_reference.md`.
 
 **Результати:** `out/new_analysis/` — `road_segments.csv`, `recording_meta.json`,
 `roughness.geojson`, `events.geojson`, `segments_map.html`, `report.md`, `plots/`.

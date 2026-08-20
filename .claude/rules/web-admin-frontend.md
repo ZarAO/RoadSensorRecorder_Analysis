@@ -24,3 +24,8 @@
   index.html applies it pre-paint. Map tiles follow the theme (CARTO dark/light).
 - All contrast pairs verified AA with the ui-quality-gates contrast.py — re-run it
   after any token color change.
+- All maps render through the shared `shared/segment-map.ts` component — the
+  IRI severity palette and the `#FF00FF` class-1/2 magenta live there as a
+  data contract, not duplicated per page.
+- Comparison/calibration charts are hand-rolled SVG only — no chart libraries,
+  no KaTeX; match the existing scatter/profile/Bland–Altman implementations.
