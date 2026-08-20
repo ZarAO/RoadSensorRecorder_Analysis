@@ -68,7 +68,8 @@ def bland_altman_plot(pairs: pd.DataFrame, metric_col: str, title: str,
 
 
 def chainage_overlay(pairs: pd.DataFrame, road: str, out_dir: Path,
-                     calibrated_col: str = 'iri_calibrated') -> list:
+                     calibrated_col: str = 'iri_calibrated',
+                     smartphone_label: str = 'Смартфон (калібр. Eq.3)') -> list:
     """Profilometer vs calibrated smartphone IRI along the chainage of one road."""
     df = pairs[pairs['road'] == road].sort_values('chainage_m')
     km = df['chainage_m'] / 1000.0
@@ -76,7 +77,7 @@ def chainage_overlay(pairs: pd.DataFrame, road: str, out_dir: Path,
     ax.plot(km, df['iri_ref'], '-', color='#333333', linewidth=1.1,
             label='Профілометр (сер. кан. 1–8)')
     ax.plot(km, df[calibrated_col], '-', color=ROAD_MARKERS.get(road, ('o', 'tab:blue'))[1],
-            linewidth=1.1, alpha=0.85, label='Смартфон (калібр. Eq.3)')
+            linewidth=1.1, alpha=0.85, label=smartphone_label)
     ax.set_xlabel('Пікетаж, км')
     ax.set_ylabel('IRI, м/км')
     ax.set_title(road, fontsize=8)

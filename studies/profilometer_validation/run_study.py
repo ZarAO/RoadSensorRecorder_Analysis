@@ -279,7 +279,8 @@ def main() -> None:
                                  figures_dir, 'fig2b_bland_altman_bias_corrected')
     for ds in DATASETS:
         written += chainage_overlay(pairs, ds['road'], figures_dir,
-                                    calibrated_col='iri_multi_bias_corrected')
+                                    calibrated_col='iri_multi_bias_corrected',
+                                    smartphone_label='Смартфон (корекція зсуву Eq.6)')
 
     # --- UA summary (per-road first; every qualifier included) ---
     v_multi = validation['iri_multi_generic']
