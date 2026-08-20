@@ -1,0 +1,7 @@
+# Web admin backend — pinned direct dependencies (transitive deps resolved by pip)
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+SQLAlchemy==2.0.52
+python-multipart==0.0.32
+httpx==0.28.1
+sse-starlette==3.4.8

@@ -187,3 +187,9 @@ storage/results/
 # To ignore large CSVs locally without committing .gitignore changes,
 # add them to .git/info/exclude instead:
 #   echo "storage/data/large_dataset.csv" >> .git/info/exclude
+
+# Web admin
+web_admin/backend/admin.db
+web_admin/frontend/node_modules/
+web_admin/frontend/dist/
+web_admin/frontend/.angular/
