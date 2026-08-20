@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
-import { of } from 'rxjs';
+import { Subject, of, throwError } from 'rxjs';
 
 import { ApiService } from '../api/api.service';
 import { CoefficientSetOut, ComparisonOut, ConfirmOut, ReferenceOut, RunOut } from '../api/dto';
@@ -138,5 +138,56 @@ describe('CalibrationPage', () => {
     expect(row?.textContent).toContain('2 попередж.');
     expect(row?.querySelector('[title]')?.getAttribute('title'))
       .toContain('пропуск пікету');
+  });
+
+  it('closes the comparison dialog immediately on submit, before the response arrives', async () => {
+    const pending = new Subject<ComparisonOut>();
+    const createSpy = vi.fn(() => pending.asObservable());
+    const fixture = createPage(apiStub({
+      createComparison: createSpy as unknown as ApiService['createComparison'],
+    }));
+    await fixture.whenStable();
+    const host = fixture.nativeElement as HTMLElement;
+
+    click(host, 'Нове порівняння');
+    await fixture.whenStable();
+    expect(host.querySelector('#comparison-dialog')).toBeTruthy();
+
+    click(host.querySelector('#comparison-dialog')!.querySelector('.dialog-actions')!, 'Порівняти');
+    await fixture.whenStable();
+
+    // Dialog is gone right away, so a second click can't reach the button —
+    // the request is still pending (pending.next() was never called).
+    expect(host.querySelector('#comparison-dialog')).toBeFalsy();
+    expect(createSpy).toHaveBeenCalledTimes(1);
+
+    pending.next(COMPARISON);
+    pending.complete();
+    await fixture.whenStable();
+  });
+
+  it('keeps the reanalyze dialog open and shows the error banner when reanalyze fails', async () => {
+    const reanalyzeSpy = vi.fn(() => throwError(() => ({ error: { detail: 'ран не знайдено' } })));
+    const fixture = createPage(apiStub({
+      reanalyzeCoefficientSet: reanalyzeSpy as unknown as ApiService['reanalyzeCoefficientSet'],
+    }));
+    await fixture.whenStable();
+    const host = fixture.nativeElement as HTMLElement;
+
+    click(host, 'Підтвердити');
+    await fixture.whenStable();
+    click(host.querySelector('#confirm-dialog')!.querySelector('.dialog-actions')!, 'Підтвердити');
+    await fixture.whenStable();
+
+    const reanalyze = host.querySelector('#reanalyze-dialog');
+    expect(reanalyze).toBeTruthy();
+
+    click(reanalyze!.querySelector('.dialog-actions')!, 'Перерахувати');
+    await fixture.whenStable();
+
+    expect(reanalyzeSpy).toHaveBeenCalledWith(9);
+    // The offer to retry is still there, and the failure is visible.
+    expect(host.querySelector('#reanalyze-dialog')).toBeTruthy();
+    expect(host.querySelector('.error-banner')?.textContent).toContain('ран не знайдено');
   });
 });

@@ -55,6 +55,8 @@ export class CalibrationPage {
   readonly confirmNote = signal('');
   readonly reanalyzeTarget = signal<ReanalyzeTarget | null>(null);
   readonly createdRuns = signal<number | null>(null);
+  /** Coefficient set id currently being archived, guarding against a double click */
+  readonly archivingId = signal<number | null>(null);
 
   readonly doneRuns = computed(() => this.runs().filter(run => run.status === 'done'));
   readonly comparableReferences = computed(() => this.references().filter(
@@ -161,10 +163,11 @@ export class CalibrationPage {
     const runId = this.selectedRunId();
     const referenceId = this.selectedReferenceId();
     if (runId == null || referenceId == null) return;
+    this.comparisonOpen.set(false);
     this.error.set(null);
     this.api.createComparison(runId, referenceId).subscribe({
-      next: () => { this.comparisonOpen.set(false); this.reloadComparisons(); },
-      error: err => { this.comparisonOpen.set(false); this.error.set(this.describe(err)); },
+      next: () => this.reloadComparisons(),
+      error: err => this.error.set(this.describe(err)),
     });
   }
 
@@ -194,8 +197,14 @@ export class CalibrationPage {
       : this.api.deleteComparison(target.id);
     request.subscribe({
       next: () => {
-        if (target.kind === 'reference') this.reloadReferences();
-        else this.reloadComparisons();
+        if (target.kind === 'reference') {
+          this.reloadReferences();
+        } else {
+          // Deleting a comparison detaches any coefficient sets that referenced it
+          // (backend nulls comparison_id) — refresh the sets table too.
+          this.reloadComparisons();
+          this.reloadSets();
+        }
       },
       error: err => this.error.set(this.describe(err)),
     });
@@ -235,19 +244,26 @@ export class CalibrationPage {
   submitReanalyze(): void {
     const target = this.reanalyzeTarget();
     if (!target) return;
-    this.reanalyzeTarget.set(null);
     this.error.set(null);
     this.api.reanalyzeCoefficientSet(target.set.id).subscribe({
-      next: runs => { this.createdRuns.set(runs.length); this.reloadRuns(); },
+      next: runs => {
+        // Clear only on success — a failed request keeps the dialog open so the
+        // operator can retry instead of losing the reanalyze offer.
+        this.reanalyzeTarget.set(null);
+        this.createdRuns.set(runs.length);
+        this.reloadRuns();
+      },
       error: err => this.error.set(this.describe(err)),
     });
   }
 
   archive(set: CoefficientSetOut): void {
+    if (this.archivingId() !== null) return;
+    this.archivingId.set(set.id);
     this.error.set(null);
     this.api.archiveCoefficientSet(set.id).subscribe({
-      next: () => this.reloadSets(),
-      error: err => this.error.set(this.describe(err)),
+      next: () => { this.archivingId.set(null); this.reloadSets(); },
+      error: err => { this.archivingId.set(null); this.error.set(this.describe(err)); },
     });
   }
 

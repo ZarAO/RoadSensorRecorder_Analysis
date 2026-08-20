@@ -134,12 +134,18 @@
 <section class="card rise-in">
   <h3>Набори коефіцієнтів</h3>
 
-  @if (createdRuns(); as created) {
-    <p class="success-note" role="status">
-      Створено {{ created }} нових ранів —
-      <a routerLink="/runs">до результатів</a>;
-      після завершення перебудуйте глобальну мапу.
-    </p>
+  @if (createdRuns() !== null) {
+    @if (createdRuns()! > 0) {
+      <p class="success-note" role="status">
+        Створено {{ createdRuns() }} нових ранів —
+        <a routerLink="/runs">до результатів</a>;
+        після завершення перебудуйте глобальну мапу.
+      </p>
+    } @else {
+      <p class="success-note" role="status">
+        Нових ранів не створено — кандидатів не знайдено.
+      </p>
+    }
   }
 
   <div class="table-wrap">
@@ -182,7 +188,7 @@
               @if (set.status === 'draft') {
                 <button class="primary" (click)="openConfirm(set)">Підтвердити</button>
               } @else if (set.status === 'confirmed') {
-                <button (click)="archive(set)">Архівувати</button>
+                <button (click)="archive(set)" [disabled]="archivingId() === set.id">Архівувати</button>
               }
             </td>
           </tr>
