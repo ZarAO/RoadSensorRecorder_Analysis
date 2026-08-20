@@ -8,6 +8,7 @@ from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.core.config import get_settings
+from src.core.queue import make_queue
 from src.db.session import init_db, make_engine
 
 health_router = APIRouter()
@@ -26,7 +27,9 @@ def create_app() -> FastAPI:
         settings.ensure_dirs()
         app.state.engine = make_engine(settings.db_url)
         init_db(app.state.engine)
+        app.state.queue = make_queue()
         yield
+        app.state.queue.shutdown()
         app.state.engine.dispose()
 
     app = FastAPI(title='Road Quality Admin', lifespan=lifespan)
@@ -39,7 +42,9 @@ def create_app() -> FastAPI:
     app.include_router(health_router, prefix='/api')
 
     from src.api.files import router as files_router
+    from src.api.runs import router as runs_router
     app.include_router(files_router, prefix='/api')
+    app.include_router(runs_router, prefix='/api')
     return app
 
 
