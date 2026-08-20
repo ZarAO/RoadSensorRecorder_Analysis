@@ -221,6 +221,9 @@ export class SegmentMap {
         path.on('mouseover', () => path.setStyle({ weight: LINE_HOVER_WEIGHT, opacity: 1 }));
         path.on('mouseout', () =>
           path.setStyle({ weight: LINE_WEIGHT, opacity: LINE_OPACITY }));
+        // No seg_id and no interval_id means popupHtml has nothing real to show
+        // (no segment/interval label, and title/runLink alone read as an empty bubble).
+        if (props['seg_id'] == null && props['interval_id'] == null) return;
         layer.bindPopup(this.popupHtml(props, metricKey));
         layer.on('popupopen', event => {
           const link = event.popup.getElement()?.querySelector('a[data-run]');
@@ -251,7 +254,7 @@ export class SegmentMap {
       ? `<br><a href="#" data-run="${runId}">До рану #${runId}</a>`
       : '';
     if (props['seg_id'] != null) {
-      return `${title}Сегмент ${props['seg_id']}, IRI_multi: ${this.iriLabel(props)}${runLink}`;
+      return `${title}Сегмент ${props['seg_id']}, IRI_multi: ${this.iriLabel(props, metricKey)}${runLink}`;
     }
     if (props['interval_id'] != null) {
       return `Інтервал ${props['interval_id']}, IRI: ${this.metricLabel(props, metricKey)}`;
@@ -265,9 +268,9 @@ export class SegmentMap {
   }
 
   /** Low-speed invariant: a class-1/2 segment never shows a number */
-  private iriLabel(props: Record<string, unknown>): string {
+  private iriLabel(props: Record<string, unknown>, metricKey: SegmentMetricKey): string {
     if (props['needs_class12_survey']) return '— (клас 1/2)';
-    const iri = props['iri_multi'];
+    const iri = props[metricKey];
     return typeof iri === 'number' ? iri.toFixed(2) : '—';
   }
 }

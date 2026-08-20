@@ -18,6 +18,7 @@ from src.api.schemas import ReferenceOut
 from src.core.config import get_settings
 from src.db.models import ReferenceDataset
 from src.db.session import get_session
+from src.services.comparison import MSG_REFERENCE_DELETED
 from src.services.reference_forms import parse_form_xlsx
 from src.services.references import (
     build_reference_geojson,
@@ -102,7 +103,7 @@ def delete_reference(ref_id: int, session: Session = Depends(get_session)):
 def get_reference_intervals(ref_id: int, session: Session = Depends(get_session)):
     row = _ref_or_404(ref_id, session)
     if row.source_deleted:
-        raise HTTPException(409, 'еталон видалено')
+        raise HTTPException(409, MSG_REFERENCE_DELETED)
     df = load_reference_intervals(get_settings(), row)
     # NaN -> null: strict JSON parsers reject NaN, and a missing metric must
     # never surface as a number (analyzer invariant)
@@ -113,5 +114,5 @@ def get_reference_intervals(ref_id: int, session: Session = Depends(get_session)
 def get_reference_geojson(ref_id: int, session: Session = Depends(get_session)):
     row = _ref_or_404(ref_id, session)
     if row.source_deleted:
-        raise HTTPException(409, 'еталон видалено')
+        raise HTTPException(409, MSG_REFERENCE_DELETED)
     return build_reference_geojson(get_settings(), row)

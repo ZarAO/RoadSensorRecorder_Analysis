@@ -33,7 +33,7 @@ from profilometer_validation.match import (
 
 from src.core.config import Settings
 from src.db.models import AnalysisRun, CoefficientSet, Comparison, ReferenceDataset
-from src.services.references import reference_dir
+from src.services.references import intervals_csv_path
 
 # Study defaults (spec §3): min_rows_in_window=9 keeps a 100 m window that lost
 # at most one 10 m row; the client may override any of the three.
@@ -121,7 +121,7 @@ def _check_reference(reference: ReferenceDataset | None, settings: Settings) -> 
         raise ComparisonError(MSG_REFERENCE_DELETED)
     if reference.step_m != 10:
         raise ComparisonError(MSG_REFERENCE_NOT_10M.format(step_m=reference.step_m))
-    intervals_path = reference_dir(settings, reference) / f'intervals_{int(reference.step_m)}m.csv'
+    intervals_path = intervals_csv_path(settings, reference)
     if not intervals_path.is_file():
         raise ComparisonError('файл еталонних інтервалів відсутній на диску')
     return intervals_path

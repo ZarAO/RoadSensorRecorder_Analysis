@@ -13,6 +13,7 @@ import shutil
 from pathlib import Path
 
 import pandas as pd
+from fastapi import HTTPException
 from profilometer_validation.match import REFERENCE_CHANNELS
 
 from src.core.config import Settings
@@ -24,6 +25,14 @@ INTERVALS_GEOJSON_NAME = 'intervals.geojson'
 
 def reference_dir(settings: Settings, ref: ReferenceDataset) -> Path:
     return settings.storage_reference_dir / str(ref.id)
+
+
+def intervals_csv_path(settings: Settings, ref: ReferenceDataset) -> Path:
+    """The single source of truth for the stored intervals CSV's path — used
+    when writing it (store_reference), reading it (load_reference_intervals)
+    and by comparison.py's own pre-flight check, so the filename convention
+    lives in exactly one place."""
+    return reference_dir(settings, ref) / f'intervals_{int(ref.step_m)}m.csv'
 
 
 def store_reference(session, settings: Settings, form: ParsedForm, tmp_xlsx: Path, original_name: str,
@@ -50,7 +59,7 @@ def store_reference(session, settings: Settings, form: ParsedForm, tmp_xlsx: Pat
         ref_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy(str(tmp_xlsx), ref_dir / 'original.xlsx')
         form.intervals.to_csv(
-            ref_dir / f'intervals_{int(form.step_m)}m.csv',
+            intervals_csv_path(settings, row),
             index=False, encoding='utf-8', lineterminator='\n',
         )
     except OSError:
@@ -72,7 +81,9 @@ def delete_reference_data(settings: Settings, ref: ReferenceDataset) -> None:
 def load_reference_intervals(settings: Settings, ref: ReferenceDataset) -> pd.DataFrame:
     """The stored intervals_{step_m}m.csv plus iri_ref = mean(ch1..ch8) — never
     ch9/10, which duplicate ch8 (profilometer_validation.match.REFERENCE_CHANNELS)."""
-    csv_path = reference_dir(settings, ref) / f'intervals_{int(ref.step_m)}m.csv'
+    csv_path = intervals_csv_path(settings, ref)
+    if not csv_path.is_file():
+        raise HTTPException(404, 'intervals file not found')
     df = pd.read_csv(csv_path, encoding='utf-8')
     df['iri_ref'] = df[REFERENCE_CHANNELS].mean(axis=1)
     return df
@@ -108,5 +119,7 @@ def build_reference_geojson(settings: Settings, ref: ReferenceDataset) -> dict:
         for idx, row in df.iterrows()
     ]
     fc = {'type': 'FeatureCollection', 'features': features}
-    cache_path.write_text(json.dumps(fc, ensure_ascii=False), encoding='utf-8')
+    # allow_nan=False: a hypothetical NaN slipping through must fail loudly at
+    # build time, not get serialized as invalid JSON and poison the cache file.
+    cache_path.write_text(json.dumps(fc, ensure_ascii=False, allow_nan=False), encoding='utf-8')
     return fc

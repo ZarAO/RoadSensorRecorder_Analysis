@@ -128,3 +128,26 @@ def test_geojson_409_after_delete(client, tmp_path):
     r = client.get(f'/api/references/{ref_id}/geojson')
     assert r.status_code == 409
     assert 'еталон' in r.json()['detail']
+
+
+def test_geojson_cache_is_read_not_rebuilt(client, tmp_path):
+    """A second GET must return the exact same payload, and it must keep
+    working even after the source intervals CSV is gone — the only way that
+    is possible is if the cached intervals.geojson is being read, not
+    rebuilt from the CSV on every request."""
+    body = _upload(client, tmp_path).json()
+    first = client.get(f"/api/references/{body['id']}/geojson")
+    assert first.status_code == 200
+    fc = first.json()
+
+    second = client.get(f"/api/references/{body['id']}/geojson")
+    assert second.status_code == 200
+    assert second.json() == fc
+
+    csv_path = (Path(os.environ['RQA_REFERENCE_DIR']) / str(body['id'])
+                / f"intervals_{int(body['step_m'])}m.csv")
+    csv_path.unlink()
+
+    third = client.get(f"/api/references/{body['id']}/geojson")
+    assert third.status_code == 200
+    assert third.json() == fc
