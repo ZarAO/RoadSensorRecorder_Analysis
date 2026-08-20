@@ -17,6 +17,7 @@ from src.api.schemas import ReferenceOut
 from src.core.config import get_settings
 from src.db.models import ReferenceDataset
 from src.db.session import get_session
+from src.services.reference_forms import parse_form_xlsx
 from src.services.references import delete_reference_data, store_reference
 
 router = APIRouter(prefix='/references', tags=['references'])
@@ -48,9 +49,14 @@ def upload_reference(
         tmp_path = Path(tmp.name)
 
     try:
-        row = store_reference(session, settings, tmp_path, filename, measured_at, road_name)
-    except ValueError as exc:
-        raise HTTPException(422, str(exc))
+        # Only a parse failure is a client error (422) with storage left clean;
+        # once parsing succeeds, store_reference's own row/dir are on the hook
+        # for cleaning up after themselves on a persistence failure.
+        try:
+            form = parse_form_xlsx(str(tmp_path))
+        except ValueError as exc:
+            raise HTTPException(422, str(exc))
+        row = store_reference(session, settings, form, tmp_path, filename, measured_at, road_name)
     finally:
         tmp_path.unlink(missing_ok=True)
 

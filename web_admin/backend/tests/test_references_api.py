@@ -38,3 +38,37 @@ def test_delete_keeps_row_marks_deleted(client, tmp_path):
     assert client.delete(f'/api/references/{ref_id}').status_code == 204
     body = client.get(f'/api/references/{ref_id}').json()
     assert body['source_deleted'] is True
+
+
+def test_disk_write_failure_leaves_no_orphaned_row(client, tmp_path, monkeypatch):
+    """A disk failure after the row is committed must not leave a dangling
+    ReferenceDataset row (which would 409-block every re-upload forever while
+    nothing exists on disk)."""
+    from fastapi.testclient import TestClient
+    from sqlalchemy.orm import Session
+
+    from src.db.models import ReferenceDataset
+    from src.services import references as references_service
+
+    original_copy = references_service.shutil.copy
+
+    def failing_copy(*args, **kwargs):
+        raise OSError('disk full')
+
+    monkeypatch.setattr(references_service.shutil, 'copy', failing_copy)
+
+    # The default client raises unhandled server exceptions into the test;
+    # this one needs the actual 500 response instead.
+    lenient = TestClient(client.app, raise_server_exceptions=False)
+    p = build_form_xlsx(tmp_path / 'form.xlsx')
+    with open(p, 'rb') as f:
+        r = lenient.post('/api/references', files={'file': ('form.xlsx', f)})
+    assert r.status_code == 500
+
+    with Session(client.app.state.engine) as s:
+        assert s.query(ReferenceDataset).count() == 0
+    ref_root = Path(os.environ['RQA_REFERENCE_DIR'])
+    assert not ref_root.exists() or not any(ref_root.iterdir())
+
+    monkeypatch.setattr(references_service.shutil, 'copy', original_copy)
+    assert _upload(client, tmp_path, name='form.xlsx').status_code == 201
