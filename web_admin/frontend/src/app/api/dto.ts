@@ -147,7 +147,7 @@ export interface ComparisonSummary {
   mae: number;
   bias: number;
   n_eff: number;
-  eq3_r2: number;
+  eq3_r2: number | null;
   gates: Record<string, unknown>;
 }
 
@@ -217,7 +217,8 @@ export interface ChartData {
   scatter: ChartScatterPoint[];
   profile: ChartProfilePoint[];
   bland_altman: ChartBAPoint[];
-  eq3_fit: { A: number; B: number; r2: number; mae: number; n: number };
+  // NaN -> null via backend _json_safe
+  eq3_fit: { A: number | null; B: number | null; r2: number | null; mae: number | null; n: number };
   bias: number;
   gates: Record<string, unknown>;
 }
