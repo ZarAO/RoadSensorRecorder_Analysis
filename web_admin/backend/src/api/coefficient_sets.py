@@ -26,10 +26,13 @@ from src.api.schemas import (
     CoefficientSetOut,
     ConfirmIn,
     ConfirmOut,
+    PreviewResolutionIn,
+    PreviewResolutionOut,
     RunOut,
 )
 from src.db.models import AggregateComparison, Comparison, CoefficientSet, SourceFile
 from src.db.session import get_session
+from src.services.coefficients import files_resolving_to
 
 router = APIRouter(prefix='/coefficient-sets', tags=['coefficient-sets'])
 
@@ -101,16 +104,11 @@ def _load_artifact_json(result_dir: str | None, name: str, subject: str) -> dict
 
 
 def _candidate_files(session: Session, vehicle_type: str | None) -> list[SourceFile]:
-    """Non-deleted files whose recording_meta.vehicle.vehicle_type matches
-    (filtered in Python: small N — spec §Phase 3). A falsy vehicle_type never
-    matches: None == None would otherwise pull in every pre-v3 file that
-    carries no vehicle block at all."""
-    if not vehicle_type:
-        return []
-    files = session.scalars(
-        select(SourceFile).where(SourceFile.source_deleted.is_(False))).all()
-    return [f for f in files
-            if ((f.recording_meta or {}).get('vehicle') or {}).get('vehicle_type') == vehicle_type]
+    """Reanalyze candidates: every file of the vehicle type, whatever phone
+    recorded it. A phone-specific set still changes which set resolves for the
+    other phones of the same vehicle (the NULL tier may sit underneath), so the
+    reanalyze offer stays deliberately vehicle-wide."""
+    return files_resolving_to(session, vehicle_type, None)
 
 
 def _set_or_404(set_id: int, session: Session) -> CoefficientSet:
@@ -203,6 +201,17 @@ def list_sets(session: Session = Depends(get_session)):
                                         CoefficientSet.id.desc())
     ).all()
     return [_to_out(s) for s in sets]
+
+
+@router.post('/preview-resolution', response_model=PreviewResolutionOut)
+def preview_resolution(payload: PreviewResolutionIn,
+                       session: Session = Depends(get_session)):
+    """Which uploaded files a set with this key would apply to — answered before
+    the operator confirms, so a phone_model that matches nothing is visible as 0
+    instead of silently producing a set that never resolves."""
+    files = files_resolving_to(session, payload.vehicle_type, payload.phone_model)
+    return PreviewResolutionOut(files_matched=len(files),
+                                filenames=[f.filename for f in files])
 
 
 @router.post('/{set_id}/confirm', response_model=ConfirmOut)

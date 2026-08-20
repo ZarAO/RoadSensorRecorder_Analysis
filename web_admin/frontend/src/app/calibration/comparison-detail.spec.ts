@@ -25,7 +25,7 @@ const RUN: RunOut = {
     partial_count: 0, events_total: 0, incidents_total: 0, clean_stop: true,
     vehicle_type: 'sedan',
   },
-  error: null,
+  error: null, phone_model: 'samsung SM-S948B',
 };
 
 /** diffs: seg 1 → +1.4, seg 2 → +0.2, seg 3 → −2.5 (sorted table: 3, 1, 2) */
@@ -209,11 +209,60 @@ describe('ComparisonDetail', () => {
         model: 'eq3',
         name: 'eq3_sedan_2026-08-20',
         vehicle_type: 'sedan',
-        phone_model: null,
+        // Prefilled from the run — never a hand-typed device string
+        phone_model: 'samsung SM-S948B',
       });
       expect(host.querySelector('#set-dialog')).toBeFalsy();
       expect(host.querySelector('.success-note')?.textContent)
         .toContain('eq3_sedan_2026-08-20');
+    });
+
+  it('offers exactly two phone options and posts the chosen one', async () => {
+    const createSpy = vi.fn(() => of(CREATED_SET));
+    const fixture = createPage(apiStub({
+      createCoefficientSet: createSpy as unknown as ApiService['createCoefficientSet'],
+    }));
+    await fixture.whenStable();
+    const host = fixture.nativeElement as HTMLElement;
+
+    click(host, 'Створити набір коефіцієнтів');
+    await fixture.whenStable();
+
+    const dialog = host.querySelector('#set-dialog')!;
+    // No free-text phone entry is reachable: the field is a select everywhere
+    expect(dialog.querySelector('input[placeholder]')).toBeFalsy();
+    const select = dialog.querySelector<HTMLSelectElement>('select')!;
+    const options = Array.from(select.options);
+    expect(options.map(option => option.textContent?.trim())).toEqual([
+      'Точний телефон (samsung SM-S948B)',
+      'Будь-який телефон цього типу авто',
+    ]);
+    expect(select.value).toBe('samsung SM-S948B');
+
+    select.value = '';
+    select.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+    click(dialog.querySelector('.dialog-actions')!, 'Створити');
+    await fixture.whenStable();
+
+    expect(createSpy).toHaveBeenCalledWith(expect.objectContaining({ phone_model: null }));
+  });
+
+  it('offers only the «any phone» option for a recording without a device line',
+    async () => {
+      const fixture = createPage(apiStub({
+        getRun: () => of({ ...RUN, phone_model: null }),
+      }));
+      await fixture.whenStable();
+      const host = fixture.nativeElement as HTMLElement;
+
+      click(host, 'Створити набір коефіцієнтів');
+      await fixture.whenStable();
+
+      const select = host.querySelector<HTMLSelectElement>('#set-dialog select')!;
+      expect(Array.from(select.options).map(option => option.value)).toEqual(['']);
+      expect(select.options[0].textContent?.trim())
+        .toBe('Будь-який телефон цього типу авто');
     });
 
   it('shows a failed creation inside the dialog and keeps it open for a retry', async () => {
@@ -242,7 +291,7 @@ describe('ComparisonDetail', () => {
       .toBe(false);
   });
 
-  it('resets the phone model and the error when the dialog is reopened', async () => {
+  it('resets the phone choice and the error when the dialog is reopened', async () => {
     const fixture = createPage(apiStub({
       createCoefficientSet: (() => throwError(
         () => ({ error: { detail: 'набір з такою назвою вже існує' } }),
@@ -253,9 +302,9 @@ describe('ComparisonDetail', () => {
 
     click(host, 'Створити набір коефіцієнтів');
     await fixture.whenStable();
-    const phone = host.querySelector<HTMLInputElement>('#set-dialog input[placeholder]')!;
-    phone.value = 'Pixel 7';
-    phone.dispatchEvent(new Event('input'));
+    const phone = host.querySelector<HTMLSelectElement>('#set-dialog select')!;
+    phone.value = '';
+    phone.dispatchEvent(new Event('change'));
     await fixture.whenStable();
     click(host.querySelector('#set-dialog .dialog-actions')!, 'Створити');
     await fixture.whenStable();
@@ -266,8 +315,8 @@ describe('ComparisonDetail', () => {
     await fixture.whenStable();
 
     // The dialog is destroyed on close, so a reopened one starts from its inputs
-    expect(host.querySelector<HTMLInputElement>('#set-dialog input[placeholder]')!.value)
-      .toBe('');
+    expect(host.querySelector<HTMLSelectElement>('#set-dialog select')!.value)
+      .toBe('samsung SM-S948B');
     expect(host.querySelector('#set-error')).toBeFalsy();
   });
 

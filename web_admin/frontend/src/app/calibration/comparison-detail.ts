@@ -8,7 +8,7 @@ import { BaChart } from '../shared/charts/ba-chart';
 import { ProfileChart } from '../shared/charts/profile-chart';
 import { ScatterChart } from '../shared/charts/scatter-chart';
 import { CountUp } from '../shared/count-up';
-import { CreateSetDialog, SetProvenance } from './create-set-dialog';
+import { CreateSetDialog, SetProvenance, phoneOptionsFor } from './create-set-dialog';
 
 /** Human-facing indicators, mirroring GATE_R2_MIN / GATE_MAE_MAX in the backend */
 const GATE_R2_MIN = 0.85;
@@ -59,6 +59,9 @@ export class ComparisonDetail {
   /** «Створити набір коефіцієнтів» dialog (shared component, mounted while open) */
   readonly setOpen = signal(false);
   readonly vehicleType = signal('');
+  /** The compared run's recorded device — the dialog's phone key comes from here */
+  readonly phoneModel = signal<string | null>(null);
+  readonly phoneOptions = computed(() => phoneOptionsFor(this.phoneModel()));
   readonly createdSet = signal<CoefficientSetOut | null>(null);
 
   readonly summary = computed(() => this.comparison()?.summary ?? null);
@@ -146,7 +149,7 @@ export class ComparisonDetail {
         this.loading.set(false);
         this.comparison.set(comparison);
         if (comparison.status === 'done') this.loadChart();
-        this.loadVehicleType(comparison.run_id);
+        this.loadRunKeys(comparison.run_id);
       },
       error: err => { this.loading.set(false); this.error.set(this.describe(err)); },
     });
@@ -159,10 +162,15 @@ export class ComparisonDetail {
     });
   }
 
-  private loadVehicleType(runId: number): void {
+  /** Both resolution keys of the set to be drafted come from the compared run */
+  private loadRunKeys(runId: number): void {
     this.api.getRun(runId).subscribe({
-      next: run => this.vehicleType.set(run.summary?.vehicle_type ?? ''),
-      // A missing run only costs the prefill — the operator can still type it
+      next: run => {
+        this.vehicleType.set(run.summary?.vehicle_type ?? '');
+        this.phoneModel.set(run.phone_model);
+      },
+      // A missing run only costs the prefill — the operator can still type the
+      // vehicle type, and the dialog falls back to the «any phone» tier
       error: () => undefined,
     });
   }

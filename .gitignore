@@ -136,6 +136,9 @@ Lib/
 Scripts/
 share/
 pyvenv.cfg
+# Git ignores paths case-insensitively on Windows, so the venv's Scripts/ rule
+# above also swallowed the backend's own scripts/ — that one is source.
+!web_admin/backend/scripts/
 
 # === IDE ===
 # VS Code

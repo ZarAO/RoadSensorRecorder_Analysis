@@ -21,7 +21,7 @@ const RUN: RunOut = {
   created_at: '2026-08-20T10:00:00Z', started_at: '2026-08-20T10:00:01Z',
   finished_at: '2026-08-20T10:00:30Z', status: 'done',
   params: { low_speed_policy: 'invalid' }, result_dir: 'x',
-  summary: null, error: null,
+  summary: null, error: null, phone_model: 'samsung SM-S948B',
 };
 
 const COMPARISON: ComparisonOut = {
@@ -78,6 +78,7 @@ function apiStub(overrides: Partial<ApiService> = {}): ApiService {
     listAggregates: () => of([AGGREGATE]),
     createAggregate: () => of(AGGREGATE),
     deleteAggregate: () => of(void 0),
+    previewResolution: () => of({ files_matched: 2, filenames: ['drive.csv', 'drive2.csv'] }),
     confirmCoefficientSet: () => of(CONFIRM_OUT),
     archiveCoefficientSet: () => of(DRAFT_SET),
     reanalyzeCoefficientSet: () => of([RUN, RUN]),
@@ -147,6 +148,53 @@ describe('CalibrationPage', () => {
     expect(reanalyzeSpy).toHaveBeenCalledWith(9);
     expect((fixture.nativeElement as HTMLElement).textContent)
       .toContain('Створено 2 нових ранів');
+  });
+
+  it('previews how many files the set being confirmed would apply to', async () => {
+    const previewSpy = vi.fn(() => of({
+      files_matched: 3, filenames: ['a.csv', 'b.csv', 'c.csv'],
+    }));
+    const fixture = createPage(apiStub({
+      previewResolution: previewSpy as unknown as ApiService['previewResolution'],
+    }));
+    await fixture.whenStable();
+    const host = fixture.nativeElement as HTMLElement;
+
+    click(host, 'Підтвердити');
+    await fixture.whenStable();
+
+    expect(previewSpy).toHaveBeenCalledWith({
+      model: 'eq6_bias', vehicle_type: 'sedan', phone_model: null,
+    });
+    const preview = host.querySelector('#confirm-preview')!;
+    expect(preview.textContent!.replace(/\s+/g, ' ')).toContain('Застосується до 3 файлів');
+    expect(preview.getAttribute('title')).toBe('a.csv\nb.csv\nc.csv');
+    expect(preview.classList.contains('error-banner')).toBe(false);
+  });
+
+  it('warns when no existing file matches the key, still allowing the confirm', async () => {
+    const confirmSpy = vi.fn(() => of(CONFIRM_OUT));
+    const fixture = createPage(apiStub({
+      previewResolution: (() => of({ files_matched: 0, filenames: [] })
+      ) as unknown as ApiService['previewResolution'],
+      confirmCoefficientSet: confirmSpy as unknown as ApiService['confirmCoefficientSet'],
+    }));
+    await fixture.whenStable();
+    const host = fixture.nativeElement as HTMLElement;
+
+    click(host, 'Підтвердити');
+    await fixture.whenStable();
+
+    const preview = host.querySelector('#confirm-preview')!;
+    expect(preview.textContent)
+      .toContain('Жоден наявний файл не збігається — перевірте телефон/тип авто');
+    expect(preview.classList.contains('error-banner')).toBe(true);
+
+    // The decision stays human: confirming is still possible
+    const confirm = host.querySelector('#confirm-dialog')!;
+    click(confirm.querySelector('.dialog-actions')!, 'Підтвердити');
+    await fixture.whenStable();
+    expect(confirmSpy).toHaveBeenCalledWith(9, undefined);
   });
 
   it('shows the parse-warning count of a reference row', async () => {

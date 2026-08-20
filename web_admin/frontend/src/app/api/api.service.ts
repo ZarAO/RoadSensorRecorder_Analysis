@@ -4,8 +4,8 @@ import { Observable } from 'rxjs';
 
 import {
   AggregateChartData, AggregateOut, ArtifactEntry, ChartData, CoefficientSetOut, ComparisonOut,
-  ConfirmOut, DashboardOut, FileOut, GeoJsonFeatureCollection, ReferenceIntervalRow, ReferenceOut,
-  RunOut, SegmentRow,
+  ConfirmOut, DashboardOut, FileOut, GeoJsonFeatureCollection, PreviewResolutionOut,
+  ReferenceIntervalRow, ReferenceOut, RunOut, SegmentRow,
 } from './dto';
 
 @Injectable({ providedIn: 'root' })
@@ -171,6 +171,15 @@ export class ApiService {
     vehicle_type: string; phone_model?: string | null;
   }): Observable<CoefficientSetOut> {
     return this.http.post<CoefficientSetOut>(`${this.base}/coefficient-sets`, payload);
+  }
+
+  /** How many uploaded files a set with this resolution key would apply to —
+   *  shown before creating/confirming, so a key that matches nothing is visible. */
+  previewResolution(payload: {
+    model: string; vehicle_type: string | null; phone_model: string | null;
+  }): Observable<PreviewResolutionOut> {
+    return this.http.post<PreviewResolutionOut>(
+      `${this.base}/coefficient-sets/preview-resolution`, payload);
   }
 
   confirmCoefficientSet(id: number, note?: string): Observable<ConfirmOut> {

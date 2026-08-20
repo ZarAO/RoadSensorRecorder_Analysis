@@ -18,6 +18,17 @@ export interface PhoneOption {
   value: string | null;
 }
 
+/** The only two resolution tiers a set can target, built from the run's recorded
+ *  device: the exact phone, or any phone of that vehicle type. A recording without
+ *  a device line (pre-v3) offers the «any phone» tier alone — a typed device string
+ *  would never match `phone_model_from_meta`, so it is not offered at all. */
+export function phoneOptionsFor(phoneModel: string | null | undefined): PhoneOption[] {
+  const anyPhone: PhoneOption = { label: 'Будь-який телефон цього типу авто', value: null };
+  return phoneModel
+    ? [{ label: `Точний телефон (${phoneModel})`, value: phoneModel }, anyPhone]
+    : [anyPhone];
+}
+
 /** The single «Створити набір коефіцієнтів» dialog, shared by the comparison and
  *  the aggregate detail pages. The parent owns the open flag and renders the
  *  component only while open, so every reopen starts from a clean state. */
@@ -58,8 +69,10 @@ export interface PhoneOption {
         </label>
         <label class="field">
           Модель телефону
-          <!-- A select once the caller knows the recorded phones; free text while it
-               does not (the value must match phone_model_from_meta exactly). -->
+          <!-- Every caller passes phoneOptionsFor(run.phone_model), so the select is
+               what the operator sees. The free-text fallback below is a safety net for
+               a caller that knows no phone at all — kept because a typed value must
+               match phone_model_from_meta exactly, and a wrong one never resolves. -->
           @if (phoneOptions().length) {
             <select [value]="phone() ?? ''" (change)="onPhoneSelect($event)">
               @for (option of phoneOptions(); track option.label) {

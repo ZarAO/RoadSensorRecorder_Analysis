@@ -62,6 +62,9 @@ class RunOut(BaseModel):
     result_dir: Optional[str] = None
     summary: Optional[dict] = None
     error: Optional[str] = None
+    # Enrichment (runs._to_out): the recording's device string exactly as
+    # coefficient resolution matches on it; null for a pre-v3 recording
+    phone_model: Optional[str] = None
 
 
 class ComparisonCreate(BaseModel):
@@ -108,6 +111,12 @@ class AggregateOut(BaseModel):
     run_filenames: list[str] = []
 
 
+def _known_model(v: str) -> str:
+    if v not in ('eq3', 'eq6_bias'):
+        raise ValueError("model must be one of 'eq3', 'eq6_bias'")
+    return v
+
+
 class CoefficientSetCreate(BaseModel):
     # Provenance: exactly one of the two (enforced in the router, which answers
     # with the Ukrainian operator-facing message)
@@ -121,9 +130,28 @@ class CoefficientSetCreate(BaseModel):
     @field_validator('model')
     @classmethod
     def _model_must_be_known(cls, v: str) -> str:
-        if v not in ('eq3', 'eq6_bias'):
-            raise ValueError("model must be one of 'eq3', 'eq6_bias'")
-        return v
+        return _known_model(v)
+
+
+class PreviewResolutionIn(BaseModel):
+    """The resolution key of a set the operator is about to create or confirm.
+    `model` is validated but does not narrow the count: a file matches a key by
+    vehicle type and phone, never by which equation the set calibrates."""
+
+    model: str
+    # A set may carry no vehicle type (nothing resolves then) — 0 matches, not 422
+    vehicle_type: Optional[str] = None
+    phone_model: Optional[str] = None
+
+    @field_validator('model')
+    @classmethod
+    def _model_must_be_known(cls, v: str) -> str:
+        return _known_model(v)
+
+
+class PreviewResolutionOut(BaseModel):
+    files_matched: int
+    filenames: list[str] = []
 
 
 class CoefficientSetOut(BaseModel):

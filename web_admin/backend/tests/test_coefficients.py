@@ -35,6 +35,46 @@ def test_resolution_fallback_chain(client):
         assert resolve_for_meta(s, None) == {'eq3': None, 'eq6_bias': None}
 
 
+def _upload_with_device(client, name, device, vehicle_type):
+    """A file whose recording_meta is parsed by the real upload endpoint, so the
+    device string is exactly what phone_model_from_meta will later read."""
+    csv = (f'# schema=2\n# device: {device}\n# vehicle_type={vehicle_type}\n'
+           'Time,Type,X,Y,Z,Latitude,Longitude\n'
+           '1753796576000,Accelerometer,0.0,0.0,9.81,,\n'
+           '1753796577000,Accelerometer,0.0,0.0,9.81,,\n').encode('utf-8')
+    r = client.post('/api/files', files={'file': (name, csv)})
+    assert r.status_code == 201, r.text
+    return r.json()['id']
+
+
+def test_files_resolving_to_is_phone_aware(client):
+    """The preview of «which files would this set apply to»: the exact-phone tier
+    matches one device, the NULL-phone tier every file of the vehicle type."""
+    from src.services.coefficients import files_resolving_to
+    s948 = _upload_with_device(client, 'van_s948.csv',
+                               'samsung SM-S948B, android=16', 'van')
+    pixel = _upload_with_device(client, 'van_pixel.csv',
+                                'google Pixel 9, android=15', 'van')
+    sedan = _upload_with_device(client, 'sedan_s948.csv',
+                                'samsung SM-S948B, android=16', 'sedan')
+    engine = client.app.state.engine
+
+    with Session(engine) as s:
+        assert {f.id for f in files_resolving_to(s, 'van', None)} == {s948, pixel}
+        assert [f.id for f in files_resolving_to(s, 'van', 'samsung SM-S948B')] == [s948]
+        assert [f.id for f in files_resolving_to(s, 'sedan', 'samsung SM-S948B')] == [sedan]
+        # A hand-typed device string can never match a parsed preamble device
+        assert files_resolving_to(s, 'van', 'zarichnyi-samsung-s26u') == []
+        # No vehicle type resolves nothing (mirrors resolve(): a pre-v3 file
+        # without a vehicle block must not inherit another vehicle's set)
+        assert files_resolving_to(s, None, None) == []
+
+    assert client.delete(f'/api/files/{s948}').status_code == 204
+    with Session(engine) as s:
+        assert [f.id for f in files_resolving_to(s, 'van', None)] == [pixel]
+        assert files_resolving_to(s, 'van', 'samsung SM-S948B') == []
+
+
 def test_draft_and_archived_sets_are_ignored(client):
     from src.services.coefficients import resolve_for_meta
     engine = client.app.state.engine

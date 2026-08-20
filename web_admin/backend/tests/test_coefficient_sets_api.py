@@ -222,6 +222,37 @@ def test_reanalyze_only_from_confirmed(client, tmp_path):
     assert r.status_code == 409
 
 
+def test_preview_resolution_counts_files_per_phone_tier(client):
+    """The confirm dialog's «Застосується до N файлів»: the count is phone-aware,
+    so a mistyped phone_model surfaces as 0 before the operator confirms."""
+    from tests.test_coefficients import _upload_with_device
+    _upload_with_device(client, 'van.csv', 'samsung SM-S948B, android=16', 'van')
+    _upload_with_device(client, 'van_pixel.csv', 'google Pixel 9, android=15', 'van')
+
+    exact = client.post('/api/coefficient-sets/preview-resolution', json={
+        'model': 'eq6_bias', 'vehicle_type': 'van', 'phone_model': 'samsung SM-S948B'})
+    assert exact.status_code == 200, exact.text
+    assert exact.json() == {'files_matched': 1, 'filenames': ['van.csv']}
+
+    any_phone = client.post('/api/coefficient-sets/preview-resolution', json={
+        'model': 'eq6_bias', 'vehicle_type': 'van', 'phone_model': None})
+    assert any_phone.json()['files_matched'] == 2
+    assert sorted(any_phone.json()['filenames']) == ['van.csv', 'van_pixel.csv']
+
+    typo = client.post('/api/coefficient-sets/preview-resolution', json={
+        'model': 'eq6_bias', 'vehicle_type': 'van',
+        'phone_model': 'zarichnyi-samsung-s26u'})
+    assert typo.json() == {'files_matched': 0, 'filenames': []}
+
+    other_vehicle = client.post('/api/coefficient-sets/preview-resolution', json={
+        'model': 'eq3', 'vehicle_type': 'sedan', 'phone_model': None})
+    assert other_vehicle.json()['files_matched'] == 0
+
+    bogus = client.post('/api/coefficient-sets/preview-resolution', json={
+        'model': 'bogus', 'vehicle_type': 'van', 'phone_model': None})
+    assert bogus.status_code == 422
+
+
 def test_delete_comparison_nulls_coefficient_set_fk(client, tmp_path):
     cmp_id = _make_done_comparison(client, tmp_path)
     draft = client.post('/api/coefficient-sets', json={

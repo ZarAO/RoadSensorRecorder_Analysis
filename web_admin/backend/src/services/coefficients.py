@@ -13,7 +13,7 @@ import math
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from src.db.models import CoefficientSet
+from src.db.models import CoefficientSet, SourceFile
 
 MODELS = ('eq3', 'eq6_bias')
 
@@ -56,6 +56,29 @@ def resolve(session: Session, model: str, vehicle_type: str | None,
         if exact is not None:
             return exact
     return session.scalars(base.where(CoefficientSet.phone_model.is_(None))).first()
+
+
+def files_resolving_to(session: Session, vehicle_type: str | None,
+                       phone_model: str | None) -> list[SourceFile]:
+    """
+    The non-deleted files a set with this (vehicle_type, phone_model) key would
+    apply to — the inverse of resolve(), used for the pre-confirm preview and
+    for the reanalyze candidates.
+
+    Filtered in Python: the keys live inside the recording_meta JSON and N is
+    small (spec §Phase 3). A falsy vehicle_type matches nothing, mirroring
+    resolve(): None == None would otherwise pull in every pre-v3 file that
+    carries no vehicle block at all. phone_model=None is the NULL tier — every
+    file of the vehicle type, whatever phone recorded it.
+    """
+    if not vehicle_type:
+        return []
+    files = session.scalars(
+        select(SourceFile).where(SourceFile.source_deleted.is_(False))).all()
+    return [f for f in files
+            if vehicle_type_from_meta(f.recording_meta) == vehicle_type
+            and (phone_model is None
+                 or phone_model_from_meta(f.recording_meta) == phone_model)]
 
 
 def _snapshot(cs: CoefficientSet | None) -> dict | None:

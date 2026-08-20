@@ -70,6 +70,24 @@ def test_run_lifecycle(client, tmp_path, fake_analyze):
     assert 'drive__run' in run['result_dir']
 
 
+def test_run_out_carries_the_recorded_phone_model(client, tmp_path, fake_analyze):
+    """The set-creation dialog prefills the phone from the run, so RunOut must
+    expose exactly the string coefficient resolution matches on."""
+    from tests.test_coefficients import _upload_with_device
+    fid = _upload_with_device(client, 'van.csv', 'samsung SM-S948B, android=16', 'van')
+    run = client.post('/api/runs', json={'file_id': fid, 'params': {}})
+    assert run.status_code == 201, run.text
+    assert run.json()['phone_model'] == 'samsung SM-S948B'
+    assert client.get(f"/api/runs/{run.json()['id']}").json()['phone_model'] \
+        == 'samsung SM-S948B'
+
+    # A pre-v3 recording carries no device line: null, never a guess
+    rid = make_done_run(client, tmp_path, name='no_device.csv')
+    assert client.get(f'/api/runs/{rid}').json()['phone_model'] is None
+    assert [r['phone_model'] for r in client.get(f'/api/runs?file_id={fid}').json()] \
+        == ['samsung SM-S948B']
+
+
 def test_failed_run_records_error(client, tmp_path, monkeypatch):
     def _boom(*args, **kwargs):
         raise ValueError('boom')

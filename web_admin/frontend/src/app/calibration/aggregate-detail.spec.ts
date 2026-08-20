@@ -44,7 +44,7 @@ const RUN: RunOut = {
     partial_count: 0, events_total: 0, incidents_total: 0, clean_stop: true,
     vehicle_type: 'sedan',
   },
-  error: null,
+  error: null, phone_model: 'samsung SM-S948B',
 };
 
 const CREATED_SET: CoefficientSetOut = {
@@ -210,6 +210,14 @@ describe('AggregateDetail', () => {
     expect(dialog.querySelector<HTMLInputElement>('input[value="eq3"]')!.disabled).toBe(true);
     expect(dialog.querySelector<HTMLInputElement>('input[value="eq6_bias"]')!.checked).toBe(true);
 
+    // The phone key is prefilled from the first pass — no free-text entry here either
+    expect(dialog.querySelector('input[placeholder]')).toBeFalsy();
+    const select = dialog.querySelector<HTMLSelectElement>('select')!;
+    expect(Array.from(select.options).map(option => option.textContent?.trim())).toEqual([
+      'Точний телефон (samsung SM-S948B)',
+      'Будь-який телефон цього типу авто',
+    ]);
+
     click(dialog.querySelector('.dialog-actions')!, 'Створити');
     await fixture.whenStable();
 
@@ -218,7 +226,7 @@ describe('AggregateDetail', () => {
       model: 'eq6_bias',
       name: 'eq6_bias_sedan_2026-08-20',
       vehicle_type: 'sedan',
-      phone_model: null,
+      phone_model: 'samsung SM-S948B',
     });
     expect(host.querySelector('#set-dialog')).toBeFalsy();
     expect(host.querySelector('.success-note')?.textContent)

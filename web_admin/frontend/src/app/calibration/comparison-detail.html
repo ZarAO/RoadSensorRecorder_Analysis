@@ -220,6 +220,7 @@
 @if (setOpen()) {
   <app-create-set-dialog [provenance]="provenance()" [eq3Disabled]="fitDegenerate()"
                          eq3DisabledReason="фіт вироджений — недоступно"
-                         [vehicleType]="vehicleType()" [nameDate]="createdDate()"
+                         [vehicleType]="vehicleType()" [phoneOptions]="phoneOptions()"
+                         [nameDate]="createdDate()"
                          (created)="onSetCreated($event)" (closed)="setOpen.set(false)" />
 }

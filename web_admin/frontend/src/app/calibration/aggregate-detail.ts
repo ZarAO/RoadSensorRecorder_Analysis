@@ -5,16 +5,10 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { ApiService } from '../api/api.service';
 import { AggregateChartData, AggregateOut, CoefficientSetOut } from '../api/dto';
 import { BandPoint, LineSeries, MultiLineChart } from '../shared/charts/multi-line-chart';
-import { CreateSetDialog, PhoneOption, SetProvenance } from './create-set-dialog';
+import { CreateSetDialog, SetProvenance, phoneOptionsFor } from './create-set-dialog';
 
 const FIGURE_PROFILE = { name: 'fig_agg_profile', label: 'Агрегований профіль IRI' };
 const FIGURE_SPEED = { name: 'fig_agg_speed', label: 'Швидкісний ефект (центровані відхилення)' };
-
-/** An aggregate pools several passes, so it has no single recording to read a
- *  phone model from: only the «any phone» resolution tier is offered here.
- *  (Task 6 introduces the recorded device identity — then a real option list
- *  can replace this one.) */
-const PHONE_OPTIONS: PhoneOption[] = [{ label: '(будь-який телефон)', value: null }];
 
 interface BinRow {
   chainage_km: number;
@@ -45,7 +39,10 @@ export class AggregateDetail {
   readonly setOpen = signal(false);
   readonly createdSet = signal<CoefficientSetOut | null>(null);
   readonly vehicleType = signal('');
-  readonly phoneOptions = PHONE_OPTIONS;
+  /** Device of the first pooled pass — the passes are meant to be one phone in
+   *  one vehicle, and «Будь-який телефон цього типу авто» covers a mixed set. */
+  readonly phoneModel = signal<string | null>(null);
+  readonly phoneOptions = computed(() => phoneOptionsFor(this.phoneModel()));
 
   readonly summary = computed(() => this.aggregate()?.summary ?? null);
 
@@ -109,9 +106,9 @@ export class AggregateDetail {
         this.loading.set(false);
         this.aggregate.set(aggregate);
         if (aggregate.status === 'done') this.loadChart();
-        // An aggregate has no single run: the vehicle type of the first pass is
-        // the prefill (all pooled passes are meant to be the same vehicle).
-        if (aggregate.run_ids.length) this.loadVehicleType(aggregate.run_ids[0]);
+        // An aggregate has no single run: the keys of the first pass are the
+        // prefill (all pooled passes are meant to be the same vehicle).
+        if (aggregate.run_ids.length) this.loadRunKeys(aggregate.run_ids[0]);
       },
       error: err => { this.loading.set(false); this.error.set(this.describe(err)); },
     });
@@ -124,10 +121,14 @@ export class AggregateDetail {
     });
   }
 
-  private loadVehicleType(runId: number): void {
+  private loadRunKeys(runId: number): void {
     this.api.getRun(runId).subscribe({
-      next: run => this.vehicleType.set(run.summary?.vehicle_type ?? ''),
-      // A missing run only costs the prefill — the operator can still type it
+      next: run => {
+        this.vehicleType.set(run.summary?.vehicle_type ?? '');
+        this.phoneModel.set(run.phone_model);
+      },
+      // A missing run only costs the prefill — the operator can still type the
+      // vehicle type, and the dialog falls back to the «any phone» tier
       error: () => undefined,
     });
   }

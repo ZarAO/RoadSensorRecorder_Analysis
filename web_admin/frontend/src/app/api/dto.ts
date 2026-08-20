@@ -68,6 +68,9 @@ export interface RunOut {
   result_dir: string | null;
   summary: RunSummary | null;
   error: string | null;
+  /** The recording's device string exactly as coefficient resolution matches on
+   *  it (backend enrichment); null for a pre-v3 recording without a device line. */
+  phone_model: string | null;
 }
 
 export interface SegmentRow {
@@ -236,6 +239,13 @@ export interface CoefficientSetOut {
   created_at: string;
   confirmed_at: string | null;
   confirmed_note: string | null;
+}
+
+/** POST /coefficient-sets/preview-resolution — how many uploaded files a set
+ *  with the given (vehicle_type, phone_model) key would apply to. */
+export interface PreviewResolutionOut {
+  files_matched: number;
+  filenames: string[];
 }
 
 export interface ConfirmOut {

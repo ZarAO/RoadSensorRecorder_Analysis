@@ -4,7 +4,8 @@ import { RouterLink } from '@angular/router';
 
 import { ApiService } from '../api/api.service';
 import {
-  AggregateOut, AggregateSummary, CoefficientSetOut, ComparisonOut, ReferenceOut, RunOut,
+  AggregateOut, AggregateSummary, CoefficientSetOut, ComparisonOut, PreviewResolutionOut,
+  ReferenceOut, RunOut,
 } from '../api/dto';
 
 const REFRESH_MS = 2000;
@@ -63,6 +64,9 @@ export class CalibrationPage {
   /** Coefficient-set confirm → reanalyze chain */
   readonly confirmTarget = signal<CoefficientSetOut | null>(null);
   readonly confirmNote = signal('');
+  /** Files the set being confirmed would apply to; null while the preview is
+   *  in flight or after it failed (the confirm itself never depends on it). */
+  readonly confirmPreview = signal<PreviewResolutionOut | null>(null);
   readonly reanalyzeTarget = signal<ReanalyzeTarget | null>(null);
   readonly createdRuns = signal<number | null>(null);
   /** Coefficient set id currently being archived, guarding against a double click */
@@ -304,7 +308,21 @@ export class CalibrationPage {
   openConfirm(set: CoefficientSetOut): void {
     this.confirmNote.set('');
     this.createdRuns.set(null);
+    this.confirmPreview.set(null);
     this.confirmTarget.set(set);
+    // A set whose key matches no uploaded file resolves for nothing — the count
+    // makes that visible before the confirm, without blocking it.
+    this.api.previewResolution({
+      model: set.model, vehicle_type: set.vehicle_type, phone_model: set.phone_model,
+    }).subscribe({
+      next: preview => this.confirmPreview.set(preview),
+      // A failed preview must not stand in the way of the decision
+      error: () => undefined,
+    });
+  }
+
+  previewFilesTitle(): string {
+    return (this.confirmPreview()?.filenames ?? []).join('\n');
   }
 
   onNoteInput(event: Event): void {

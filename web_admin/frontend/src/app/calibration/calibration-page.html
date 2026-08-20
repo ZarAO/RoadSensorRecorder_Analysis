@@ -375,6 +375,19 @@
         Нотатка підтвердження
         <textarea rows="3" [value]="confirmNote()" (input)="onNoteInput($event)"></textarea>
       </label>
+      @if (confirmPreview(); as preview) {
+        @if (preview.files_matched) {
+          <p class="hint" id="confirm-preview" [title]="previewFilesTitle()">
+            Застосується до {{ preview.files_matched }} файлів
+            (vehicle_type={{ target.vehicle_type ?? '—' }},
+            телефон: {{ target.phone_model ?? 'будь-який' }})
+          </p>
+        } @else {
+          <p class="error-banner" id="confirm-preview" role="alert">
+            Жоден наявний файл не збігається — перевірте телефон/тип авто
+          </p>
+        }
+      }
       <p class="hint">
         Підтвердження активує набір лише для майбутніх ранів;
         попередній confirmed того ж ключа буде архівовано.
