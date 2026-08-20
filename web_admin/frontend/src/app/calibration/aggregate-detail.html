@@ -1,0 +1,187 @@
+<div class="page-head">
+  <div>
+    <h2>Мультипроїзне порівняння #{{ aggregateId }}</h2>
+    <a routerLink="/calibration">← до калібрування</a>
+  </div>
+  @if (aggregate()?.status === 'done') {
+    <button class="primary" (click)="openSetDialog()">Створити набір коефіцієнтів</button>
+  }
+</div>
+
+@if (error(); as message) {
+  <p class="error-banner" role="alert">{{ message }}</p>
+}
+
+@if (createdSet(); as set) {
+  <p class="success-note" role="status">
+    Створено чернетку набору «{{ set.name }}» (модель {{ set.model }}) —
+    <a routerLink="/calibration">підтвердьте його на вкладці «Калібрування»</a>.
+  </p>
+}
+
+@if (loading()) {
+  <div class="card"><div class="skeleton" style="height:6rem"></div></div>
+} @else if (aggregate(); as detail) {
+  <section class="card rise-in meta">
+    <dl>
+      <div><dt>Еталон</dt><dd>{{ detail.reference_road ?? '—' }}</dd></div>
+      <div><dt>Проїздів</dt><dd>
+        {{ detail.run_ids.length }}
+        <small>{{ detail.run_filenames.join(', ') || '—' }}</small>
+      </dd></div>
+      <div><dt>Створено</dt><dd>{{ detail.created_at | date:'yyyy-MM-dd HH:mm' }}</dd></div>
+      <div><dt>Статус</dt><dd>
+        <span class="chip"
+              [class.ok]="detail.status === 'done'"
+              [class.bad]="detail.status === 'failed'"
+              [class.warn]="detail.status === 'running'">{{ detail.status }}</span>
+        @if (detail.summary?.stale) {
+          <span class="chip stale"
+                title="Один із проїздів видалено — числа більше не відтворювані">stale</span>
+        }
+      </dd></div>
+    </dl>
+  </section>
+
+  @if (detail.status === 'failed') {
+    <p class="error-banner" role="alert">
+      Агрегація не вдалася: {{ detail.error ?? 'без деталей' }}
+    </p>
+  } @else if (detail.status !== 'done') {
+    <p class="status-note" role="status">
+      Агрегація ще у черзі (статус: {{ detail.status }}) —
+      графіки й статистика з'являться після завершення.
+    </p>
+  } @else {
+    @if (summary(); as stats) {
+      <div class="cards">
+        <div class="card kpi-card rise-in">
+          <b class="num">{{ stats.n_runs }}</b>
+          <span>Проїздів</span>
+        </div>
+        <div class="card kpi-card rise-in">
+          <b class="num">{{ stats.n_bins }}</b>
+          <span>Бінів по 100 м</span>
+        </div>
+        <div class="card kpi-card rise-in">
+          <b class="num">{{ signed(stats.bias) }}</b>
+          @if (ciText()) { <em class="ci">[{{ ciText() }}]</em> }
+          <span>Зсув, м/км (95% ДІ)</span>
+        </div>
+        <div class="card kpi-card rise-in">
+          <b class="num">{{ fmt(stats.repeatability_sd) }}</b>
+          <span>σ<sub>r</sub> повторюваність, м/км</span>
+        </div>
+        <div class="card kpi-card rise-in">
+          <b class="num">{{ fmt(stats.mae_aggregated) }}</b>
+          <span>MAE агрегованого, м/км</span>
+        </div>
+        <div class="card kpi-card rise-in">
+          <b class="num">{{ fmt(stats.rho) }}</b>
+          <span>ρ Спірмена</span>
+        </div>
+      </div>
+    }
+
+    @if (chart(); as data) {
+      <section class="card rise-in">
+        <h3>Агрегований профіль IRI за пікетажем</h3>
+        <app-multi-line-chart [series]="profileSeries()" [band]="profileBand()"
+                              xLabel="Пікетаж, км" yLabel="IRI, м/км" />
+        <p class="hint">
+          Смуга — розкид проїздів (min–max) у кожному 100-метровому біні;
+          повторюваність σ<sub>r</sub> = {{ fmt(data.repeatability.sd) }} м/км
+          за {{ data.repeatability.n_bins_used }} бінами з ≥2 проїздами.
+        </p>
+      </section>
+
+      <section class="card rise-in" id="speed-effect">
+        <h3>Швидкісний ефект</h3>
+        @if (speedEffect(); as speed) {
+          <p class="lead">
+            {{ signed(speed.slope_iri_per_kmh, 3) }} м/км на км/год
+            (±{{ fmt(speed.stderr, 3) }}), n={{ speed.n_rows }} рядків
+            у {{ speed.n_bins }} бінах, розкид швидкостей
+            {{ fmt(speed.speed_spread_kmh, 1) }} км/год.
+          </p>
+          <p class="hint">
+            Нахил оцінено в межах біна (центровані швидкість і відхилення),
+            лише за бінами з ≥2 проїздами.
+          </p>
+        } @else {
+          <p class="muted">Швидкості проїздів однакові — ефект не оцінюється.</p>
+        }
+      </section>
+
+      <section class="card rise-in figures">
+        <h3>Рисунки (PNG / PDF)</h3>
+        <ul class="figure-list">
+          @for (figure of figures(); track figure.name) {
+            <li>
+              <span>{{ figure.label }}</span>
+              <a [href]="figureUrl(figure.name, 'png')" target="_blank" rel="noopener">PNG</a>
+              <a [href]="figureUrl(figure.name, 'pdf')" target="_blank" rel="noopener">PDF</a>
+            </li>
+          }
+        </ul>
+      </section>
+
+      <section class="card rise-in">
+        <h3>Біни по 100 м</h3>
+        <p class="hint">
+          Показано {{ bins().length }} бінів; σ — стандартне відхилення проїздів
+          у біні («—» для біна з одним проїздом).
+        </p>
+        <div class="table-wrap">
+          <table class="data" id="bins-table">
+            <thead>
+              <tr>
+                <th>Пікетаж, км</th>
+                <th>IRI еталона</th>
+                <th>IRI смартфона (сер.)</th>
+                <th>σ проїздів</th>
+                <th>Проїздів</th>
+                <th>Різниця</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (row of bins(); track row.chainage_km) {
+                <tr>
+                  <td>{{ fmt(row.chainage_km, 3) }}</td>
+                  <td>{{ fmt(row.iri_ref) }}</td>
+                  <td>{{ fmt(row.mean_iri) }}</td>
+                  <td>{{ fmt(row.std_iri) }}</td>
+                  <td>{{ row.n_passes }}</td>
+                  <td>{{ diffText(row.diff) }}</td>
+                </tr>
+              } @empty {
+                <tr>
+                  <td colspan="6">
+                    <div class="empty-state">
+                      <p>Бінів немає.</p>
+                    </div>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </section>
+    } @else {
+      <div class="card"><div class="skeleton" style="height:12rem"></div></div>
+    }
+  }
+} @else {
+  <div class="empty-state">
+    <p>Мультипроїзне порівняння не знайдено.</p>
+    <a routerLink="/calibration"><button class="primary">До калібрування</button></a>
+  </div>
+}
+
+@if (setOpen()) {
+  <app-create-set-dialog [provenance]="provenance()" [eq3Disabled]="true"
+                         eq3DisabledReason="агрегація не оцінює Eq.3 — лише зсув"
+                         [vehicleType]="vehicleType()" [phoneOptions]="phoneOptions"
+                         [nameDate]="createdDate()"
+                         (created)="onSetCreated($event)" (closed)="setOpen.set(false)" />
+}

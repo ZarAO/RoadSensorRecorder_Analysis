@@ -218,51 +218,8 @@
 }
 
 @if (setOpen()) {
-  <div class="dialog-backdrop" (click)="setOpen.set(false)">
-    <div class="dialog card" id="set-dialog" role="dialog" aria-modal="true"
-         aria-labelledby="set-title" (click)="$event.stopPropagation()">
-      <h3 id="set-title">Створити набір коефіцієнтів</h3>
-
-      <fieldset class="field models">
-        <legend>Модель</legend>
-        <label class="radio">
-          <input type="radio" name="model" value="eq6_bias"
-                 [checked]="setModel() === 'eq6_bias'" (change)="selectModel('eq6_bias')" />
-          <span>Eq.6 — корекція зсуву <small>рекомендовано</small></span>
-        </label>
-        <label class="radio" [class.disabled]="fitDegenerate()">
-          <input type="radio" name="model" value="eq3" [checked]="setModel() === 'eq3'"
-                 [disabled]="fitDegenerate()" (change)="selectModel('eq3')" />
-          <span>Eq.3 — <i>A</i> · √PSD + <i>B</i>
-            @if (fitDegenerate()) { <small>фіт вироджений — недоступно</small> }
-          </span>
-        </label>
-      </fieldset>
-
-      <label class="field">
-        Назва
-        <input type="text" [value]="setName()" (input)="onNameInput($event)" />
-      </label>
-      <label class="field">
-        Тип авто
-        <input type="text" [value]="vehicleType()" (input)="onVehicleInput($event)" />
-      </label>
-      <label class="field">
-        Модель телефону
-        <input type="text" [value]="phoneModel()" (input)="onPhoneInput($event)"
-               placeholder="(необов'язково)" />
-      </label>
-
-      <p class="hint">
-        Набір створюється як чернетка — на рани він впливає лише після підтвердження.
-      </p>
-      @if (createError(); as message) {
-        <p class="error-banner" id="set-error" role="alert">{{ message }}</p>
-      }
-      <div class="dialog-actions">
-        <button (click)="setOpen.set(false)">Скасувати</button>
-        <button class="primary" (click)="submitCreate()" [disabled]="!canCreate()">Створити</button>
-      </div>
-    </div>
-  </div>
+  <app-create-set-dialog [provenance]="provenance()" [eq3Disabled]="fitDegenerate()"
+                         eq3DisabledReason="фіт вироджений — недоступно"
+                         [vehicleType]="vehicleType()" [nameDate]="createdDate()"
+                         (created)="onSetCreated($event)" (closed)="setOpen.set(false)" />
 }

@@ -3,14 +3,18 @@ import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { ApiService } from '../api/api.service';
-import { CoefficientSetOut, ComparisonOut, ReferenceOut, RunOut } from '../api/dto';
+import {
+  AggregateOut, AggregateSummary, CoefficientSetOut, ComparisonOut, ReferenceOut, RunOut,
+} from '../api/dto';
 
 const REFRESH_MS = 2000;
 /** Only 10 m reference forms are comparable with 100 m analyzer segments */
 const COMPARABLE_STEP_M = 10;
+/** Server-side guard too (POST /aggregate-comparisons answers 422 below it) */
+const MIN_AGGREGATE_RUNS = 2;
 
 interface DeleteTarget {
-  kind: 'reference' | 'comparison';
+  kind: 'reference' | 'comparison' | 'aggregate';
   id: number;
   label: string;
 }
@@ -33,6 +37,7 @@ export class CalibrationPage {
 
   readonly references = signal<ReferenceOut[]>([]);
   readonly comparisons = signal<ComparisonOut[]>([]);
+  readonly aggregates = signal<AggregateOut[]>([]);
   readonly sets = signal<CoefficientSetOut[]>([]);
   readonly runs = signal<RunOut[]>([]);
   readonly error = signal<string | null>(null);
@@ -47,6 +52,11 @@ export class CalibrationPage {
   readonly selectedRunId = signal<number | null>(null);
   readonly selectedReferenceId = signal<number | null>(null);
 
+  /** «Нове мультипроїзне порівняння» dialog */
+  readonly aggregateOpen = signal(false);
+  readonly aggregateReferenceId = signal<number | null>(null);
+  readonly aggregateRunIds = signal<number[]>([]);
+
   /** Delete confirm dialog (references and comparisons share it) */
   readonly deleteTarget = signal<DeleteTarget | null>(null);
 
@@ -60,13 +70,21 @@ export class CalibrationPage {
   /** Reanalyze request in flight — a double click would queue 2N real analyzer runs */
   readonly reanalyzing = signal(false);
 
+  /** Queue polling: comparisons and aggregates share ONE interval */
+  private readonly comparisonsPending = signal(false);
+  private readonly aggregatesPending = signal(false);
+
   readonly doneRuns = computed(() => this.runs().filter(run => run.status === 'done'));
   readonly comparableReferences = computed(() => this.references().filter(
     reference => reference.step_m === COMPARABLE_STEP_M && !reference.source_deleted));
+  readonly canAggregate = computed(
+    () => this.aggregateReferenceId() != null
+      && this.aggregateRunIds().length >= MIN_AGGREGATE_RUNS);
 
   constructor() {
     this.reloadReferences();
     this.reloadComparisons();
+    this.reloadAggregates();
     this.reloadSets();
     this.reloadRuns();
     this.destroyRef.onDestroy(() => this.stopTimer());
@@ -85,14 +103,19 @@ export class CalibrationPage {
     this.api.listComparisons().subscribe({
       next: comparisons => {
         this.comparisons.set(comparisons);
-        // Poll while anything is still moving through the queue
-        const active = comparisons.some(
-          comparison => comparison.status === 'queued' || comparison.status === 'running');
-        if (active && this.timer === null) {
-          this.timer = setInterval(() => this.reloadComparisons(), REFRESH_MS);
-        } else if (!active) {
-          this.stopTimer();
-        }
+        this.comparisonsPending.set(comparisons.some(comparison => this.pending(comparison.status)));
+        this.syncTimer();
+      },
+      error: err => this.error.set(this.describe(err)),
+    });
+  }
+
+  reloadAggregates(): void {
+    this.api.listAggregates().subscribe({
+      next: aggregates => {
+        this.aggregates.set(aggregates);
+        this.aggregatesPending.set(aggregates.some(aggregate => this.pending(aggregate.status)));
+        this.syncTimer();
       },
       error: err => this.error.set(this.describe(err)),
     });
@@ -173,6 +196,56 @@ export class CalibrationPage {
     });
   }
 
+  // --- aggregates ----------------------------------------------------------
+
+  openAggregate(): void {
+    this.aggregateReferenceId.set(this.comparableReferences()[0]?.id ?? null);
+    this.aggregateRunIds.set([]);
+    this.aggregateOpen.set(true);
+  }
+
+  onAggregateReferenceSelect(event: Event): void {
+    this.aggregateReferenceId.set(Number((event.target as HTMLSelectElement).value));
+  }
+
+  toggleAggregateRun(runId: number): void {
+    this.aggregateRunIds.update(ids => ids.includes(runId)
+      ? ids.filter(id => id !== runId)
+      : [...ids, runId]);
+  }
+
+  isAggregateRunSelected(runId: number): boolean {
+    return this.aggregateRunIds().includes(runId);
+  }
+
+  submitAggregate(): void {
+    const referenceId = this.aggregateReferenceId();
+    const selected = this.aggregateRunIds();
+    if (referenceId == null || selected.length < MIN_AGGREGATE_RUNS) return;
+    // Submitted in the listing order, so the pooled pass list does not depend on
+    // the order the operator happened to tick the boxes.
+    const runIds = this.doneRuns().map(run => run.id).filter(id => selected.includes(id));
+    this.aggregateOpen.set(false);
+    this.error.set(null);
+    this.api.createAggregate(referenceId, runIds).subscribe({
+      next: () => this.reloadAggregates(),
+      error: err => this.error.set(this.describe(err)),
+    });
+  }
+
+  runFilenamesTitle(aggregate: AggregateOut): string {
+    return aggregate.run_filenames.join('\n');
+  }
+
+  /** «−1.61 [−1.80; −1.42]», «—» when the job estimated no bias */
+  biasWithCi(summary: AggregateSummary | null | undefined): string {
+    if (summary?.bias == null) return '—';
+    const low = summary.bias_ci_low;
+    const high = summary.bias_ci_high;
+    if (low == null || high == null) return this.signed(summary.bias);
+    return `${this.signed(summary.bias)} [${this.signed(low)}; ${this.signed(high)}]`;
+  }
+
   // --- delete --------------------------------------------------------------
 
   askDeleteReference(reference: ReferenceOut): void {
@@ -189,6 +262,13 @@ export class CalibrationPage {
     });
   }
 
+  askDeleteAggregate(aggregate: AggregateOut): void {
+    this.deleteTarget.set({
+      kind: 'aggregate', id: aggregate.id,
+      label: `мультипроїзне порівняння #${aggregate.id}`,
+    });
+  }
+
   submitDelete(): void {
     const target = this.deleteTarget();
     if (!target) return;
@@ -196,11 +276,18 @@ export class CalibrationPage {
     this.error.set(null);
     const request = target.kind === 'reference'
       ? this.api.deleteReference(target.id)
-      : this.api.deleteComparison(target.id);
+      : target.kind === 'aggregate'
+        ? this.api.deleteAggregate(target.id)
+        : this.api.deleteComparison(target.id);
     request.subscribe({
       next: () => {
         if (target.kind === 'reference') {
           this.reloadReferences();
+        } else if (target.kind === 'aggregate') {
+          // Deleting an aggregate detaches its coefficient sets (backend nulls
+          // aggregate_comparison_id) — refresh the sets table too.
+          this.reloadAggregates();
+          this.reloadSets();
         } else {
           // Deleting a comparison detaches any coefficient sets that referenced it
           // (backend nulls comparison_id) — refresh the sets table too.
@@ -289,6 +376,30 @@ export class CalibrationPage {
 
   fmt(value: number | null | undefined, digits = 2): string {
     return value == null ? '—' : value.toFixed(digits);
+  }
+
+  signed(value: number, digits = 2): string {
+    return (value < 0 ? '−' : '') + Math.abs(value).toFixed(digits);
+  }
+
+  private pending(status: string): boolean {
+    return status === 'queued' || status === 'running';
+  }
+
+  /** One interval for both queues: started while either has pending work,
+   *  stopped as soon as neither does. */
+  private syncTimer(): void {
+    const active = this.comparisonsPending() || this.aggregatesPending();
+    if (active && this.timer === null) {
+      this.timer = setInterval(() => this.poll(), REFRESH_MS);
+    } else if (!active) {
+      this.stopTimer();
+    }
+  }
+
+  private poll(): void {
+    if (this.comparisonsPending()) this.reloadComparisons();
+    if (this.aggregatesPending()) this.reloadAggregates();
   }
 
   private stopTimer(): void {

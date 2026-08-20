@@ -3,8 +3,9 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
 import {
-  ArtifactEntry, ChartData, CoefficientSetOut, ComparisonOut, ConfirmOut, DashboardOut, FileOut,
-  GeoJsonFeatureCollection, ReferenceIntervalRow, ReferenceOut, RunOut, SegmentRow,
+  AggregateChartData, AggregateOut, ArtifactEntry, ChartData, CoefficientSetOut, ComparisonOut,
+  ConfirmOut, DashboardOut, FileOut, GeoJsonFeatureCollection, ReferenceIntervalRow, ReferenceOut,
+  RunOut, SegmentRow,
 } from './dto';
 
 @Injectable({ providedIn: 'root' })
@@ -134,12 +135,39 @@ export class ApiService {
     return this.http.get<ChartData>(this.comparisonArtifactUrl(id, 'chart_data.json'));
   }
 
+  createAggregate(referenceId: number, runIds: number[]): Observable<AggregateOut> {
+    return this.http.post<AggregateOut>(`${this.base}/aggregate-comparisons`,
+      { reference_id: referenceId, run_ids: runIds });
+  }
+
+  listAggregates(): Observable<AggregateOut[]> {
+    return this.http.get<AggregateOut[]>(`${this.base}/aggregate-comparisons`);
+  }
+
+  getAggregate(id: number): Observable<AggregateOut> {
+    return this.http.get<AggregateOut>(`${this.base}/aggregate-comparisons/${id}`);
+  }
+
+  deleteAggregate(id: number): Observable<void> {
+    return this.http.delete<void>(`${this.base}/aggregate-comparisons/${id}`);
+  }
+
+  aggregateArtifactUrl(id: number, name: string): string {
+    return `${this.base}/aggregate-comparisons/${id}/artifacts/${name}`;
+  }
+
+  getAggregateChartData(id: number): Observable<AggregateChartData> {
+    return this.http.get<AggregateChartData>(this.aggregateArtifactUrl(id, 'chart_data.json'));
+  }
+
   listCoefficientSets(): Observable<CoefficientSetOut[]> {
     return this.http.get<CoefficientSetOut[]>(`${this.base}/coefficient-sets`);
   }
 
+  /** Provenance is exactly one of comparison_id / aggregate_comparison_id
+   *  (the backend answers 422 otherwise). */
   createCoefficientSet(payload: {
-    comparison_id: number; model: string; name: string;
+    comparison_id?: number; aggregate_comparison_id?: number; model: string; name: string;
     vehicle_type: string; phone_model?: string | null;
   }): Observable<CoefficientSetOut> {
     return this.http.post<CoefficientSetOut>(`${this.base}/coefficient-sets`, payload);

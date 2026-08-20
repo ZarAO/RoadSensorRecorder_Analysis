@@ -3,7 +3,9 @@ import { provideRouter } from '@angular/router';
 import { Subject, of, throwError } from 'rxjs';
 
 import { ApiService } from '../api/api.service';
-import { CoefficientSetOut, ComparisonOut, ConfirmOut, ReferenceOut, RunOut } from '../api/dto';
+import {
+  AggregateOut, CoefficientSetOut, ComparisonOut, ConfirmOut, ReferenceOut, RunOut,
+} from '../api/dto';
 import { CalibrationPage } from './calibration-page';
 
 const REFERENCE: ReferenceOut = {
@@ -33,9 +35,23 @@ const COMPARISON: ComparisonOut = {
   error: null,
 };
 
+const RUN_2: RunOut = { ...RUN, id: 6, filename: 'drive2.csv' };
+
+const AGGREGATE: AggregateOut = {
+  id: 7, reference_id: 1, run_ids: [5, 6], created_at: '2026-08-20T10:20:00Z',
+  status: 'done', params: {}, result_dir: 'x',
+  summary: {
+    n_runs: 2, n_bins: 12, bias: -1.61, bias_ci_low: -1.8, bias_ci_high: -1.42,
+    repeatability_sd: 0.34, rho: 0.91, mae_aggregated: 1.12, speed_slope: null,
+    stale: false,
+  },
+  error: null, reference_road: 'M-01 km 12-14', run_filenames: ['drive.csv', 'drive2.csv'],
+};
+
 const DRAFT_SET: CoefficientSetOut = {
   id: 9, name: 'Sedan eq6 v1', model: 'eq6_bias', params: { bias: -1.55 },
   vehicle_type: 'sedan', phone_model: null, status: 'draft', comparison_id: 3,
+  aggregate_comparison_id: null,
   stats_snapshot: {
     r2: 0.41, mae: 1.2, spearman_rho: 0.94, n_pairs: 20, mae_bias_corrected: 0.8,
   },
@@ -59,6 +75,9 @@ function apiStub(overrides: Partial<ApiService> = {}): ApiService {
     deleteReference: () => of(void 0),
     createComparison: () => of(COMPARISON),
     deleteComparison: () => of(void 0),
+    listAggregates: () => of([AGGREGATE]),
+    createAggregate: () => of(AGGREGATE),
+    deleteAggregate: () => of(void 0),
     confirmCoefficientSet: () => of(CONFIRM_OUT),
     archiveCoefficientSet: () => of(DRAFT_SET),
     reanalyzeCoefficientSet: () => of([RUN, RUN]),
@@ -83,13 +102,14 @@ function click(root: ParentNode, label: string): void {
 }
 
 describe('CalibrationPage', () => {
-  it('renders the three sections', async () => {
+  it('renders the four sections', async () => {
     const fixture = createPage(apiStub());
     await fixture.whenStable();
 
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
     expect(text).toContain('Еталони профілометра');
     expect(text).toContain('Порівняння');
+    expect(text).toContain('Мультипроїзні порівняння');
     expect(text).toContain('Набори коефіцієнтів');
   });
 
@@ -197,6 +217,78 @@ describe('CalibrationPage', () => {
     pending.complete();
     await fixture.whenStable();
     expect(host.querySelector('#reanalyze-dialog')).toBeFalsy();
+  });
+
+  it('blocks the aggregate submit until at least two runs are checked', async () => {
+    const createSpy = vi.fn(() => of(AGGREGATE));
+    const fixture = createPage(apiStub({
+      listRuns: () => of([RUN, RUN_2]),
+      createAggregate: createSpy as unknown as ApiService['createAggregate'],
+    }));
+    await fixture.whenStable();
+    const host = fixture.nativeElement as HTMLElement;
+
+    click(host, 'Нове мультипроїзне порівняння');
+    await fixture.whenStable();
+
+    const dialog = host.querySelector('#aggregate-dialog')!;
+    const submit = Array.from(dialog.querySelectorAll('button'))
+      .find(candidate => candidate.textContent?.trim() === 'Агрегувати')!;
+    const boxes = Array.from(dialog.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'));
+    expect(boxes.length).toBe(2);
+    expect(submit.disabled).toBe(true);
+
+    boxes[0].click();
+    await fixture.whenStable();
+    expect(submit.disabled).toBe(true);
+
+    boxes[1].click();
+    await fixture.whenStable();
+    expect(submit.disabled).toBe(false);
+
+    submit.click();
+    await fixture.whenStable();
+    expect(createSpy).toHaveBeenCalledWith(1, [5, 6]);
+    expect(host.querySelector('#aggregate-dialog')).toBeFalsy();
+  });
+
+  it('shows the aggregate row with its bias CI, pass count and stale marker', async () => {
+    const fixture = createPage(apiStub({
+      listAggregates: () => of([
+        { ...AGGREGATE, summary: { ...AGGREGATE.summary!, stale: true } },
+      ]) as unknown as ReturnType<ApiService['listAggregates']>,
+    }));
+    await fixture.whenStable();
+
+    const row = (fixture.nativeElement as HTMLElement)
+      .querySelector('#aggregates-table tbody tr')!;
+    const text = row.textContent!.replace(/\s+/g, ' ');
+    expect(text).toContain('−1.61 [−1.80; −1.42]');
+    expect(text).toContain('0.34');
+    expect(text).toContain('0.91');
+    expect(row.querySelector('.chip.stale')).toBeTruthy();
+    // The pass count carries the pooled filenames as its tooltip
+    const passes = Array.from(row.querySelectorAll('td'))
+      .find(cell => cell.textContent?.trim() === '2')!;
+    expect(passes.getAttribute('title')).toBe('drive.csv\ndrive2.csv');
+  });
+
+  it('renders «—» for aggregate metrics the job could not estimate', async () => {
+    const fixture = createPage(apiStub({
+      listAggregates: () => of([{
+        ...AGGREGATE,
+        summary: {
+          ...AGGREGATE.summary!, repeatability_sd: null, rho: null,
+          bias: null, bias_ci_low: null, bias_ci_high: null,
+        },
+      }]) as unknown as ReturnType<ApiService['listAggregates']>,
+    }));
+    await fixture.whenStable();
+
+    const row = (fixture.nativeElement as HTMLElement)
+      .querySelector('#aggregates-table tbody tr')!;
+    expect(row.textContent).not.toContain('null');
+    expect(row.textContent).toContain('—');
   });
 
   it('keeps the reanalyze dialog open and shows the error banner when reanalyze fails', async () => {

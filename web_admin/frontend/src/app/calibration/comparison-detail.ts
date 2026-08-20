@@ -8,6 +8,7 @@ import { BaChart } from '../shared/charts/ba-chart';
 import { ProfileChart } from '../shared/charts/profile-chart';
 import { ScatterChart } from '../shared/charts/scatter-chart';
 import { CountUp } from '../shared/count-up';
+import { CreateSetDialog, SetProvenance } from './create-set-dialog';
 
 /** Human-facing indicators, mirroring GATE_R2_MIN / GATE_MAE_MAX in the backend */
 const GATE_R2_MIN = 0.85;
@@ -35,7 +36,7 @@ interface PairRow {
 
 @Component({
   selector: 'app-comparison-detail',
-  imports: [DatePipe, RouterLink, CountUp, ScatterChart, ProfileChart, BaChart],
+  imports: [DatePipe, RouterLink, CountUp, ScatterChart, ProfileChart, BaChart, CreateSetDialog],
   templateUrl: './comparison-detail.html',
   styleUrl: './comparison-detail.css',
 })
@@ -55,17 +56,10 @@ export class ComparisonDetail {
   /** Chainage range in km from the profile brush; null = whole run */
   readonly brushRange = signal<[number, number] | null>(null);
 
-  /** «Створити набір коефіцієнтів» dialog */
+  /** «Створити набір коефіцієнтів» dialog (shared component, mounted while open) */
   readonly setOpen = signal(false);
-  readonly setModel = signal<'eq3' | 'eq6_bias'>('eq6_bias');
-  readonly setName = signal('');
   readonly vehicleType = signal('');
-  readonly phoneModel = signal('');
-  readonly submitting = signal(false);
   readonly createdSet = signal<CoefficientSetOut | null>(null);
-  /** Creation errors live inside the dialog — the page banner sits under the backdrop */
-  readonly createError = signal<string | null>(null);
-  private readonly nameTouched = signal(false);
 
   readonly summary = computed(() => this.comparison()?.summary ?? null);
 
@@ -136,8 +130,15 @@ export class ComparisonDetail {
     return bias == null ? '—' : this.signed(bias);
   });
 
-  readonly canCreate = computed(
-    () => !!this.setName().trim() && !!this.vehicleType().trim() && !this.submitting());
+  readonly provenance = computed<SetProvenance>(
+    () => ({ kind: 'comparison', id: this.comparisonId }));
+
+  /** yyyy-MM-dd of created_at — feeds the dialog's reproducible default name */
+  readonly createdDate = computed(() => {
+    const created = this.comparison()?.created_at;
+    const parsed = created ? new Date(created) : null;
+    return parsed && !Number.isNaN(parsed.getTime()) ? parsed.toISOString().slice(0, 10) : '';
+  });
 
   constructor() {
     this.api.getComparison(this.comparisonId).subscribe({
@@ -183,70 +184,13 @@ export class ComparisonDetail {
   // --- coefficient-set dialog ---------------------------------------------
 
   openSetDialog(): void {
-    this.setModel.set('eq6_bias');
-    this.nameTouched.set(false);
-    this.setName.set(this.defaultName('eq6_bias'));
-    this.phoneModel.set('');
     this.createdSet.set(null);
-    this.createError.set(null);
     this.setOpen.set(true);
   }
 
-  selectModel(model: 'eq3' | 'eq6_bias'): void {
-    if (model === 'eq3' && this.fitDegenerate()) return;
-    this.setModel.set(model);
-    if (!this.nameTouched()) this.setName.set(this.defaultName(model));
-  }
-
-  onNameInput(event: Event): void {
-    this.nameTouched.set(true);
-    this.setName.set((event.target as HTMLInputElement).value);
-  }
-
-  onVehicleInput(event: Event): void {
-    this.vehicleType.set((event.target as HTMLInputElement).value);
-    if (!this.nameTouched()) this.setName.set(this.defaultName(this.setModel()));
-  }
-
-  onPhoneInput(event: Event): void {
-    this.phoneModel.set((event.target as HTMLInputElement).value);
-  }
-
-  submitCreate(): void {
-    const comparison = this.comparison();
-    if (!comparison || !this.canCreate()) return;
-    this.submitting.set(true);
-    this.createError.set(null);
-    this.api.createCoefficientSet({
-      comparison_id: comparison.id,
-      model: this.setModel(),
-      name: this.setName().trim(),
-      vehicle_type: this.vehicleType().trim(),
-      phone_model: this.phoneModel().trim() || null,
-    }).subscribe({
-      next: set => {
-        this.submitting.set(false);
-        this.setOpen.set(false);
-        this.createdSet.set(set);
-      },
-      // The dialog stays open so the operator can fix the name (a same-day repeat
-      // collides with the deterministic default) and retry.
-      error: err => { this.submitting.set(false); this.createError.set(this.describe(err)); },
-    });
-  }
-
-  /** `{{model}}_{{vehicle_type}}_{{yyyy-MM-dd}}`, dated from created_at so the
-   *  suggestion is reproducible instead of drifting with the wall clock. */
-  private defaultName(model: string): string {
-    const vehicle = this.vehicleType().trim() || 'unknown';
-    const parts = [model, vehicle, this.createdDate()].filter(part => part);
-    return parts.join('_');
-  }
-
-  private createdDate(): string {
-    const created = this.comparison()?.created_at;
-    const parsed = created ? new Date(created) : null;
-    return parsed && !Number.isNaN(parsed.getTime()) ? parsed.toISOString().slice(0, 10) : '';
+  onSetCreated(set: CoefficientSetOut): void {
+    this.setOpen.set(false);
+    this.createdSet.set(set);
   }
 
   fmt(value: number | null | undefined, digits = 2): string {

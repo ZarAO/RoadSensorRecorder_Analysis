@@ -64,4 +64,19 @@ describe('ApiService', () => {
     api.listComparisons(5).subscribe();
     httpMock.expectOne('/api/comparisons?run_id=5').flush([]);
   });
+
+  it('creates an aggregate comparison from a reference and several runs', () => {
+    api.createAggregate(2, [5, 6, 8]).subscribe();
+    const req = httpMock.expectOne('/api/aggregate-comparisons');
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual({ reference_id: 2, run_ids: [5, 6, 8] });
+    req.flush({});
+  });
+
+  it('reads aggregate chart data from the artifact endpoint', () => {
+    api.getAggregateChartData(7).subscribe();
+    httpMock.expectOne('/api/aggregate-comparisons/7/artifacts/chart_data.json').flush({});
+    expect(api.aggregateArtifactUrl(7, 'figures/fig_agg_profile.png'))
+      .toBe('/api/aggregate-comparisons/7/artifacts/figures/fig_agg_profile.png');
+  });
 });

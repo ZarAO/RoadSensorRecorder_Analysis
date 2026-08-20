@@ -1,0 +1,53 @@
+/* The host only wraps a fixed-position backdrop, so it must not take up flow space */
+:host { display: contents; }
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: oklch(10% 0.02 250 / 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.dialog {
+  min-width: 24rem;
+  max-width: 90vw;
+}
+.dialog .field {
+  display: grid;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-muted-fg);
+  margin-bottom: var(--space-4);
+}
+.dialog .models {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+}
+.dialog .models legend {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.dialog .radio {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-fg);
+  padding: var(--space-1) 0;
+}
+.dialog .radio.disabled { color: var(--color-faint-fg); }
+.dialog .radio small { color: var(--color-muted-fg); margin-left: var(--space-2); }
+.dialog .hint { color: var(--color-muted-fg); font-size: var(--text-sm); margin: var(--space-3) 0 0; }
+.dialog .error-banner {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-sm);
+}
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}

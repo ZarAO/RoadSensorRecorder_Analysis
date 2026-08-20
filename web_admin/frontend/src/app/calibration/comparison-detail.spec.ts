@@ -53,7 +53,7 @@ const CHART: ChartData = {
 const CREATED_SET: CoefficientSetOut = {
   id: 11, name: 'eq3_sedan_2026-08-20', model: 'eq3', params: { A: 146.23, B: -1.87 },
   vehicle_type: 'sedan', phone_model: null, status: 'draft', comparison_id: 3,
-  stats_snapshot: null, created_at: '2026-08-20T11:00:00Z',
+  aggregate_comparison_id: null, stats_snapshot: null, created_at: '2026-08-20T11:00:00Z',
   confirmed_at: null, confirmed_note: null,
 };
 
@@ -265,7 +265,7 @@ describe('ComparisonDetail', () => {
     click(host, 'Створити набір коефіцієнтів');
     await fixture.whenStable();
 
-    expect(fixture.componentInstance.phoneModel()).toBe('');
+    // The dialog is destroyed on close, so a reopened one starts from its inputs
     expect(host.querySelector<HTMLInputElement>('#set-dialog input[placeholder]')!.value)
       .toBe('');
     expect(host.querySelector('#set-error')).toBeFalsy();
@@ -296,7 +296,8 @@ describe('ComparisonDetail', () => {
     await fixture.whenStable();
     const eq3 = host.querySelector<HTMLInputElement>('#set-dialog input[value="eq3"]')!;
     expect(eq3.disabled).toBe(true);
-    expect(fixture.componentInstance.setModel()).toBe('eq6_bias');
+    expect(host.querySelector<HTMLInputElement>('#set-dialog input[value="eq6_bias"]')!.checked)
+      .toBe(true);
   });
 
   it('shows the failure banner and no charts for a failed comparison', async () => {

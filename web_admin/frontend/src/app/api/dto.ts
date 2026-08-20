@@ -191,6 +191,37 @@ export interface ComparisonOut {
   error: string | null;
 }
 
+/** Multi-pass aggregation summary (services.aggregate._build_summary).
+ *  Every metric except the counters can be null — a single-pass bin grid has no
+ *  repeatability sd, and identical pass speeds leave the speed slope unestimated. */
+export interface AggregateSummary {
+  n_runs: number;
+  n_bins: number;
+  bias: number | null;
+  bias_ci_low: number | null;
+  bias_ci_high: number | null;
+  repeatability_sd: number | null;
+  rho: number | null;
+  mae_aggregated: number | null;
+  speed_slope: number | null;
+  /** True once one of the pooled runs was deleted (mark_stale_for_run) */
+  stale: boolean;
+}
+
+export interface AggregateOut {
+  id: number;
+  reference_id: number;
+  run_ids: number[];
+  created_at: string;
+  status: 'queued' | 'running' | 'done' | 'failed';
+  params: Record<string, number>;
+  result_dir: string | null;
+  summary: AggregateSummary | null;
+  error: string | null;
+  reference_road: string | null;
+  run_filenames: string[];
+}
+
 export interface CoefficientSetOut {
   id: number;
   name: string;
@@ -200,6 +231,7 @@ export interface CoefficientSetOut {
   phone_model: string | null;
   status: 'draft' | 'confirmed' | 'archived';
   comparison_id: number | null;
+  aggregate_comparison_id: number | null;
   stats_snapshot: Record<string, number | null> | null;
   created_at: string;
   confirmed_at: string | null;
@@ -247,4 +279,50 @@ export interface ChartData {
   eq3_fit: { A: number | null; B: number | null; r2: number | null; mae: number | null; n: number };
   bias: number;
   gates: Record<string, unknown>;
+}
+
+/** One 100 m bin of the pooled multi-pass grid (aggregate.per_bin_stats);
+ *  std_iri is null for a bin driven by a single pass (NaN -> null). */
+export interface AggregateProfilePoint {
+  chainage_m: number;
+  iri_ref: number;
+  mean_iri: number;
+  lo: number;
+  hi: number;
+  n_passes: number;
+  std_iri: number | null;
+}
+
+export interface AggregateBias {
+  bias: number;
+  se: number;
+  ci_low: number;
+  ci_high: number;
+  n_bins: number;
+  n_eff: number;
+  confidence: number;
+}
+
+export interface AggregateRepeatability {
+  sd: number | null;
+  n_bins_used: number;
+}
+
+export interface AggregateSpeedEffect {
+  slope_iri_per_kmh: number;
+  stderr: number;
+  n_rows: number;
+  n_bins: number;
+  speed_spread_kmh: number;
+}
+
+/** chart_data.json of an aggregate (services.aggregate._build_chart_data).
+ *  Unlike the single-comparison ChartData, `bias` here is the whole CI object. */
+export interface AggregateChartData {
+  profile: AggregateProfilePoint[];
+  bias: AggregateBias;
+  repeatability: AggregateRepeatability;
+  /** null when the passes' speeds barely differ — the slope is not estimated */
+  speed_effect: AggregateSpeedEffect | null;
+  validation: { rho: number | null; mae: number | null };
 }

@@ -138,6 +138,68 @@
 </section>
 
 <section class="card rise-in">
+  <div class="section-head">
+    <h3>Мультипроїзні порівняння</h3>
+    <button class="primary" (click)="openAggregate()"
+            [disabled]="doneRuns().length < 2 || !comparableReferences().length"
+            title="Потрібні щонайменше два завершені рани і один еталон із кроком 10 м">
+      Нове мультипроїзне порівняння
+    </button>
+  </div>
+
+  <div class="table-wrap">
+    <table class="data" id="aggregates-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Еталон</th>
+          <th>Проїздів</th>
+          <th>Статус</th>
+          <th>Зсув [95% ДІ]</th>
+          <th>σ<sub>r</sub></th>
+          <th>ρ</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (aggregate of aggregates(); track aggregate.id) {
+          <tr>
+            <td>{{ aggregate.id }}</td>
+            <td>{{ aggregate.reference_road ?? '—' }}</td>
+            <td [title]="runFilenamesTitle(aggregate)">{{ aggregate.run_ids.length }}</td>
+            <td>
+              <span class="chip status-{{ aggregate.status }}"
+                    [class.ok]="aggregate.status === 'done'"
+                    [class.bad]="aggregate.status === 'failed'"
+                    [class.warn]="aggregate.status === 'running'"
+                    [attr.title]="aggregate.error">{{ aggregate.status }}</span>
+              @if (aggregate.summary?.stale) {
+                <span class="chip stale" title="Один із проїздів видалено — числа більше не відтворювані">stale</span>
+              }
+            </td>
+            <td>{{ biasWithCi(aggregate.summary) }}</td>
+            <td>{{ fmt(aggregate.summary?.repeatability_sd) }}</td>
+            <td>{{ fmt(aggregate.summary?.rho) }}</td>
+            <td class="actions">
+              <a routerLink="/calibration/aggregates/{{ aggregate.id }}">Відкрити</a>
+              <button class="danger" (click)="askDeleteAggregate(aggregate)">Видалити</button>
+            </td>
+          </tr>
+        } @empty {
+          <tr>
+            <td colspan="8">
+              <div class="empty-state">
+                <p>Мультипроїзних порівнянь ще немає — оберіть еталон і щонайменше два рани.</p>
+              </div>
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card rise-in">
   <h3>Набори коефіцієнтів</h3>
 
   @if (createdRuns() !== null) {
@@ -188,6 +250,8 @@
             <td>
               @if (set.comparison_id != null) {
                 <a routerLink="/calibration/comparisons/{{ set.comparison_id }}">порівняння #{{ set.comparison_id }}</a>
+              } @else if (set.aggregate_comparison_id != null) {
+                <a routerLink="/calibration/aggregates/{{ set.aggregate_comparison_id }}">агрегація #{{ set.aggregate_comparison_id }}</a>
               } @else { — }
             </td>
             <td class="actions">
@@ -243,6 +307,43 @@
   </div>
 }
 
+@if (aggregateOpen()) {
+  <div class="dialog-backdrop" (click)="aggregateOpen.set(false)">
+    <div class="dialog card" id="aggregate-dialog" role="dialog" aria-modal="true"
+         aria-labelledby="aggregate-title" (click)="$event.stopPropagation()">
+      <h3 id="aggregate-title">Нове мультипроїзне порівняння</h3>
+      <label class="field">
+        Еталон
+        <select [value]="aggregateReferenceId()" (change)="onAggregateReferenceSelect($event)">
+          @for (reference of comparableReferences(); track reference.id) {
+            <option [value]="reference.id">{{ reference.road_name }} ({{ reference.filename }})</option>
+          }
+        </select>
+      </label>
+      <fieldset class="field runs">
+        <legend>Проїзди ({{ aggregateRunIds().length }} вибрано)</legend>
+        <div class="run-list">
+          @for (run of doneRuns(); track run.id) {
+            <label class="check">
+              <input type="checkbox" [checked]="isAggregateRunSelected(run.id)"
+                     (change)="toggleAggregateRun(run.id)" />
+              <span>#{{ run.id }} — {{ run.filename }}</span>
+            </label>
+          }
+        </div>
+      </fieldset>
+      <p class="hint">
+        Потрібно щонайменше два рани однієї ділянки; еталон — лише з кроком 10 м.
+      </p>
+      <div class="dialog-actions">
+        <button (click)="aggregateOpen.set(false)">Скасувати</button>
+        <button class="primary" (click)="submitAggregate()"
+                [disabled]="!canAggregate()">Агрегувати</button>
+      </div>
+    </div>
+  </div>
+}
+
 @if (deleteTarget(); as target) {
   <div class="dialog-backdrop" (click)="deleteTarget.set(null)">
     <div class="dialog card" id="delete-dialog" role="dialog" aria-modal="true"
@@ -251,6 +352,8 @@
       <p class="hint">
         @if (target.kind === 'reference') {
           Порівняння на цьому еталоні залишаться, але позначаться як видалене джерело.
+        } @else if (target.kind === 'aggregate') {
+          Артефакти агрегації буде видалено безповоротно; рани залишаться недоторканими.
         } @else {
           Артефакти порівняння буде видалено безповоротно.
         }
