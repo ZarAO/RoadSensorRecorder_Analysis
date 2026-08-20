@@ -1,0 +1,6 @@
+{
+  "enabledPlugins": {
+    "frontend-toolkit@zao-claude-config": true,
+    "research-toolkit@zao-claude-config": true
+  }
+}

@@ -193,3 +193,6 @@ web_admin/backend/admin.db
 web_admin/frontend/node_modules/
 web_admin/frontend/dist/
 web_admin/frontend/.angular/
+
+# Field data (large, private): decide per-file what to publish
+storage/field_measurements/
