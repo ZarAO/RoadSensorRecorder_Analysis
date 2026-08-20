@@ -17,22 +17,32 @@ def make_engine(db_url: str):
     return create_engine(db_url, connect_args=connect_args)
 
 
+# Nullable INTEGER columns added to tables that predate them. SQLite's
+# create_all() never ALTERs an existing table, so every column here is added in
+# place, once (idempotent: skipped when already present).
+_ADDED_COLUMNS = {
+    'analysis_runs': ('eq3_set_id', 'eq6_bias_set_id'),
+    'coefficient_sets': ('aggregate_comparison_id',),
+}
+
+
 def init_db(engine) -> None:
     Base.metadata.create_all(engine)
     _ensure_run_columns(engine)
 
 
 def _ensure_run_columns(engine) -> None:
-    # SQLite create_all() never ALTERs an existing table; add Phase-3 columns in place
     from sqlalchemy import inspect, text
     inspector = inspect(engine)
-    if 'analysis_runs' not in inspector.get_table_names():
-        return
-    existing = {c['name'] for c in inspector.get_columns('analysis_runs')}
+    tables = set(inspector.get_table_names())
     with engine.begin() as conn:
-        for column in ('eq3_set_id', 'eq6_bias_set_id'):
-            if column not in existing:
-                conn.execute(text(f'ALTER TABLE analysis_runs ADD COLUMN {column} INTEGER'))
+        for table, columns in _ADDED_COLUMNS.items():
+            if table not in tables:
+                continue
+            existing = {c['name'] for c in inspector.get_columns(table)}
+            for column in columns:
+                if column not in existing:
+                    conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {column} INTEGER'))
 
 
 def get_session(request: Request):

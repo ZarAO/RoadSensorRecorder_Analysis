@@ -103,6 +103,25 @@ class Comparison(Base):
     reference: Mapped[ReferenceDataset] = relationship(back_populates='comparisons')
 
 
+class AggregateComparison(Base):
+    """A multi-pass aggregation job: several runs of the same road against one
+    reference, pooled onto the reference chainage (Phase 2)."""
+
+    __tablename__ = 'aggregate_comparisons'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    reference_id: Mapped[int] = mapped_column(ForeignKey('reference_datasets.id'))
+    run_ids: Mapped[list] = mapped_column(JSON, default=list)  # list[int], one per pass
+    created_at: Mapped[datetime] = mapped_column(default=_utcnow)
+    status: Mapped[str] = mapped_column(String, default='queued')  # queued|running|done|failed
+    params: Mapped[dict] = mapped_column(JSON, default=dict)
+    result_dir: Mapped[Optional[str]] = mapped_column(default=None)
+    summary: Mapped[Optional[dict]] = mapped_column(JSON, default=None)
+    error: Mapped[Optional[str]] = mapped_column(default=None)
+
+    reference: Mapped[ReferenceDataset] = relationship()
+
+
 class CoefficientSet(Base):
     """A confirmable set of IRI-equation coefficients (Phase 3)."""
 
@@ -115,7 +134,10 @@ class CoefficientSet(Base):
     vehicle_type: Mapped[Optional[str]] = mapped_column(default=None)
     phone_model: Mapped[Optional[str]] = mapped_column(default=None)
     status: Mapped[str] = mapped_column(String, default='draft')  # draft|confirmed|archived
+    # Provenance: EITHER a single comparison OR a multi-pass aggregate, never both
     comparison_id: Mapped[Optional[int]] = mapped_column(ForeignKey('comparisons.id'), default=None)
+    aggregate_comparison_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey('aggregate_comparisons.id'), default=None)
     stats_snapshot: Mapped[Optional[dict]] = mapped_column(JSON, default=None)
     created_at: Mapped[datetime] = mapped_column(default=_utcnow)
     confirmed_at: Mapped[Optional[datetime]] = mapped_column(default=None)

@@ -16,6 +16,7 @@ from src.api.schemas import RunCreate, RunOut
 from src.core.config import get_settings
 from src.db.models import AnalysisRun, Comparison, SourceFile
 from src.db.session import get_session
+from src.services.aggregate import mark_stale_for_run
 from src.services.analysis import delete_run_artifacts, execute_run
 from src.services.coefficients import bias_of, resolve_for_meta
 from src.services.comparison import delete_comparison_artifacts, detach_coefficient_sets
@@ -179,6 +180,10 @@ def delete_run(run_id: int, session: Session = Depends(get_session)):
     run = session.get(AnalysisRun, run_id)
     if run is None:
         raise HTTPException(404, 'Run not found')
+    # An aggregate keeps this run's id in its run_ids JSON (no FK to cascade):
+    # its numbers are no longer reproducible, so it is flagged stale first —
+    # before the comparisons below start disappearing.
+    mark_stale_for_run(session, run.id)
     # A comparison's FK points at this run: deleting the run first would orphan
     # it, so its rows and result_dir are removed first (controller ruling #1).
     comparisons = session.scalars(

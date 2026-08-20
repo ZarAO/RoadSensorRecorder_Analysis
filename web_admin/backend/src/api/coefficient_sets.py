@@ -28,10 +28,15 @@ from src.api.schemas import (
     ConfirmOut,
     RunOut,
 )
-from src.db.models import Comparison, CoefficientSet, SourceFile
+from src.db.models import AggregateComparison, Comparison, CoefficientSet, SourceFile
 from src.db.session import get_session
 
 router = APIRouter(prefix='/coefficient-sets', tags=['coefficient-sets'])
+
+MSG_ONE_PROVENANCE = ('вкажіть рівно одне джерело: comparison_id (одне '
+                      'порівняння) або aggregate_comparison_id (агрегація проїздів)')
+MSG_AGGREGATE_NO_EQ3 = ('агрегація не містить фіту Eq.3 — з неї можна створити '
+                        'лише набір eq6_bias (зсув)')
 
 
 def _to_out(cs: CoefficientSet) -> CoefficientSetOut:
@@ -68,6 +73,33 @@ def _stats_snapshot(stats: dict) -> dict:
     }
 
 
+def _aggregate_snapshot(stats: dict) -> dict:
+    return {
+        'bias_ci_low': stats['bias']['ci_low'],
+        'bias_ci_high': stats['bias']['ci_high'],
+        'n_passes': stats['n_runs'],
+        'n_bins': stats['n_bins'],
+        'repeatability_sd': stats['repeatability']['sd'],
+        'rho': stats['validation']['spearman_rho'],
+        'mae_aggregated': stats['validation']['mae'],
+    }
+
+
+def _reject_duplicate_name(session: Session, name: str) -> None:
+    if session.scalar(
+            select(CoefficientSet).where(CoefficientSet.name == name)) is not None:
+        raise HTTPException(409, f"набір з назвою '{name}' вже існує")
+
+
+def _load_artifact_json(result_dir: str | None, name: str, subject: str) -> dict:
+    if not result_dir:
+        raise HTTPException(404, f'{subject} has no artifacts yet')
+    path = Path(result_dir) / name
+    if not path.is_file():
+        raise HTTPException(404, f"No artifact '{name}'")
+    return json.loads(path.read_text(encoding='utf-8'))
+
+
 def _candidate_files(session: Session, vehicle_type: str | None) -> list[SourceFile]:
     """Non-deleted files whose recording_meta.vehicle.vehicle_type matches
     (filtered in Python: small N — spec §Phase 3). A falsy vehicle_type never
@@ -88,8 +120,7 @@ def _set_or_404(set_id: int, session: Session) -> CoefficientSet:
     return cs
 
 
-@router.post('', status_code=201, response_model=CoefficientSetOut)
-def create_draft(payload: CoefficientSetCreate, session: Session = Depends(get_session)):
+def _draft_from_comparison(payload: CoefficientSetCreate, session: Session) -> CoefficientSet:
     comparison = session.get(Comparison, payload.comparison_id)
     if comparison is None:
         raise HTTPException(404, 'Comparison not found')
@@ -97,23 +128,15 @@ def create_draft(payload: CoefficientSetCreate, session: Session = Depends(get_s
         raise HTTPException(
             409, 'порівняння ще не завершено — набір коефіцієнтів можна '
             'створити лише із завершеного порівняння')
-    if session.scalar(
-            select(CoefficientSet).where(CoefficientSet.name == payload.name)) is not None:
-        raise HTTPException(409, f"набір з назвою '{payload.name}' вже існує")
+    _reject_duplicate_name(session, payload.name)
 
-    if not comparison.result_dir:
-        raise HTTPException(404, 'Comparison has no artifacts yet')
-    stats_path = Path(comparison.result_dir) / 'stats.json'
-    if not stats_path.is_file():
-        raise HTTPException(404, "No artifact 'stats.json'")
-    stats = json.loads(stats_path.read_text(encoding='utf-8'))
-
+    stats = _load_artifact_json(comparison.result_dir, 'stats.json', 'Comparison')
     params = _draft_params(payload.model, stats)
     if _has_degenerate_fit(payload.model, params):
         raise HTTPException(
             409, 'порівняння має вироджений фіт — набір не може бути створений')
 
-    cs = CoefficientSet(
+    return CoefficientSet(
         name=payload.name,
         model=payload.model,
         params=params,
@@ -123,6 +146,50 @@ def create_draft(payload: CoefficientSetCreate, session: Session = Depends(get_s
         comparison_id=payload.comparison_id,
         stats_snapshot=_stats_snapshot(stats),
     )
+
+
+def _draft_from_aggregate(payload: CoefficientSetCreate, session: Session) -> CoefficientSet:
+    aggregate = session.get(AggregateComparison, payload.aggregate_comparison_id)
+    if aggregate is None:
+        raise HTTPException(404, 'Aggregate comparison not found')
+    if aggregate.status != 'done':
+        raise HTTPException(
+            409, 'агрегацію ще не завершено — набір коефіцієнтів можна '
+            'створити лише із завершеної агрегації')
+    # Eq.3 is fitted per comparison (sqrtPSD -> IRI); an aggregate only pools
+    # already-computed IRI, so only the Eq.6 bias can come out of it.
+    if payload.model != 'eq6_bias':
+        raise HTTPException(409, MSG_AGGREGATE_NO_EQ3)
+    _reject_duplicate_name(session, payload.name)
+
+    stats = _load_artifact_json(aggregate.result_dir, 'aggregate_stats.json',
+                                'Aggregate comparison')
+    params = {'bias': stats['bias']['bias']}
+    if _has_degenerate_fit(payload.model, params):
+        raise HTTPException(
+            409, 'агрегація має вироджений зсув — набір не може бути створений')
+
+    return CoefficientSet(
+        name=payload.name,
+        model=payload.model,
+        params=params,
+        vehicle_type=payload.vehicle_type,
+        phone_model=payload.phone_model,
+        status='draft',
+        aggregate_comparison_id=payload.aggregate_comparison_id,
+        stats_snapshot=_aggregate_snapshot(stats),
+    )
+
+
+@router.post('', status_code=201, response_model=CoefficientSetOut)
+def create_draft(payload: CoefficientSetCreate, session: Session = Depends(get_session)):
+    # Provenance is either one comparison or one aggregate, never both/neither
+    if (payload.comparison_id is None) == (payload.aggregate_comparison_id is None):
+        raise HTTPException(422, MSG_ONE_PROVENANCE)
+
+    cs = (_draft_from_aggregate(payload, session)
+          if payload.aggregate_comparison_id is not None
+          else _draft_from_comparison(payload, session))
     session.add(cs)
     session.commit()
     session.refresh(cs)

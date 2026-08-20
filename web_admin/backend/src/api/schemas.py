@@ -86,8 +86,33 @@ class ComparisonOut(BaseModel):
     reference_road: Optional[str] = None
 
 
+class AggregateCreate(BaseModel):
+    reference_id: int
+    run_ids: list[int]
+    params: dict = {}
+
+
+class AggregateOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    reference_id: int
+    run_ids: list
+    created_at: datetime
+    status: str
+    params: dict
+    result_dir: Optional[str] = None
+    summary: Optional[dict] = None
+    error: Optional[str] = None
+    reference_road: Optional[str] = None
+    run_filenames: list[str] = []
+
+
 class CoefficientSetCreate(BaseModel):
-    comparison_id: int
+    # Provenance: exactly one of the two (enforced in the router, which answers
+    # with the Ukrainian operator-facing message)
+    comparison_id: Optional[int] = None
+    aggregate_comparison_id: Optional[int] = None
     model: str
     name: str
     vehicle_type: str
@@ -112,6 +137,7 @@ class CoefficientSetOut(BaseModel):
     phone_model: Optional[str] = None
     status: str
     comparison_id: Optional[int] = None
+    aggregate_comparison_id: Optional[int] = None
     stats_snapshot: Optional[dict] = None
     created_at: datetime
     confirmed_at: Optional[datetime] = None
