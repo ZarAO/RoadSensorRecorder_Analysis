@@ -1,19 +1,53 @@
-<h2>Глобальна мапа</h2>
+<div class="map-stage">
+  <div #map class="map" role="application" aria-label="Глобальна мапа якості доріг"></div>
 
-<div class="toolbar">
-  <button (click)="rebuild()" [disabled]="busy()">
-    {{ busy() ? 'Оновлюється…' : 'Оновити глобальну мапу' }}
-  </button>
-  <span class="count">Сегментів: {{ featureCount() }}</span>
-</div>
+  <aside class="panel kpi-panel rise-in" aria-label="Зведення">
+    <h2>Глобальна мапа</h2>
+    @if (stats(); as s) {
+      <div class="kpi">
+        <app-count-up [value]="s.km_total" [decimals]="1" />
+        <span>км проаналізовано</span>
+      </div>
+      <div class="kpi">
+        <app-count-up [value]="s.runs_done" />
+        <span>успішних ранів</span>
+      </div>
+      <div class="kpi">
+        <app-count-up [value]="s.low_speed_total" />
+        <span>ділянок на обстеження</span>
+      </div>
+    } @else {
+      <div class="skeleton" style="height:3rem"></div>
+      <div class="skeleton" style="height:3rem"></div>
+    }
+    <button class="primary" (click)="rebuild()" [disabled]="busy()">
+      {{ busy() ? 'Оновлюється…' : 'Оновити мапу' }}
+    </button>
+    <p class="count" aria-live="polite">
+      @if (featureCount() !== null) { Сегментів на мапі: {{ featureCount() }} }
+    </p>
+  </aside>
 
-<div #map class="map"></div>
+  <div class="panel legend rise-in" aria-label="Легенда IRI">
+    <span><i style="background:#2fbf71"></i> &lt; 2.5</span>
+    <span><i style="background:#e8c231"></i> 2.5–4</span>
+    <span><i style="background:#f28c33"></i> 4–6</span>
+    <span><i style="background:#e5484d"></i> ≥ 6</span>
+    <span><i style="background:#FF00FF"></i> Потребує обстеження профілометром (клас 1/2)</span>
+    <span><i style="background:#8b93a3"></i> IRI недоступний</span>
+  </div>
 
-<div class="legend">
-  <span><i style="background:#16a34a"></i> IRI &lt; 2.5</span>
-  <span><i style="background:#eab308"></i> 2.5–4</span>
-  <span><i style="background:#f97316"></i> 4–6</span>
-  <span><i style="background:#dc2626"></i> ≥ 6</span>
-  <span><i style="background:#FF00FF"></i> Потребує обстеження профілометром (клас 1/2)</span>
-  <span><i style="background:#9ca3af"></i> IRI недоступний</span>
+  @if (!loading() && featureCount() === 0) {
+    <div class="empty-overlay">
+      <div class="panel empty-card rise-in">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M9 20 5 18V6l4 2 6-2 4 2v12l-4-2-6 2Z M9 8v12 M15 6v12"
+                stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+        </svg>
+        <h3>Мапа поки порожня</h3>
+        <p>Завантажте CSV-записи і запустіть аналіз — сегменти з оцінкою IRI з'являться тут.</p>
+        <a routerLink="/files"><button class="primary">До файлів</button></a>
+      </div>
+    </div>
+  }
 </div>

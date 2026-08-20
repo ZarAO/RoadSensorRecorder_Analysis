@@ -1,37 +1,121 @@
-.toolbar {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  margin-bottom: 0.75rem;
+/* Full-bleed stage: cancel the content padding so the map owns the viewport */
+:host {
+  display: block;
+  margin: calc(-1 * var(--space-6)) calc(-1 * clamp(var(--space-4), 3vw, var(--space-12)));
+  flex: 1;
 }
-.toolbar button {
-  padding: 0.35rem 0.8rem;
-  border: 1px solid #d1d5db;
-  border-radius: 4px;
-  background: white;
-  cursor: pointer;
+
+.map-stage {
+  position: relative;
+  height: calc(100vh - 3.5rem);
 }
-.count { color: #6b7280; }
 
 .map {
-  height: 560px;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
+  position: absolute;
+  inset: 0;
+  background: var(--color-bg);
+}
+
+/* Floating panels above the map */
+.panel {
+  position: absolute;
+  z-index: 1000;
+  background: var(--map-panel-bg);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--color-border);
+  border-radius: var(--card-radius);
+  box-shadow: var(--elevation-overlay);
+}
+
+.kpi-panel {
+  top: var(--space-4);
+  left: var(--space-4);
+  width: 15.5rem;
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.kpi-panel h2 { margin: 0; font-size: var(--text-lg); }
+
+.kpi app-count-up {
+  display: block;
+  font-size: var(--kpi-value-size);
+  font-weight: var(--weight-bold);
+  letter-spacing: -0.02em;
+  line-height: var(--leading-tight);
+}
+.kpi span:last-child {
+  color: var(--color-muted-fg);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.count {
+  margin: 0;
+  color: var(--color-muted-fg);
+  font-size: var(--text-xs);
+  min-height: 1em;
 }
 
 .legend {
+  right: var(--space-4);
+  bottom: var(--space-4);
   display: flex;
   flex-wrap: wrap;
-  gap: 1rem;
-  margin-top: 0.5rem;
-  font-size: 0.85rem;
-  color: #374151;
+  gap: var(--space-2) var(--space-4);
+  max-width: 30rem;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-xs);
+  color: var(--color-muted-fg);
 }
 .legend i {
   display: inline-block;
-  width: 14px;
-  height: 14px;
-  border-radius: 3px;
-  margin-right: 0.3rem;
-  vertical-align: middle;
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: var(--radius-sm);
+  margin-right: var(--space-1);
+  vertical-align: -1px;
+}
+
+.empty-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.empty-card {
+  position: static;
+  pointer-events: auto;
+  max-width: 22rem;
+  padding: var(--space-8);
+  text-align: center;
+  color: var(--color-muted-fg);
+}
+.empty-card h3 { color: var(--color-fg); margin: var(--space-3) 0 var(--space-2); }
+.empty-card p { margin: 0 0 var(--space-4); font-size: var(--text-sm); }
+.empty-card svg { color: var(--color-faint-fg); }
+
+/* Leaflet chrome follows the theme */
+:host ::ng-deep .leaflet-popup-content-wrapper,
+:host ::ng-deep .leaflet-popup-tip {
+  background: var(--color-surface-raised);
+  color: var(--color-fg);
+  box-shadow: var(--elevation-overlay);
+}
+:host ::ng-deep .leaflet-popup-content a { color: var(--color-accent); }
+:host ::ng-deep .leaflet-bar a {
+  background: var(--color-surface-raised);
+  color: var(--color-fg);
+  border-color: var(--color-border);
+}
+:host ::ng-deep .leaflet-bar a:hover { background: var(--color-surface-hover); }
+
+@media (max-width: 720px) {
+  .kpi-panel { width: auto; right: var(--space-4); }
+  .legend { left: var(--space-4); max-width: none; }
 }
