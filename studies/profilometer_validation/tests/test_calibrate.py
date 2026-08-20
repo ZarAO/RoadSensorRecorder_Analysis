@@ -72,3 +72,21 @@ def test_fit_grms_speed_shape():
     assert set(fit) >= {'a_grms', 'b_speed', 'c_const', 'r2', 'mae', 'rmse', 'n'}
     # iri_ref is a pure function of grms (=sqrt_psd*0.02) up to noise -> high r2
     assert fit['r2'] > 0.95
+
+
+def test_fit_eq3_speed_recovers_speed_term():
+    from calibrate import fit_eq3_speed
+    rng = np.random.default_rng(SEED)
+    n = 200
+    sqrt_psd = rng.uniform(0.1, 1.0, n)
+    v = rng.uniform(20, 80, n)
+    pairs = pd.DataFrame({
+        'psd_sqrt_scalar': sqrt_psd,
+        'mean_speed_kmh': v,
+        'iri_ref': 5.0 * sqrt_psd - 0.05 * v + 3.0 + rng.normal(0, 0.02, n),
+    })
+    fit = fit_eq3_speed(pairs)
+    assert fit['A'] == pytest.approx(5.0, abs=0.1)
+    assert fit['C_speed'] == pytest.approx(-0.05, abs=0.005)
+    assert fit['B'] == pytest.approx(3.0, abs=0.2)
+    assert fit['r2'] > 0.98

@@ -141,3 +141,93 @@ def test_match_is_deterministic_under_row_shuffle(tmp_path):
     a = match_segments(seg_mid, intervals, tolerance_m=60.0)
     b = match_segments(seg_mid.sample(frac=1, random_state=7), intervals, tolerance_m=60.0)
     pd.testing.assert_frame_equal(a.reset_index(drop=True), b.reset_index(drop=True))
+
+
+def test_segment_midpoints_from_geojson_positional(tmp_path):
+    import json
+    from match import segment_midpoints_from_geojson
+
+    segments = _segments([0, 1, 2], [0.0, 100.0, 200.0])
+    segments.loc[1, 'partial'] = True
+    features = []
+    for i in range(3):
+        features.append({
+            'type': 'Feature', 'properties': {},
+            'geometry': {'type': 'LineString',
+                         'coordinates': [[30.5, 50.4 + i * 0.001],
+                                         [30.5, 50.4005 + i * 0.001],
+                                         [30.5, 50.401 + i * 0.001]]},
+        })
+    p = tmp_path / 'roughness.geojson'
+    p.write_text(json.dumps({'type': 'FeatureCollection', 'features': features}),
+                 encoding='utf-8')
+
+    mids = segment_midpoints_from_geojson(segments, str(p))
+    assert list(mids['seg_id']) == [0, 2]            # partial row dropped
+    assert mids['lat_mid'].iloc[0] == pytest.approx(50.4005)  # middle vertex
+    assert mids['lon_mid'].iloc[0] == 30.5
+
+
+def test_segment_midpoints_from_geojson_count_mismatch_raises(tmp_path):
+    import json
+    from match import segment_midpoints_from_geojson
+
+    p = tmp_path / 'roughness.geojson'
+    p.write_text(json.dumps({'type': 'FeatureCollection', 'features': []}),
+                 encoding='utf-8')
+    with pytest.raises(ValueError, match='positional alignment'):
+        segment_midpoints_from_geojson(_segments([0], [0.0]), str(p))
+
+
+def _form10_csv(tmp_path, n=30, lat0=LAT0):
+    """10 m step synthetic form along the same northbound road."""
+    rows = []
+    for i in range(n):
+        lat_s = lat0 + i * 10.0 / METERS_PER_DEG_LAT
+        lat_e = lat0 + (i + 1) * 10.0 / METERS_PER_DEG_LAT
+        rows.append({
+            'km_start': 0, 'm_start': i * 10, 'km_end': 0, 'm_end': (i + 1) * 10,
+            **{f'iri_ch{c}': float(i) for c in range(1, 9)},   # iri == row index
+            'iri_ch9': 0.0, 'iri_ch10': 0.0,
+            'lat_start': lat_s, 'lon_start': LON0, 'alt_start': 100.0,
+            'lat_end': lat_e, 'lon_end': LON0, 'alt_end': 100.0,
+        })
+    p = tmp_path / 'form_10.csv'
+    pd.DataFrame(rows).to_csv(p, index=False, encoding='utf-8')
+    return str(p)
+
+
+def _seg_with_endpoints(seg_id, s_a, s_b, lat0=LAT0):
+    return pd.DataFrame({
+        'seg_id': [seg_id], 's_start': [s_a], 's_end': [s_b],
+        'partial': False, 'needs_class12_survey': False,
+        'psd_sqrt_scalar': 0.5, 'grms': 0.01, 'mean_speed_kmh': 36.0,
+        'iri_multi': 2.0, 'iri_psd_raw': -0.5,
+        'lat_a': lat0 + s_a / METERS_PER_DEG_LAT, 'lon_a': LON0,
+        'lat_b': lat0 + s_b / METERS_PER_DEG_LAT, 'lon_b': LON0,
+        'lat_mid': lat0 + (s_a + s_b) / 2 / METERS_PER_DEG_LAT, 'lon_mid': LON0,
+    })
+
+
+def test_windowed_reference_averages_the_span(tmp_path):
+    from match import load_form_10m, windowed_reference
+    form10 = load_form_10m(_form10_csv(tmp_path))
+    # Segment spanning s=50..150: nearest 10m midpoints are rows 5..14
+    # (midpoint of row i sits at 10*i+5)
+    seg = _seg_with_endpoints(0, 50.0, 150.0)
+    out = windowed_reference(seg, form10)
+    assert len(out) == 1
+    row_lo, row_hi = 4, 14        # chainage 45..145 inclusive window
+    expected = np.mean(np.arange(row_lo, row_hi + 1))
+    assert out['iri_ref'].iloc[0] == pytest.approx(expected, abs=0.51)
+    assert out['n_ref_rows'].iloc[0] >= 9
+
+
+def test_windowed_reference_drops_far_and_degenerate(tmp_path):
+    from match import load_form_10m, windowed_reference
+    form10 = load_form_10m(_form10_csv(tmp_path))
+    far = _seg_with_endpoints(1, 50.0, 150.0)
+    far['lon_a'] = far['lon_b'] = LON0 + 0.01          # ~700 m east
+    degenerate = _seg_with_endpoints(2, 100.0, 101.0)  # window of ~1 row
+    out = windowed_reference(pd.concat([far, degenerate]), form10)
+    assert len(out) == 0

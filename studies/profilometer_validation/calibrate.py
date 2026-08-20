@@ -132,3 +132,27 @@ def fit_grms_speed(pairs: pd.DataFrame) -> dict:
     }
     result.update(_ols_metrics(y, design @ coef))
     return result
+
+
+def fit_eq3_speed(pairs: pd.DataFrame) -> dict:
+    """
+    Speed-augmented Eq.3: IRI_ref = A*sqrtPSD + C*v_kmh + B. Quantifies how
+    much of Eq.3's residual is the missing speed term (naturalistic driving
+    slows down exactly on the worst spots, suppressing the excitation).
+    """
+    df = _clean(pairs, [SQRT_PSD_COL, 'mean_speed_kmh', REF_COL])
+    design = np.column_stack([
+        df[SQRT_PSD_COL].to_numpy(float),
+        df['mean_speed_kmh'].to_numpy(float),
+        np.ones(len(df)),
+    ])
+    y = df[REF_COL].to_numpy(float)
+    coef, *_ = np.linalg.lstsq(design, y, rcond=None)
+    result = {
+        'A': float(coef[0]),
+        'C_speed': float(coef[1]),
+        'B': float(coef[2]),
+        'n': int(len(df)),
+    }
+    result.update(_ols_metrics(y, design @ coef))
+    return result
