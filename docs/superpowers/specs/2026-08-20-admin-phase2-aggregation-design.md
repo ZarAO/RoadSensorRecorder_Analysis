@@ -118,6 +118,29 @@ rho, mae_aggregated}` + `aggregate_comparison_id` як провенанс (но�
    (`eq6_bias_van_SM-S948B`, bias з comparison 2, phone_model=`samsung SM-S948B`)
    — підтвердження лишається за користувачем (spec Phase 3 §4: рішення ручне).
 
+## 5b. Автоматичний ключ калібрування (поправка користувача, 2026-08-20)
+
+Ручне введення phone_model — джерело помилок (реальний кейс: `zarichnyi-samsung-s26u`
+проти `samsung SM-S948B` у преамбулі — набір ніколи б не застосувався). Рішення:
+**телефон сам пише свою ідентичність у файл**, і вона стає ключем.
+
+- **Контракт CSV v3.1 (застосунок, ОКРЕМИЙ репозиторій RoadSensorRecorder):**
+  у преамбулу додаються `# device_id=<Settings.Secure.ANDROID_ID>` (стабільний
+  для пари пристрій+підпис застосунку) та `# vehicle_id=<UUID активного профілю>`
+  (профілі отримують стабільний UUID, якщо ще не мають). Schema=2 не змінюється —
+  парсер метаданих толерантний, нові ключі лягають у preamble/vehicle
+  автоматично. Аналізатор: тест-пін на проходження нових ключів.
+- **CoefficientSet** отримує nullable `device_id`, `vehicle_id`. Діалог створення
+  набору заповнює їх автоматично з рану (жодного ручного вводу).
+- **Резолюція (нові рівні, старі файли працюють як раніше):**
+  1) точний збіг (model, device_id, vehicle_id) — коли і файл, і набір мають обидва;
+  2) legacy (model, vehicle_type, phone_model) — файли без device_id;
+  3) generic (model, vehicle_type, phone_model=NULL, device_id=NULL);
+  4) книжкові константи.
+  Інваріант «один confirmed на ключ» діє по повному ключу
+  (model, vehicle_type, phone_model, device_id, vehicle_id).
+- preview-resolution і confirm-прев'ю враховують нові рівні.
+
 ## 6. Дисертаційний конвеєр (постійний напрям)
 
 - `Dissertation/chapters/` — робочі .md файли українською (склейка в docx —

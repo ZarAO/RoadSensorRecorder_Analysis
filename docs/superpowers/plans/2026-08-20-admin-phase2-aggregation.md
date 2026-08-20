@@ -266,6 +266,36 @@ export interface BandPoint { x: number; lo: number; hi: number; }
 - [ ] **Step 3:** Run the migration script against the real backend DB (server on :8000 may keep running — TestClient uses the file directly; ensure the uvicorn process won't clash: SQLite WAL not enabled → run while uvicorn idle, it is single-writer short transaction — acceptable locally). Verify: GET coefficient-sets shows the new draft; preview for it reports ≥3 files.
 - [ ] **Step 4:** Commit `feat(web-admin): phone-aware resolution preview and set-creation prefill`.
 
+### Task 6a: Automatic calibration key — device_id/vehicle_id (backend + UI; spec §5b)
+
+**Files:**
+- Modify: `web_admin/backend/src/db/models.py` (CoefficientSet + `device_id`, `vehicle_id` nullable str columns), `web_admin/backend/src/db/session.py` (`_ADDED_COLUMNS` map += coefficient_sets: device_id, vehicle_id), `web_admin/backend/src/services/coefficients.py`, `web_admin/backend/src/api/coefficient_sets.py` (create/confirm/preview), `web_admin/backend/src/api/schemas.py`, frontend `dto.ts`/`api.service.ts`/`create-set-dialog.ts`/`calibration-page.*`
+- Test: extend `web_admin/backend/tests/test_coefficients.py` + `test_coefficient_sets_api.py`
+
+**Interfaces:**
+- `coefficients.py`: `device_id_from_meta(meta) -> str|None` (`preamble['device_id']`), `vehicle_id_from_meta(meta) -> str|None` (`vehicle['id']`). `resolve(session, model, meta_keys)` tiers become: (1) exact `(model, device_id, vehicle_id)` when the FILE meta has both and a confirmed set matches both; (2) legacy `(model, vehicle_type, phone_model)`; (3) generic `(model, vehicle_type, phone_model IS NULL, device_id IS NULL)`; (4) None → book. Snapshot unchanged in shape.
+- `CoefficientSetCreate` gains `device_id: str|None = None`, `vehicle_id: str|None = None`; the create-set dialog auto-fills them from the run (RunOut enrichment gains `device_id`/`vehicle_id` alongside `phone_model`) — the «Точний телефон…» option now means device_id+vehicle_id when present (fallback phone_model for old files); no manual entry anywhere.
+- Confirm invariant: previous confirmed matched on the FULL key `(model, vehicle_type, phone_model, device_id, vehicle_id)` NULL-safe.
+- `preview-resolution` accepts and counts by the new tiers (files with device_id+vehicle_id match tier-1 sets; others per legacy rules).
+
+- [ ] **Step 1: Failing tests:** tier order (file with device_id+vehicle_id picks tier-1 set over legacy phone set; file without device_id ignores tier-1 sets and picks legacy; generic fallback; book); migration adds both columns idempotently; create-set with device_id round-trips; confirm archives only the same-full-key previous; preview counts device-aware.
+- [ ] **Step 2:** Implement backend → DTO → dialog auto-fill. Suites green.
+- [ ] **Step 3:** Commit `feat(web-admin): automatic calibration key from device_id/vehicle_id (contract v3.1)`.
+
+### Task 6b: Android app writes its identity — CSV contract v3.1 (SEPARATE REPO)
+
+**Repo:** `c:\DEV\my_project\University\RoadSensorRecorder` (branch v1-1-stage; build/test per its README: `./gradlew.bat assembleDebug testDebugUnitTest --console=plain`, JBR-21 via foojay per repo config).
+
+**Files (locate by reading the repo first):** the preamble writer (RecordingService/CsvFormatter — where `# device:` and `# vehicle_*` lines are emitted), the vehicle-profile store (add a stable UUID per profile if absent — generated once at profile creation/first migration, persisted), CsvFormatter unit tests, README/CHANGELOG contract section.
+
+**Contract addition (v3.1, schema=2 unchanged):** right after the `# device:` line emit `# device_id=<Settings.Secure.ANDROID_ID>`; inside the vehicle block emit `# vehicle_id=<profile UUID>`. Both values are machine tokens (no spaces beyond the id itself).
+
+- [ ] **Step 1:** Read the current preamble writer + profile model/store + their tests; add profile UUID (migration for existing stored profiles: assign UUID on load when missing, persist).
+- [ ] **Step 2: Failing tests:** CsvFormatter/preamble test asserting both new lines and their ordering; profile-store test: existing profile without UUID gets one and keeps it stable across reloads.
+- [ ] **Step 3:** Implement; run unit tests + `assembleDebug`; copy the debug APK to `%USERPROFILE%/OneDrive/Desktop/RoadSensorRecorder-debug.apk` (established convention for user testing).
+- [ ] **Step 4:** Update README/CHANGELOG (contract v3.1 table row). Commit in THAT repo: `feat: write device_id and vehicle profile UUID into CSV preamble (contract v3.1)`.
+- [ ] **Step 5:** Analyzer pin (THIS repo): add a test to `analyzer/tests/test_metadata.py` (or the parser's test module — read it) asserting `# device_id=x` → `meta['preamble']['device_id']=='x'` and `# vehicle_id=u` → `meta['vehicle']['id']=='u'` (tolerant parser — expected to pass immediately; the pin freezes the contract). Commit here: `test(analyzer): pin contract v3.1 device_id/vehicle_id preamble keys`.
+
 ### Task 7: Run-vs-run comparison of one file
 
 **Files:**
