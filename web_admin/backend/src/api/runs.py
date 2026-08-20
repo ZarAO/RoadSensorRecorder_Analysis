@@ -18,7 +18,7 @@ from src.db.models import AnalysisRun, Comparison, SourceFile
 from src.db.session import get_session
 from src.services.analysis import delete_run_artifacts, execute_run
 from src.services.coefficients import bias_of, resolve_for_meta
-from src.services.comparison import delete_comparison_artifacts
+from src.services.comparison import delete_comparison_artifacts, detach_coefficient_sets
 
 router = APIRouter(prefix='/runs', tags=['runs'])
 
@@ -183,6 +183,10 @@ def delete_run(run_id: int, session: Session = Depends(get_session)):
     # it, so its rows and result_dir are removed first (controller ruling #1).
     comparisons = session.scalars(
         select(Comparison).where(Comparison.run_id == run.id)).all()
+    # Same dangling-FK guard as comparisons.delete_comparison: a cascaded
+    # comparison delete must not leave a CoefficientSet pointing at a
+    # nonexistent comparison.
+    detach_coefficient_sets(session, [c.id for c in comparisons])
     for comparison in comparisons:
         delete_comparison_artifacts(comparison)
         session.delete(comparison)

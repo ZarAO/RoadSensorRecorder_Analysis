@@ -76,6 +76,39 @@ def test_draft_validations(client, tmp_path):
     assert dup.status_code == 409
 
 
+def test_draft_degenerate_fit_409(client, tmp_path):
+    """A NaN fit is json-nulled to None in stats.json (services.comparison._json_safe);
+    the draft endpoint must refuse rather than silently fall back to book constants."""
+    cmp_id = _make_done_comparison(client, tmp_path)
+    result_dir = Path(client.get(f'/api/comparisons/{cmp_id}').json()['result_dir'])
+    stats_path = result_dir / 'stats.json'
+    stats = json.loads(stats_path.read_text(encoding='utf-8'))
+    stats['eq6_bias']['bias'] = None
+    stats['eq3_fit']['A'] = None
+    stats_path.write_text(json.dumps(stats), encoding='utf-8')
+
+    bias_r = client.post('/api/coefficient-sets', json={
+        'comparison_id': cmp_id, 'model': 'eq6_bias', 'name': 'degenerate_bias',
+        'vehicle_type': 'van'})
+    assert bias_r.status_code == 409, bias_r.text
+
+    eq3_r = client.post('/api/coefficient-sets', json={
+        'comparison_id': cmp_id, 'model': 'eq3', 'name': 'degenerate_eq3',
+        'vehicle_type': 'van'})
+    assert eq3_r.status_code == 409, eq3_r.text
+
+
+def test_draft_missing_stats_file_404(client, tmp_path):
+    cmp_id = _make_done_comparison(client, tmp_path)
+    result_dir = Path(client.get(f'/api/comparisons/{cmp_id}').json()['result_dir'])
+    (result_dir / 'stats.json').unlink()
+
+    r = client.post('/api/coefficient-sets', json={
+        'comparison_id': cmp_id, 'model': 'eq3', 'name': 'no_stats',
+        'vehicle_type': 'van'})
+    assert r.status_code == 404, r.text
+
+
 def test_draft_from_not_done_comparison_409(client, tmp_path):
     run_id, ref_id = _make_done_run_and_reference(client, tmp_path)
     engine = client.app.state.engine
@@ -199,6 +232,31 @@ def test_delete_comparison_nulls_coefficient_set_fk(client, tmp_path):
     snapshot = draft.json()['stats_snapshot']
 
     assert client.delete(f'/api/comparisons/{cmp_id}').status_code == 204
+
+    surviving = next(s for s in client.get('/api/coefficient-sets').json()
+                     if s['id'] == set_id)
+    assert surviving['comparison_id'] is None
+    assert surviving['stats_snapshot'] == snapshot
+
+
+def test_delete_run_cascades_comparison_and_nulls_coefficient_set_fk(client, tmp_path):
+    """DELETE /api/runs/{run_id} cascades its comparisons (test_run_deletion_
+    cascades_to_comparisons); a CoefficientSet drafted from one of them must
+    survive with comparison_id nulled, same as a direct comparison delete."""
+    run_id, ref_id = _make_done_run_and_reference(client, tmp_path)
+    cmp_id = client.post('/api/comparisons',
+                         json={'run_id': run_id, 'reference_id': ref_id}).json()['id']
+    assert client.get(f'/api/comparisons/{cmp_id}').json()['status'] == 'done'
+
+    draft = client.post('/api/coefficient-sets', json={
+        'comparison_id': cmp_id, 'model': 'eq3', 'name': 'run_delete_survivor',
+        'vehicle_type': 'van'})
+    assert draft.status_code == 201, draft.text
+    set_id = draft.json()['id']
+    snapshot = draft.json()['stats_snapshot']
+
+    assert client.delete(f'/api/runs/{run_id}').status_code == 204
+    assert client.get(f'/api/comparisons/{cmp_id}').status_code == 404
 
     surviving = next(s for s in client.get('/api/coefficient-sets').json()
                      if s['id'] == set_id)

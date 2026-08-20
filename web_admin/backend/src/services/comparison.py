@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from profilometer_validation.calibrate import (
@@ -31,7 +32,7 @@ from profilometer_validation.match import (
 )
 
 from src.core.config import Settings
-from src.db.models import AnalysisRun, Comparison, ReferenceDataset
+from src.db.models import AnalysisRun, CoefficientSet, Comparison, ReferenceDataset
 from src.services.references import reference_dir
 
 # Study defaults (spec §3): min_rows_in_window=9 keeps a 100 m window that lost
@@ -223,6 +224,20 @@ def _result_dir_for(settings: Settings, comparison_id: int) -> Path:
 def delete_comparison_artifacts(comparison: Comparison) -> None:
     if comparison.result_dir:
         shutil.rmtree(comparison.result_dir, ignore_errors=True)
+
+
+def detach_coefficient_sets(session: Session, comparison_ids: list[int]) -> None:
+    """Null out CoefficientSet.comparison_id for the given comparisons before
+    they are deleted. A CoefficientSet's FK is nullable and its stats_snapshot
+    already carries the metrics, so the set survives — only the back-reference
+    is cleared. Shared by the comparisons and runs delete endpoints so a run
+    deletion (which cascades its comparisons) closes the same dangling-FK hole."""
+    if not comparison_ids:
+        return
+    for cs in session.scalars(
+            select(CoefficientSet).where(
+                CoefficientSet.comparison_id.in_(comparison_ids))).all():
+        cs.comparison_id = None
 
 
 def execute_comparison(comparison_id: int, engine, settings: Settings) -> None:

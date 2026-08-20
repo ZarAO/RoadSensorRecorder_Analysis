@@ -13,12 +13,13 @@ from sqlalchemy.orm import Session
 
 from src.api.schemas import ComparisonCreate, ComparisonOut
 from src.core.config import get_settings
-from src.db.models import AnalysisRun, Comparison, CoefficientSet, ReferenceDataset
+from src.db.models import AnalysisRun, Comparison, ReferenceDataset
 from src.db.session import get_session
 from src.services.comparison import (
     MSG_REFERENCE_DELETED,
     MSG_REFERENCE_NOT_10M,
     delete_comparison_artifacts,
+    detach_coefficient_sets,
     execute_comparison,
 )
 
@@ -88,11 +89,7 @@ def delete_comparison(comparison_id: int, session: Session = Depends(get_session
     comparison = session.get(Comparison, comparison_id)
     if comparison is None:
         raise HTTPException(404, 'Comparison not found')
-    # A CoefficientSet's FK is nullable and its stats_snapshot already carries
-    # the metrics, so the set survives — only the back-reference is cleared.
-    for cs in session.scalars(
-            select(CoefficientSet).where(CoefficientSet.comparison_id == comparison_id)).all():
-        cs.comparison_id = None
+    detach_coefficient_sets(session, [comparison_id])
     delete_comparison_artifacts(comparison)
     session.delete(comparison)
     session.commit()

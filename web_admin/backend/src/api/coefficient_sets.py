@@ -11,6 +11,7 @@ run would (no duplicated resolution logic here).
 """
 
 import json
+import math
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -44,6 +45,19 @@ def _draft_params(model: str, stats: dict) -> dict:
     return {'bias': stats['eq6_bias']['bias']}
 
 
+def _is_degenerate_number(value) -> bool:
+    """True unless value is a finite, non-bool number (NaN is json-nulled to
+    None upstream in stats.json, so None is the common degenerate case)."""
+    return (value is None or isinstance(value, bool)
+            or not isinstance(value, (int, float)) or not math.isfinite(value))
+
+
+def _has_degenerate_fit(model: str, params: dict) -> bool:
+    if model == 'eq3':
+        return _is_degenerate_number(params.get('A')) or _is_degenerate_number(params.get('B'))
+    return _is_degenerate_number(params.get('bias'))
+
+
 def _stats_snapshot(stats: dict) -> dict:
     return {
         'r2': stats['eq3_fit']['r2'],
@@ -56,11 +70,15 @@ def _stats_snapshot(stats: dict) -> dict:
 
 def _candidate_files(session: Session, vehicle_type: str | None) -> list[SourceFile]:
     """Non-deleted files whose recording_meta.vehicle.vehicle_type matches
-    (filtered in Python: small N — spec §Phase 3)."""
+    (filtered in Python: small N — spec §Phase 3). A falsy vehicle_type never
+    matches: None == None would otherwise pull in every pre-v3 file that
+    carries no vehicle block at all."""
+    if not vehicle_type:
+        return []
     files = session.scalars(
         select(SourceFile).where(SourceFile.source_deleted.is_(False))).all()
     return [f for f in files
-            if (f.recording_meta or {}).get('vehicle', {}).get('vehicle_type') == vehicle_type]
+            if ((f.recording_meta or {}).get('vehicle') or {}).get('vehicle_type') == vehicle_type]
 
 
 def _set_or_404(set_id: int, session: Session) -> CoefficientSet:
@@ -83,11 +101,22 @@ def create_draft(payload: CoefficientSetCreate, session: Session = Depends(get_s
             select(CoefficientSet).where(CoefficientSet.name == payload.name)) is not None:
         raise HTTPException(409, f"набір з назвою '{payload.name}' вже існує")
 
-    stats = json.loads((Path(comparison.result_dir) / 'stats.json').read_text(encoding='utf-8'))
+    if not comparison.result_dir:
+        raise HTTPException(404, 'Comparison has no artifacts yet')
+    stats_path = Path(comparison.result_dir) / 'stats.json'
+    if not stats_path.is_file():
+        raise HTTPException(404, "No artifact 'stats.json'")
+    stats = json.loads(stats_path.read_text(encoding='utf-8'))
+
+    params = _draft_params(payload.model, stats)
+    if _has_degenerate_fit(payload.model, params):
+        raise HTTPException(
+            409, 'порівняння має вироджений фіт — набір не може бути створений')
+
     cs = CoefficientSet(
         name=payload.name,
         model=payload.model,
-        params=_draft_params(payload.model, stats),
+        params=params,
         vehicle_type=payload.vehicle_type,
         phone_model=payload.phone_model,
         status='draft',

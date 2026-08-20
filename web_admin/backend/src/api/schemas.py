@@ -102,7 +102,7 @@ class CoefficientSetCreate(BaseModel):
 
 
 class CoefficientSetOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True, protected_namespaces=())
+    model_config = ConfigDict(from_attributes=True)
 
     id: int
     name: str
