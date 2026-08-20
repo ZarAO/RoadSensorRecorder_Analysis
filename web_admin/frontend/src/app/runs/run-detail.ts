@@ -1,11 +1,13 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
-import { Component, DestroyRef, inject, signal } from '@angular/core';
+import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { marked } from 'marked';
 
 import { ApiService } from '../api/api.service';
-import { GeoJsonFeatureCollection, RunOut, SegmentRow } from '../api/dto';
+import {
+  ArtifactEntry, ComparisonOut, GeoJsonFeatureCollection, RunOut, SegmentRow,
+} from '../api/dto';
 import { CountUp } from '../shared/count-up';
 import { SegmentMap } from '../shared/segment-map';
 
@@ -46,7 +48,35 @@ export class RunDetail {
   readonly reportHtml = signal<SafeHtml | null>(null);
   readonly mapData = signal<GeoJsonFeatureCollection | null>(null);
   readonly logLines = signal<string[]>([]);
+  readonly artifacts = signal<ArtifactEntry[]>([]);
+  readonly comparisons = signal<ComparisonOut[]>([]);
   readonly plots = PLOTS;
+
+  /** Whether any segment carries a corrected IRI — gates the extra table column */
+  readonly hasCorrectedIri = computed(() =>
+    this.segments().some(row => row.iri_multi_corrected != null));
+
+  /** Coefficient sets applied to this run, for the header chip row. Empty when
+   *  the run used book constants (no confirmed calibration set). */
+  readonly coefficientChips = computed(() => {
+    const coefficients = this.run()?.params?.coefficients;
+    const chips: Array<{ model: string; name: string; label: string }> = [];
+    if (coefficients?.eq3) {
+      chips.push({
+        model: 'eq3',
+        name: coefficients.eq3.name,
+        label: this.formatCoefficientParams(coefficients.eq3.params),
+      });
+    }
+    if (coefficients?.eq6_bias) {
+      chips.push({
+        model: 'eq6_bias',
+        name: coefficients.eq6_bias.name,
+        label: this.formatCoefficientParams(coefficients.eq6_bias.params),
+      });
+    }
+    return chips;
+  });
 
   constructor() {
     this.load();
@@ -55,6 +85,12 @@ export class RunDetail {
 
   artifactUrl(name: string): string {
     return this.api.artifactUrl(this.runId, name);
+  }
+
+  formatSize(bytes: number): string {
+    const kb = bytes / 1024;
+    if (kb < 1024) return `${kb.toFixed(2)} KB`;
+    return `${(kb / 1024).toFixed(2)} MB`;
   }
 
   /** Low-speed invariant: never render a number where the metric is not defined */
@@ -94,6 +130,18 @@ export class RunDetail {
       next: text => this.mapData.set(parseFeatureCollection(text)),
       error: () => this.mapData.set(null),
     });
+    this.api.listRunArtifacts(this.runId).subscribe({
+      next: entries => this.artifacts.set(entries),
+    });
+    this.api.listComparisons(this.runId).subscribe({
+      next: comparisons => this.comparisons.set(comparisons),
+    });
+  }
+
+  private formatCoefficientParams(params: { A?: number; B?: number; bias?: number }): string {
+    if (params.bias != null) return `bias=${params.bias}`;
+    if (params.A != null && params.B != null) return `A=${params.A}, B=${params.B}`;
+    return '';
   }
 
   private followLog(): void {

@@ -4,7 +4,7 @@ import { provideRouter } from '@angular/router';
 import { of } from 'rxjs';
 
 import { ApiService } from '../api/api.service';
-import { RunOut, SegmentRow } from '../api/dto';
+import { ArtifactEntry, ComparisonOut, RunOut, SegmentRow } from '../api/dto';
 import { RunDetail } from './run-detail';
 
 const RUN: RunOut = {
@@ -19,6 +19,35 @@ const RUN: RunOut = {
   },
   error: null,
 };
+
+/** Base ApiService stub: every test overrides only what it needs to exercise. */
+function apiStub(overrides: Partial<ApiService> = {}): ApiService {
+  return {
+    getRun: () => of(RUN),
+    getSegments: () => of(SEGMENTS),
+    getArtifactText: (_id: number, name: string) =>
+      of(name === 'roughness.geojson' ? GEOJSON : '# report'),
+    artifactUrl: (id: number, name: string) => `/api/runs/${id}/artifacts/${name}`,
+    logUrl: (id: number) => `/api/runs/${id}/log`,
+    listRunArtifacts: () => of([]),
+    listComparisons: () => of([]),
+    ...overrides,
+  } as Partial<ApiService> as ApiService;
+}
+
+function createRunDetail(api: ApiService) {
+  TestBed.resetTestingModule();
+  TestBed.configureTestingModule({
+    imports: [RunDetail],
+    providers: [
+      provideRouter([]),
+      { provide: ApiService, useValue: api },
+      { provide: ActivatedRoute,
+        useValue: { snapshot: { paramMap: new Map([['id', '5']]) } } },
+    ],
+  });
+  return TestBed.createComponent(RunDetail);
+}
 
 const SEGMENTS: SegmentRow[] = [
   { seg_id: 0, s_start: 0, s_end: 100, length_m: 100, grms: 0.01,
@@ -42,25 +71,7 @@ const GEOJSON = JSON.stringify({
 
 describe('RunDetail', () => {
   it('never renders a numeric IRI for a low-speed segment', async () => {
-    const api = {
-      getRun: () => of(RUN),
-      getSegments: () => of(SEGMENTS),
-      getArtifactText: (_id: number, name: string) =>
-        of(name === 'roughness.geojson' ? GEOJSON : '# report'),
-      artifactUrl: (id: number, name: string) => `/api/runs/${id}/artifacts/${name}`,
-      logUrl: (id: number) => `/api/runs/${id}/log`,
-    } as Partial<ApiService> as ApiService;
-
-    TestBed.configureTestingModule({
-      imports: [RunDetail],
-      providers: [
-        provideRouter([]),
-        { provide: ApiService, useValue: api },
-        { provide: ActivatedRoute,
-          useValue: { snapshot: { paramMap: new Map([['id', '5']]) } } },
-      ],
-    });
-    const fixture = TestBed.createComponent(RunDetail);
+    const fixture = createRunDetail(apiStub());
     await fixture.whenStable();
 
     const rows = (fixture.nativeElement as HTMLElement).querySelectorAll('tbody tr');
@@ -74,30 +85,107 @@ describe('RunDetail', () => {
   });
 
   it('feeds roughness.geojson into the shared segment map', async () => {
-    const api = {
-      getRun: () => of(RUN),
-      getSegments: () => of(SEGMENTS),
-      getArtifactText: (_id: number, name: string) =>
-        of(name === 'roughness.geojson' ? GEOJSON : '# report'),
-      artifactUrl: (id: number, name: string) => `/api/runs/${id}/artifacts/${name}`,
-      logUrl: (id: number) => `/api/runs/${id}/log`,
-    } as Partial<ApiService> as ApiService;
-
-    TestBed.configureTestingModule({
-      imports: [RunDetail],
-      providers: [
-        provideRouter([]),
-        { provide: ApiService, useValue: api },
-        { provide: ActivatedRoute,
-          useValue: { snapshot: { paramMap: new Map([['id', '5']]) } } },
-      ],
-    });
-    const fixture = TestBed.createComponent(RunDetail);
+    const fixture = createRunDetail(apiStub());
     await fixture.whenStable();
 
     const host = fixture.nativeElement as HTMLElement;
     expect(host.querySelector('app-segment-map')).toBeTruthy();
     expect(host.querySelector('iframe')).toBeNull();
     expect(fixture.componentInstance.mapData()?.features.length).toBe(1);
+  });
+
+  it('renders a coefficient chip with the set name when the run has calibrated coefficients', async () => {
+    const runWithCoefficients: RunOut = {
+      ...RUN,
+      params: {
+        low_speed_policy: 'invalid',
+        coefficients: {
+          eq3: null,
+          eq6_bias: { set_id: 7, name: 'Sedan calibration v2', params: { bias: -1.55 } },
+        },
+      },
+    };
+    const fixture = createRunDetail(apiStub({ getRun: () => of(runWithCoefficients) }));
+    await fixture.whenStable();
+
+    const chipsText = (fixture.nativeElement as HTMLElement)
+      .querySelector('.coeff-chips')?.textContent ?? '';
+    expect(chipsText).toContain('Sedan calibration v2');
+    expect(chipsText).not.toContain('Книжкові константи');
+  });
+
+  it('renders a muted "book constants" chip when the run has no coefficients', async () => {
+    const fixture = createRunDetail(apiStub());
+    await fixture.whenStable();
+
+    const chipsText = (fixture.nativeElement as HTMLElement)
+      .querySelector('.coeff-chips')?.textContent ?? '';
+    expect(chipsText).toContain('Книжкові константи');
+  });
+
+  it('renders artifact rows with human-readable sizes', async () => {
+    const artifacts: ArtifactEntry[] = [
+      { name: 'report.md', size_bytes: 10 },
+      { name: 'figures/f.png', size_bytes: 20 },
+    ];
+    const fixture = createRunDetail(apiStub({ listRunArtifacts: () => of(artifacts) }));
+    await fixture.whenStable();
+
+    const host = fixture.nativeElement as HTMLElement;
+    const links = Array.from(host.querySelectorAll('a')).filter(a => artifacts.some(
+      artifact => a.textContent?.trim() === artifact.name));
+    expect(links.length).toBe(2);
+    for (const link of links) {
+      expect(link.getAttribute('target')).toBe('_blank');
+      const row = link.closest('tr');
+      expect(row?.textContent).toContain('KB');
+    }
+  });
+
+  it('shows the comparisons section only when comparisons exist', async () => {
+    const emptyFixture = createRunDetail(apiStub());
+    await emptyFixture.whenStable();
+    expect((emptyFixture.nativeElement as HTMLElement).textContent)
+      .not.toContain('Порівняння з профілометром');
+
+    const comparisons: ComparisonOut[] = [{
+      id: 3, run_id: 5, reference_id: 1, run_filename: 'drive.csv',
+      reference_road: 'M-01 km 12-14', created_at: '2026-08-20T10:00:00Z',
+      status: 'done', params: {}, result_dir: 'x',
+      summary: {
+        n_pairs: 10, spearman_rho: 0.94, pearson_r: 0.9, mae: 0.5, bias: -1.5,
+        n_eff: 10, eq3_r2: null, gates: {},
+      },
+      error: null,
+    }];
+    const fixture = createRunDetail(apiStub({ listComparisons: () => of(comparisons) }));
+    await fixture.whenStable();
+
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Порівняння з профілометром');
+    expect(text).toContain('M-01 km 12-14');
+    expect(text).toContain('0.94');
+    const link = (fixture.nativeElement as HTMLElement).querySelector('a[href="/calibration/comparisons/3"]');
+    expect(link).toBeTruthy();
+  });
+
+  it('adds the corrected IRI column only when a segment carries iri_multi_corrected', async () => {
+    const withoutCorrection = createRunDetail(apiStub());
+    await withoutCorrection.whenStable();
+    expect((withoutCorrection.nativeElement as HTMLElement).textContent)
+      .not.toContain('IRI кориг.');
+
+    const correctedSegments: SegmentRow[] = [
+      { ...SEGMENTS[0], iri_multi_corrected: 3.0 },
+      { ...SEGMENTS[1], iri_multi_corrected: null },
+    ];
+    const fixture = createRunDetail(apiStub({ getSegments: () => of(correctedSegments) }));
+    await fixture.whenStable();
+
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.textContent).toContain('IRI кориг.');
+    const rows = host.querySelectorAll('tbody tr');
+    expect(rows[0].textContent).toContain('3.00');
+    expect(rows[1].textContent).toContain('—');
   });
 });

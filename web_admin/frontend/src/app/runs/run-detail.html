@@ -16,6 +16,15 @@
         · політика: <code>{{ currentRun.params.low_speed_policy ?? 'invalid' }}</code>
         · <a routerLink="/runs">до списку</a>
       </p>
+      <div class="coeff-chips">
+        @for (chip of coefficientChips(); track chip.model) {
+          <span class="chip accent" [title]="chip.model + ': ' + chip.name">
+            {{ chip.name }}@if (chip.label) { ({{ chip.label }}) }
+          </span>
+        } @empty {
+          <span class="chip" title="Книжкові константи">Книжкові константи</span>
+        }
+      </div>
     </div>
   </div>
 
@@ -68,6 +77,56 @@
     </section>
 
     <section class="card rise-in">
+      <h3>Всі артефакти</h3>
+      <div class="table-wrap">
+        <table class="data">
+          <thead>
+            <tr><th>Файл</th><th>Розмір</th></tr>
+          </thead>
+          <tbody>
+            @for (artifact of artifacts(); track artifact.name) {
+              <tr>
+                <td><a [href]="artifactUrl(artifact.name)" target="_blank">{{ artifact.name }}</a></td>
+                <td>{{ formatSize(artifact.size_bytes) }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    @if (comparisons().length > 0) {
+      <section class="card rise-in">
+        <h3>Порівняння з профілометром</h3>
+        <div class="table-wrap">
+          <table class="data">
+            <thead>
+              <tr><th>Еталонна дорога</th><th>Статус</th><th>ρ</th><th>MAE</th><th></th></tr>
+            </thead>
+            <tbody>
+              @for (comparison of comparisons(); track comparison.id) {
+                <tr>
+                  <td>{{ comparison.reference_road ?? '—' }}</td>
+                  <td>
+                    <span class="chip"
+                          [class.ok]="comparison.status === 'done'"
+                          [class.bad]="comparison.status === 'failed'"
+                          [class.warn]="comparison.status === 'running'">{{ comparison.status }}</span>
+                  </td>
+                  <td>{{ comparison.summary?.spearman_rho != null
+                    ? (comparison.summary?.spearman_rho | number:'1.2-2') : '—' }}</td>
+                  <td>{{ comparison.summary?.mae != null
+                    ? (comparison.summary?.mae | number:'1.2-2') : '—' }}</td>
+                  <td><a routerLink="/calibration/comparisons/{{comparison.id}}">Відкрити</a></td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </section>
+    }
+
+    <section class="card rise-in">
       <h3>Мапа сегментів</h3>
       @if (mapData(); as fc) {
         <app-segment-map class="run-map" [data]="fc" />
@@ -84,6 +143,7 @@
             <tr>
               <th>seg</th><th>s, м</th><th>довжина</th><th>швидкість, км/год</th>
               <th>Grms</th><th>IRI_psd</th><th>IRI_multi</th>
+              @if (hasCorrectedIri()) { <th>IRI кориг.</th> }
               <th>подій/км</th><th>клас</th>
             </tr>
           </thead>
@@ -97,6 +157,9 @@
                 <td>{{ row.grms != null ? (row.grms | number:'1.4-4') : '—' }}</td>
                 <td>{{ row.iri_psd != null ? (row.iri_psd | number:'1.2-2') : '—' }}</td>
                 <td>{{ iriMultiLabel(row) }}</td>
+                @if (hasCorrectedIri()) {
+                  <td>{{ row.iri_multi_corrected?.toFixed(2) ?? '—' }}</td>
+                }
                 <td>{{ row.events_per_km != null ? (row.events_per_km | number:'1.1-1') : '—' }}</td>
                 <td>
                   @if (row.needs_class12_survey) {
