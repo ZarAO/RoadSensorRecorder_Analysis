@@ -34,7 +34,7 @@ def upload_file(file: UploadFile, session: Session = Depends(get_session)):
 
     existing = session.scalar(select(SourceFile).where(SourceFile.filename == filename))
     if existing is not None:
-        raise HTTPException(409, f"File '{filename}' already exists")
+        raise HTTPException(409, f"файл '{filename}' вже існує")
 
     # Stream to a temp file first: a contract violation must leave storage/ clean
     with tempfile.NamedTemporaryFile(delete=False, suffix='.csv') as tmp:

@@ -41,7 +41,7 @@ def upload_reference(
 
     existing = session.scalar(select(ReferenceDataset).where(ReferenceDataset.filename == filename))
     if existing is not None:
-        raise HTTPException(409, f"Reference '{filename}' already exists")
+        raise HTTPException(409, f"еталон '{filename}' вже існує")
 
     # Stream to a temp file first: a parse failure must leave storage/ clean
     with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp:

@@ -1,3 +1,5 @@
+import math
+
 import pytest
 from tests.conftest import build_form_xlsx
 
@@ -28,6 +30,23 @@ def test_parse_continuity_warning(tmp_path):
     p = build_form_xlsx(tmp_path / 'gap.xlsx', break_continuity_at=5)
     form = parse_form_xlsx(str(p))
     assert any('gap' in w.lower() or 'розрив' in w.lower() for w in form.warnings)
+
+
+def test_parse_drops_non_finite_row(tmp_path):
+    """float('nan') parses fine — such a row must be dropped, not carried into the stats."""
+    from src.services.reference_forms import parse_form_xlsx
+    import openpyxl
+    p = build_form_xlsx(tmp_path / 'nan.xlsx', n_rows=12, step_m=10)
+    wb = openpyxl.load_workbook(p)
+    wb.active.cell(row=23 + 3, column=5, value='nan')   # iri_ch1 of the 4th data row
+    wb.save(p)
+
+    form = parse_form_xlsx(str(p))
+    assert len(form.intervals) == 11
+    assert not form.intervals.isna().to_numpy().any()   # no NaN leaked into the table
+    assert any('NaN' in w for w in form.warnings)
+    assert math.isfinite(form.step_m) and math.isfinite(form.chainage_span_m)
+    assert all(math.isfinite(v) for v in form.bbox)
 
 
 def test_loadable_by_study_matcher(tmp_path):

@@ -22,6 +22,8 @@
   `profilometer_validation.match.load_form_10m` — never re-derive them from the
   xlsx elsewhere. Comparison artifacts (`matched_pairs.csv`, `stats.json`,
   `chart_data.json`, `figures/`) live under `storage/results/comparisons/`.
+- Error-language policy: 404/403 (technical) in English; 409/422 (operator-facing
+  business errors) in Ukrainian.
 - Coefficient resolution happens ONLY via `src/services/coefficients.resolve_for_meta`
   — no duplicated resolution logic in routers or the analysis service. Book
   constants (the published Eq.3/Eq.6 defaults) never live in the DB; an

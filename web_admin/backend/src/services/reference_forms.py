@@ -10,6 +10,7 @@ raise ValueError; everything else is tolerated and surfaced as a warning.
 """
 
 import dataclasses
+import math
 import os
 
 import numpy as np
@@ -111,9 +112,16 @@ def parse_form_xlsx(path: str) -> ParsedForm:
             row_idx = row[0].row
             raw = [cell.value for cell in row]
             try:
-                rows.append([float(v) for v in raw])
+                values = [float(v) for v in raw]
             except (TypeError, ValueError):
                 warnings.append(f"рядок {row_idx}: нечислові дані, пропущено")
+                continue
+            # float() happily accepts 'nan'/'inf' — a non-finite cell would poison
+            # the median step, the span and the bbox further down.
+            if not all(math.isfinite(v) for v in values):
+                warnings.append(f"рядок {row_idx}: нескінченні або NaN значення, пропущено")
+                continue
+            rows.append(values)
 
         if len(rows) < 5:
             raise ValueError(f"too few data rows: found {len(rows)}, need at least 5")
@@ -125,6 +133,8 @@ def parse_form_xlsx(path: str) -> ParsedForm:
 
         step_diffs = (chain_end - chain_start).abs()
         step_m = float(np.median(step_diffs))
+        if not math.isfinite(step_m) or step_m <= 0:
+            raise ValueError(f'не вдалося визначити крок пікетажу: {step_m}')
         off_step = step_diffs[~np.isclose(step_diffs, step_m)]
         if len(off_step) > 0:
             warnings.append(f"{len(off_step)} рядків з кроком, відмінним від медіанного {step_m} м")
@@ -139,10 +149,14 @@ def parse_form_xlsx(path: str) -> ParsedForm:
             warnings.append('канали 9–10 дублюють канал 8; еталон рахується з каналів 1–8')
 
         chainage_span_m = float(abs(chain_end.iloc[-1] - chain_start.iloc[0]))
+        if not math.isfinite(chainage_span_m):
+            raise ValueError('не вдалося визначити довжину ділянки за пікетажем')
 
         lats = pd.concat([intervals['lat_start'], intervals['lat_end']])
         lons = pd.concat([intervals['lon_start'], intervals['lon_end']])
         bbox = [float(lats.min()), float(lons.min()), float(lats.max()), float(lons.max())]
+        if not all(math.isfinite(v) for v in bbox):
+            raise ValueError('не вдалося визначити географічні межі (bbox) еталона')
 
         return ParsedForm(
             road_name=str(road_name),
