@@ -20,9 +20,10 @@ from road_quality_analyzer.cli import analyze
 
 from src.core.config import Settings
 from src.db.models import AnalysisRun, SourceFile
+from src.services.coefficients import bias_of, eq3_kwargs
 
 
-def build_summary(result_dir: Path) -> dict:
+def build_summary(result_dir: Path, coefficients: dict | None = None) -> dict:
     segments = pd.read_csv(result_dir / 'road_segments.csv')
     full_valid = segments[(~segments['partial']) & (segments['speed_valid'])]
     mean_iri = float(full_valid['iri_multi'].mean()) if len(full_valid) else None
@@ -31,7 +32,7 @@ def build_summary(result_dir: Path) -> dict:
     meta = json.loads(meta_path.read_text(encoding='utf-8')) if meta_path.exists() else {}
     events = meta.get('events', [])
 
-    return {
+    summary = {
         'segments_total': int(len(segments)),
         'km_total': float(segments['length_m'].sum()) / 1000.0,
         'mean_iri_multi': mean_iri,
@@ -42,6 +43,12 @@ def build_summary(result_dir: Path) -> dict:
         'clean_stop': meta.get('clean_stop'),
         'vehicle_type': (meta.get('vehicle') or {}).get('vehicle_type'),
     }
+    if coefficients:
+        summary['coefficients'] = coefficients
+        bias = bias_of(coefficients)
+        if bias is not None and mean_iri is not None:
+            summary['mean_iri_multi_corrected'] = mean_iri - bias
+    return summary
 
 
 def _result_dir_for(settings: Settings, filename: str, run_id: int) -> Path:
@@ -69,10 +76,17 @@ def execute_run(run_id: int, engine, settings: Settings) -> None:
 
         try:
             policy = (run.params or {}).get('low_speed_policy', 'invalid')
+            # Snapshot taken at run creation; absent -> the analyzer's book constants
+            coefficients = (run.params or {}).get('coefficients')
             with open(log_path, 'w', encoding='utf-8') as log_file:
                 with contextlib.redirect_stdout(log_file):
-                    analyze(str(csv_path), str(result_dir), low_speed_policy=policy)
-            run.summary = build_summary(result_dir)
+                    analyze(str(csv_path), str(result_dir), low_speed_policy=policy,
+                            **eq3_kwargs(coefficients))
+            if coefficients:
+                (result_dir / 'calibration.json').write_text(
+                    json.dumps(coefficients, ensure_ascii=False, indent=1),
+                    encoding='utf-8')
+            run.summary = build_summary(result_dir, coefficients)
             run.status = 'done'
         except Exception as exc:
             run.status = 'failed'

@@ -17,6 +17,7 @@ from src.core.config import get_settings
 from src.db.models import AnalysisRun, SourceFile
 from src.db.session import get_session
 from src.services.analysis import delete_run_artifacts, execute_run
+from src.services.coefficients import bias_of, resolve_for_meta
 
 router = APIRouter(prefix='/runs', tags=['runs'])
 
@@ -29,7 +30,19 @@ def _to_out(run: AnalysisRun) -> RunOut:
 
 def _create_and_submit(request: Request, session: Session, file_id: int,
                        params: dict) -> AnalysisRun:
-    run = AnalysisRun(file_id=file_id, params=params or {})
+    source = session.get(SourceFile, file_id)
+    coefficients = resolve_for_meta(session, source.recording_meta if source else None)
+    eq3, eq6_bias = coefficients['eq3'], coefficients['eq6_bias']
+
+    params = dict(params or {})
+    # Snapshotted at creation time so a later edit of a set cannot rewrite an
+    # executed run; omitted entirely when nothing applies (book constants)
+    if eq3 or eq6_bias:
+        params['coefficients'] = coefficients
+
+    run = AnalysisRun(file_id=file_id, params=params,
+                      eq3_set_id=eq3['set_id'] if eq3 else None,
+                      eq6_bias_set_id=eq6_bias['set_id'] if eq6_bias else None)
     session.add(run)
     session.commit()
     session.refresh(run)
@@ -105,6 +118,11 @@ def get_segments(run_id: int, session: Session = Depends(get_session)):
     if not csv_path.is_file():
         raise HTTPException(404, 'road_segments.csv not found')
     df = pd.read_csv(csv_path)
+    bias = bias_of((run.params or {}).get('coefficients'))
+    if bias is not None and 'iri_multi' in df.columns:
+        # Correction lives in the response only — analyzer artifacts stay as
+        # written. NaN propagates, so a low-speed segment stays null below.
+        df['iri_multi_corrected'] = df['iri_multi'] - bias
     # NaN -> null: strict JSON parsers reject NaN, and a missing metric must
     # never surface as a number (analyzer invariant)
     return df.replace({np.nan: None}).to_dict('records')
