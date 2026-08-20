@@ -69,8 +69,10 @@
 
     <section class="card rise-in">
       <h3>Мапа сегментів</h3>
-      @if (mapUrl(); as url) {
-        <iframe [src]="url" class="folium" title="Мапа сегментів"></iframe>
+      @if (mapData(); as fc) {
+        <app-segment-map class="run-map" [data]="fc" />
+      } @else {
+        <p class="no-map">Геодані сегментів недоступні для цього рану.</p>
       }
     </section>
 

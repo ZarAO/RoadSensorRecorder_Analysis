@@ -13,7 +13,6 @@
 .map {
   position: absolute;
   inset: 0;
-  background: var(--color-bg);
 }
 
 /* Floating panels above the map */
@@ -59,26 +58,6 @@
   min-height: 1em;
 }
 
-.legend {
-  right: var(--space-4);
-  bottom: var(--space-4);
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2) var(--space-4);
-  max-width: 30rem;
-  padding: var(--space-3) var(--space-4);
-  font-size: var(--text-xs);
-  color: var(--color-muted-fg);
-}
-.legend i {
-  display: inline-block;
-  width: 0.75rem;
-  height: 0.75rem;
-  border-radius: var(--radius-sm);
-  margin-right: var(--space-1);
-  vertical-align: -1px;
-}
-
 .empty-overlay {
   position: absolute;
   inset: 0;
@@ -100,22 +79,6 @@
 .empty-card p { margin: 0 0 var(--space-4); font-size: var(--text-sm); }
 .empty-card svg { color: var(--color-faint-fg); }
 
-/* Leaflet chrome follows the theme */
-:host ::ng-deep .leaflet-popup-content-wrapper,
-:host ::ng-deep .leaflet-popup-tip {
-  background: var(--color-surface-raised);
-  color: var(--color-fg);
-  box-shadow: var(--elevation-overlay);
-}
-:host ::ng-deep .leaflet-popup-content a { color: var(--color-accent); }
-:host ::ng-deep .leaflet-bar a {
-  background: var(--color-surface-raised);
-  color: var(--color-fg);
-  border-color: var(--color-border);
-}
-:host ::ng-deep .leaflet-bar a:hover { background: var(--color-surface-hover); }
-
 @media (max-width: 720px) {
   .kpi-panel { width: auto; right: var(--space-4); }
-  .legend { left: var(--space-4); max-width: none; }
 }

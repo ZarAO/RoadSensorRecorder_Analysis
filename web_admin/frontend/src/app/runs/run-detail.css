@@ -60,12 +60,13 @@ section.card { margin-bottom: var(--space-4); }
 }
 .plots a:hover img { transform: scale(1.01); }
 
-.folium {
-  width: 100%;
-  height: 480px;
+.run-map {
+  height: 30rem;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
+  overflow: hidden;
 }
+.no-map { color: var(--color-muted-fg); font-size: var(--text-sm); margin: 0; }
 
 .table-wrap { overflow-x: auto; }
 tr.survey { background: color-mix(in oklch, var(--color-survey) 6%, transparent); }

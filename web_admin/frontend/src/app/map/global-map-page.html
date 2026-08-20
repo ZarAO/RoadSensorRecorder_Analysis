@@ -1,5 +1,6 @@
 <div class="map-stage">
-  <div #map class="map" role="application" aria-label="Глобальна мапа якості доріг"></div>
+  <app-segment-map class="map" [data]="fc()" [showRunLink]="true"
+                   (runClick)="goToRun($event)" />
 
   <aside class="panel kpi-panel rise-in" aria-label="Зведення">
     <h2>Глобальна мапа</h2>
@@ -27,15 +28,6 @@
       @if (featureCount() !== null) { Сегментів на мапі: {{ featureCount() }} }
     </p>
   </aside>
-
-  <div class="panel legend rise-in" aria-label="Легенда IRI">
-    <span><i style="background:#2fbf71"></i> &lt; 2.5</span>
-    <span><i style="background:#e8c231"></i> 2.5–4</span>
-    <span><i style="background:#f28c33"></i> 4–6</span>
-    <span><i style="background:#e5484d"></i> ≥ 6</span>
-    <span><i style="background:#FF00FF"></i> Потребує обстеження профілометром (клас 1/2)</span>
-    <span><i style="background:#8b93a3"></i> IRI недоступний</span>
-  </div>
 
   @if (!loading() && featureCount() === 0) {
     <div class="empty-overlay">

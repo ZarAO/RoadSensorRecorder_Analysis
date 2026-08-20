@@ -31,12 +31,22 @@ const SEGMENTS: SegmentRow[] = [
     low_speed_class: 'invalid', needs_class12_survey: true },
 ];
 
+const GEOJSON = JSON.stringify({
+  type: 'FeatureCollection',
+  features: [{
+    type: 'Feature',
+    properties: { seg_id: 0, iri_multi: 3.2, filename: 'drive.csv' },
+    geometry: { type: 'LineString', coordinates: [[30.5, 50.4], [30.51, 50.41]] },
+  }],
+});
+
 describe('RunDetail', () => {
   it('never renders a numeric IRI for a low-speed segment', async () => {
     const api = {
       getRun: () => of(RUN),
       getSegments: () => of(SEGMENTS),
-      getArtifactText: () => of('# report'),
+      getArtifactText: (_id: number, name: string) =>
+        of(name === 'roughness.geojson' ? GEOJSON : '# report'),
       artifactUrl: (id: number, name: string) => `/api/runs/${id}/artifacts/${name}`,
       logUrl: (id: number) => `/api/runs/${id}/log`,
     } as Partial<ApiService> as ApiService;
@@ -61,5 +71,33 @@ describe('RunDetail', () => {
     // The numeric iri_multi of the valid row appears; the low-speed row shows a dash
     expect(rows[0].textContent).toContain('3.2');
     expect(lowSpeedRow).toContain('—');
+  });
+
+  it('feeds roughness.geojson into the shared segment map', async () => {
+    const api = {
+      getRun: () => of(RUN),
+      getSegments: () => of(SEGMENTS),
+      getArtifactText: (_id: number, name: string) =>
+        of(name === 'roughness.geojson' ? GEOJSON : '# report'),
+      artifactUrl: (id: number, name: string) => `/api/runs/${id}/artifacts/${name}`,
+      logUrl: (id: number) => `/api/runs/${id}/log`,
+    } as Partial<ApiService> as ApiService;
+
+    TestBed.configureTestingModule({
+      imports: [RunDetail],
+      providers: [
+        provideRouter([]),
+        { provide: ApiService, useValue: api },
+        { provide: ActivatedRoute,
+          useValue: { snapshot: { paramMap: new Map([['id', '5']]) } } },
+      ],
+    });
+    const fixture = TestBed.createComponent(RunDetail);
+    await fixture.whenStable();
+
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.querySelector('app-segment-map')).toBeTruthy();
+    expect(host.querySelector('iframe')).toBeNull();
+    expect(fixture.componentInstance.mapData()?.features.length).toBe(1);
   });
 });

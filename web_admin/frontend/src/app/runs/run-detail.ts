@@ -1,12 +1,13 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { Component, DestroyRef, inject, signal } from '@angular/core';
-import { DomSanitizer, SafeHtml, SafeResourceUrl } from '@angular/platform-browser';
+import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { marked } from 'marked';
 
 import { ApiService } from '../api/api.service';
-import { RunOut, SegmentRow } from '../api/dto';
+import { GeoJsonFeatureCollection, RunOut, SegmentRow } from '../api/dto';
 import { CountUp } from '../shared/count-up';
+import { SegmentMap } from '../shared/segment-map';
 
 const PLOTS = [
   'speed_vs_distance', 'accel_vs_distance', 'metrics_vs_distance',
@@ -14,9 +15,19 @@ const PLOTS = [
 ];
 const REFRESH_MS = 2000;
 
+/** Older runs may have no roughness.geojson artifact — then there is no map */
+function parseFeatureCollection(text: string): GeoJsonFeatureCollection | null {
+  try {
+    const parsed = JSON.parse(text) as GeoJsonFeatureCollection;
+    return Array.isArray(parsed?.features) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 @Component({
   selector: 'app-run-detail',
-  imports: [DatePipe, DecimalPipe, RouterLink, CountUp],
+  imports: [DatePipe, DecimalPipe, RouterLink, CountUp, SegmentMap],
   templateUrl: './run-detail.html',
   styleUrl: './run-detail.css',
 })
@@ -33,7 +44,7 @@ export class RunDetail {
   readonly run = signal<RunOut | null>(null);
   readonly segments = signal<SegmentRow[]>([]);
   readonly reportHtml = signal<SafeHtml | null>(null);
-  readonly mapUrl = signal<SafeResourceUrl | null>(null);
+  readonly mapData = signal<GeoJsonFeatureCollection | null>(null);
   readonly logLines = signal<string[]>([]);
   readonly plots = PLOTS;
 
@@ -79,8 +90,10 @@ export class RunDetail {
         this.reportHtml.set(this.sanitizer.bypassSecurityTrustHtml(html));
       },
     });
-    this.mapUrl.set(this.sanitizer.bypassSecurityTrustResourceUrl(
-      this.artifactUrl('segments_map.html')));
+    this.api.getArtifactText(this.runId, 'roughness.geojson').subscribe({
+      next: text => this.mapData.set(parseFeatureCollection(text)),
+      error: () => this.mapData.set(null),
+    });
   }
 
   private followLog(): void {
