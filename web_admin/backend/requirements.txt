@@ -5,3 +5,4 @@ SQLAlchemy==2.0.52
 python-multipart==0.0.32
 httpx==0.28.1
 sse-starlette==3.4.8
+openpyxl==3.1.5
