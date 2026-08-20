@@ -1,0 +1,44 @@
+"""
+Pydantic response/request schemas mirrored by the frontend DTOs.
+"""
+
+from datetime import datetime
+from typing import Optional
+
+from pydantic import BaseModel, ConfigDict
+
+
+class FileOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    filename: str
+    size_bytes: int
+    uploaded_at: datetime
+    source_deleted: bool
+    duration_s: Optional[float] = None
+    fs_hz: Optional[float] = None
+    gps_coverage_ratio: Optional[float] = None
+    recording_meta: Optional[dict] = None
+    runs_count: int = 0
+
+
+class RunCreate(BaseModel):
+    file_id: int
+    params: dict = {}
+
+
+class RunOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    file_id: int
+    filename: Optional[str] = None
+    created_at: datetime
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    status: str
+    params: dict
+    result_dir: Optional[str] = None
+    summary: Optional[dict] = None
+    error: Optional[str] = None
