@@ -35,6 +35,9 @@ def _create_and_submit(request: Request, session: Session, file_id: int,
     eq3, eq6_bias = coefficients['eq3'], coefficients['eq6_bias']
 
     params = dict(params or {})
+    # Provenance: only a server-resolved *confirmed* set may ever appear here,
+    # so a client-supplied snapshot is dropped, never trusted
+    params.pop('coefficients', None)
     # Snapshotted at creation time so a later edit of a set cannot rewrite an
     # executed run; omitted entirely when nothing applies (book constants)
     if eq3 or eq6_bias:

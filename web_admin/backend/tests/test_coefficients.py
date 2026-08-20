@@ -128,6 +128,67 @@ def test_eq3_set_is_passed_into_analyze(client, tmp_path, monkeypatch):
         f"/api/runs/{run['id']}/segments").json()[0]
 
 
+def test_client_supplied_coefficients_are_stripped(client, tmp_path, monkeypatch):
+    """A forged params.coefficients must never pass as an applied confirmed set."""
+    calls = {}
+    _stub_analyze(monkeypatch, calls)
+
+    from tests.helpers import upload_probe_csv
+    fid = upload_probe_csv(client, tmp_path, name='spoofed.csv')['id']
+    spoofed = {'eq3': {'set_id': 999, 'name': 'forged', 'params': {'A': 1.0, 'B': 2.0}},
+               'eq6_bias': {'set_id': 998, 'name': 'forged', 'params': {'bias': -9.0}}}
+    run = client.post('/api/runs', json={'file_id': fid,
+                                        'params': {'coefficients': spoofed}}).json()
+    # no confirmed sets exist -> the key must be gone, not echoed back
+    assert 'coefficients' not in run['params']
+    assert calls == {'iri_psd_A': None, 'iri_psd_B': None}
+
+    detail = client.get(f"/api/runs/{run['id']}").json()
+    assert 'coefficients' not in detail['summary']
+    assert 'mean_iri_multi_corrected' not in detail['summary']
+    assert 'iri_multi_corrected' not in client.get(
+        f"/api/runs/{run['id']}/segments").json()[0]
+    from pathlib import Path
+    assert not (Path(run['result_dir']) / 'calibration.json').exists()
+
+
+def test_bias_of_rejects_bool_and_non_finite():
+    from src.services.coefficients import bias_of
+    def wrap(bias):
+        return {'eq6_bias': {'params': {'bias': bias}}}
+    assert bias_of(wrap(-1.55)) == -1.55
+    assert bias_of(wrap(0)) == 0.0
+    assert bias_of(wrap(True)) is None          # bool is an int subclass
+    assert bias_of(wrap(float('nan'))) is None  # a metric is null, never NaN
+    assert bias_of(wrap(float('inf'))) is None
+    assert bias_of(wrap('-1.55')) is None
+    assert bias_of(wrap(None)) is None
+    assert bias_of(None) is None
+
+
+def test_all_nan_mean_iri_stays_null(client, tmp_path, monkeypatch):
+    """An all-NaN iri_multi column must give null, not NaN, in the summary."""
+    engine = client.app.state.engine
+    _add_set(engine, name='sedan_bias', vehicle_type='sedan')
+
+    def fake_analyze(input_path, output_dir, low_speed_policy='invalid',
+                     iri_psd_A=None, iri_psd_B=None):
+        import pandas as pd
+        from pathlib import Path
+        pd.DataFrame({'seg_id': [0], 'length_m': [100.0], 'iri_multi': [None],
+                      'partial': [False], 'speed_valid': [True],
+                      'needs_class12_survey': [True]}).to_csv(
+            Path(output_dir) / 'road_segments.csv', index=False)
+    monkeypatch.setattr('src.services.analysis.analyze', fake_analyze)
+
+    from tests.helpers import upload_probe_csv
+    fid = upload_probe_csv(client, tmp_path, name='all_nan.csv')['id']
+    run = client.post('/api/runs', json={'file_id': fid, 'params': {}}).json()
+    summary = client.get(f"/api/runs/{run['id']}").json()['summary']
+    assert summary['mean_iri_multi'] is None
+    assert 'mean_iri_multi_corrected' not in summary
+
+
 def test_non_matching_vehicle_leaves_run_untouched(client, tmp_path, monkeypatch):
     engine = client.app.state.engine
     _add_set(engine, name='van_only')             # vehicle_type='van'

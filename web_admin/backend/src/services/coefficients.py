@@ -8,6 +8,8 @@ constants. The resolved sets are snapshotted onto the run so a later edit of a
 set never rewrites the history of an already executed run.
 """
 
+import math
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -59,7 +61,8 @@ def resolve(session: Session, model: str, vehicle_type: str | None,
 def _snapshot(cs: CoefficientSet | None) -> dict | None:
     if cs is None:
         return None
-    return {'set_id': cs.id, 'name': cs.name, 'params': cs.params}
+    # Copy: the snapshot must not alias the live ORM dict of the set
+    return {'set_id': cs.id, 'name': cs.name, 'params': dict(cs.params or {})}
 
 
 def resolve_for_meta(session: Session, recording_meta: dict | None) -> dict:
@@ -81,4 +84,7 @@ def eq3_kwargs(coefficients: dict | None) -> dict:
 def bias_of(coefficients: dict | None) -> float | None:
     """The Eq.6 additive bias to subtract from iri_multi, or None."""
     bias = (((coefficients or {}).get('eq6_bias') or {}).get('params') or {}).get('bias')
-    return float(bias) if isinstance(bias, (int, float)) else None
+    # bool is an int subclass, and NaN/inf must never reach a JSON response
+    if isinstance(bias, bool) or not isinstance(bias, (int, float)):
+        return None
+    return float(bias) if math.isfinite(bias) else None

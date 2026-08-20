@@ -9,6 +9,7 @@ server this is acceptable locally (uvicorn logs go through logging/stderr).
 
 import contextlib
 import json
+import math
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,6 +28,9 @@ def build_summary(result_dir: Path, coefficients: dict | None = None) -> dict:
     segments = pd.read_csv(result_dir / 'road_segments.csv')
     full_valid = segments[(~segments['partial']) & (segments['speed_valid'])]
     mean_iri = float(full_valid['iri_multi'].mean()) if len(full_valid) else None
+    # An all-NaN column means the mean is NaN: a missing metric is null, never NaN
+    if mean_iri is not None and not math.isfinite(mean_iri):
+        mean_iri = None
 
     meta_path = result_dir / 'recording_meta.json'
     meta = json.loads(meta_path.read_text(encoding='utf-8')) if meta_path.exists() else {}
