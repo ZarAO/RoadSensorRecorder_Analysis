@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from tests.conftest import _make_reference, _make_run_artifacts
 
 
-def _make_done_run_and_reference(client, tmp_path, run_result_name='run_art'):
+def _make_done_run_and_reference(client, tmp_path):
     """Arranges a done run with usable artifacts and a matching 10 m reference
     (mirrors test_comparison_service.py's arrange code)."""
     from src.core.config import get_settings
@@ -18,7 +18,7 @@ def _make_done_run_and_reference(client, tmp_path, run_result_name='run_art'):
         s.add(f)
         s.commit()
         run = AnalysisRun(file_id=f.id, status='done',
-                          result_dir=str(tmp_path / run_result_name))
+                          result_dir=str(tmp_path / 'run_art'))
         ref = ReferenceDataset(filename='syn.xlsx', road_name='Т-9999', step_m=10.0,
                                intervals_count=100, chainage_span_m=1000.0,
                                bbox=[50.0, 30.4, 50.01, 30.6], parse_warnings=[])
@@ -47,19 +47,20 @@ def test_comparison_flow_and_artifacts(client, tmp_path):
 
     stats = client.get(f'/api/comparisons/{cmp_id}/artifacts/stats.json')
     assert stats.status_code == 200
-    assert client.get(f'/api/comparisons/{cmp_id}/artifacts/../secret').status_code in (403, 404)
+    assert client.get(
+        f'/api/comparisons/{cmp_id}/artifacts/..%2F..%2Fsecret').status_code == 403
 
 
 def test_comparison_create_validations(client, tmp_path):
+    from src.db.models import AnalysisRun, ReferenceDataset, SourceFile
+    from src.services.comparison import MSG_REFERENCE_DELETED, MSG_REFERENCE_NOT_10M
+
     run_id, ref_id = _make_done_run_and_reference(client, tmp_path)
 
     assert client.post('/api/comparisons',
                        json={'run_id': 9999, 'reference_id': ref_id}).status_code == 404
     assert client.post('/api/comparisons',
                        json={'run_id': run_id, 'reference_id': 9999}).status_code == 404
-
-    from src.core.config import get_settings
-    from src.db.models import AnalysisRun, ReferenceDataset, SourceFile
 
     engine = client.app.state.engine
     with Session(engine) as s:
@@ -83,6 +84,7 @@ def test_comparison_create_validations(client, tmp_path):
         bad_ref_id = bad_ref.id
     r = client.post('/api/comparisons', json={'run_id': run_id, 'reference_id': bad_ref_id})
     assert r.status_code == 409
+    assert r.json()['detail'] == MSG_REFERENCE_NOT_10M.format(step_m=100.0)
 
     with Session(engine) as s:
         deleted_ref = ReferenceDataset(filename='deleted.xlsx', road_name='Y', step_m=10.0,
@@ -93,6 +95,7 @@ def test_comparison_create_validations(client, tmp_path):
         deleted_ref_id = deleted_ref.id
     r = client.post('/api/comparisons', json={'run_id': run_id, 'reference_id': deleted_ref_id})
     assert r.status_code == 409
+    assert r.json()['detail'] == MSG_REFERENCE_DELETED
 
 
 def test_comparison_delete_removes_artifacts(client, tmp_path):

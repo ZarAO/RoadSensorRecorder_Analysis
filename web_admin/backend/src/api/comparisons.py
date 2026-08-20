@@ -15,7 +15,12 @@ from src.api.schemas import ComparisonCreate, ComparisonOut
 from src.core.config import get_settings
 from src.db.models import AnalysisRun, Comparison, ReferenceDataset
 from src.db.session import get_session
-from src.services.comparison import delete_comparison_artifacts, execute_comparison
+from src.services.comparison import (
+    MSG_REFERENCE_DELETED,
+    MSG_REFERENCE_NOT_10M,
+    delete_comparison_artifacts,
+    execute_comparison,
+)
 
 router = APIRouter(prefix='/comparisons', tags=['comparisons'])
 
@@ -53,10 +58,9 @@ def create_comparison(payload: ComparisonCreate, request: Request,
     if reference is None:
         raise HTTPException(404, 'Reference not found')
     if reference.source_deleted:
-        raise HTTPException(409, 'еталон видалено — файл еталонних інтервалів більше не доступний')
+        raise HTTPException(409, MSG_REFERENCE_DELETED)
     if reference.step_m != 10:
-        raise HTTPException(
-            409, f'еталон має бути 10 м формою (крок цього еталона: {reference.step_m:g} м)')
+        raise HTTPException(409, MSG_REFERENCE_NOT_10M.format(step_m=reference.step_m))
 
     comparison = _create_and_submit(request, session, payload.run_id,
                                     payload.reference_id, payload.params)

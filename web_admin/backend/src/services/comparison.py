@@ -50,6 +50,12 @@ GATE_MAE_MAX = 0.5
 # there is enough data for the refit to mean anything.
 MIN_PAIRS_FOR_INFLUENCE = 10
 
+# Shared Ukrainian 409 wording — the API's pre-queue validation and this
+# module's own `_check_reference` guard must say the same thing, so the text
+# lives here once and both sides import it.
+MSG_REFERENCE_DELETED = 'еталон видалено — файл еталонних інтервалів більше не доступний'
+MSG_REFERENCE_NOT_10M = 'еталон має бути 10 м формою (крок цього еталона: {step_m:g} м)'
+
 
 class ComparisonError(Exception):
     """A guard failure carrying a user-facing Ukrainian explanation."""
@@ -111,10 +117,9 @@ def _check_reference(reference: ReferenceDataset | None, settings: Settings) -> 
     if reference is None:
         raise ComparisonError('еталон не знайдено')
     if reference.source_deleted:
-        raise ComparisonError('еталон видалено — файл еталонних інтервалів більше не доступний')
+        raise ComparisonError(MSG_REFERENCE_DELETED)
     if reference.step_m != 10:
-        raise ComparisonError(
-            f'еталон має бути 10 м формою (крок цього еталона: {reference.step_m:g} м)')
+        raise ComparisonError(MSG_REFERENCE_NOT_10M.format(step_m=reference.step_m))
     intervals_path = reference_dir(settings, reference) / f'intervals_{int(reference.step_m)}m.csv'
     if not intervals_path.is_file():
         raise ComparisonError('файл еталонних інтервалів відсутній на диску')
