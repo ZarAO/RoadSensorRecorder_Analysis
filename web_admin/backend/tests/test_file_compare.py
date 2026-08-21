@@ -4,6 +4,8 @@ Phase 2 Task 7: run-vs-run comparison of one file
 """
 
 from pathlib import Path
+
+import pytest
 from sqlalchemy.orm import Session
 
 from tests.helpers import upload_probe_csv
@@ -143,6 +145,96 @@ def test_null_iri_multi_on_one_side_gives_a_null_delta(client, tmp_path, monkeyp
 def test_unknown_file_is_404(client):
     r = client.get('/api/files/999/compare', params={'run_a': 1, 'run_b': 2})
     assert r.status_code == 404
+
+
+def test_unknown_run_a_is_404_for_an_existing_file(client, tmp_path, monkeypatch):
+    _stub_analyze_sequence(monkeypatch, [_seg_data([0], [3.0])])
+    fid = upload_probe_csv(client, tmp_path, name='drive.csv')['id']
+    run_b = client.post('/api/runs', json={'file_id': fid, 'params': {}}).json()
+
+    r = client.get(f"/api/files/{fid}/compare",
+                   params={'run_a': 999, 'run_b': run_b['id']})
+    assert r.status_code == 404
+    assert r.json()['detail'] == 'Run not found'
+
+
+def test_same_run_twice_is_rejected(client, tmp_path, monkeypatch):
+    _stub_analyze_sequence(monkeypatch, [_seg_data([0], [3.0])])
+    fid = upload_probe_csv(client, tmp_path, name='drive.csv')['id']
+    run_a = client.post('/api/runs', json={'file_id': fid, 'params': {}}).json()
+
+    r = client.get(f"/api/files/{fid}/compare",
+                   params={'run_a': run_a['id'], 'run_b': run_a['id']})
+    assert r.status_code == 409
+    assert r.json()['detail'] == 'оберіть два різні рани'
+
+
+def test_delta_is_null_when_both_sides_are_null(client, tmp_path, monkeypatch):
+    _stub_analyze_sequence(monkeypatch, [
+        _seg_data([0], [None]),
+        _seg_data([0], [None]),
+    ])
+    fid = upload_probe_csv(client, tmp_path, name='drive.csv')['id']
+    run_a = client.post('/api/runs', json={'file_id': fid, 'params': {}}).json()
+    run_b = client.post('/api/runs', json={'file_id': fid, 'params': {}}).json()
+
+    r = client.get(f"/api/files/{fid}/compare",
+                   params={'run_a': run_a['id'], 'run_b': run_b['id']})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    row = body['segments'][0]
+    assert row['iri_multi_a'] is None
+    assert row['iri_multi_b'] is None
+    assert row['delta_iri_multi'] is None
+    assert body['summary'] == {
+        'segments': 1, 'matched': 1,
+        'mean_delta_iri_multi': None, 'max_abs_delta': None,
+    }
+
+
+def test_compare_applies_the_same_eq6_bias_correction_as_run_pages(client, tmp_path, monkeypatch):
+    """Controller ruling: compare must show what the run pages show. Two runs
+    of the same file with IDENTICAL analyzer output, where only the SECOND
+    run resolves a confirmed eq6_bias set, must show a delta equal to the
+    bias -- not zero -- and a null side must stay null through the
+    correction."""
+    _stub_analyze_sequence(monkeypatch, [
+        _seg_data([0, 1], [3.0, None]),   # run_a: created before any confirmed set
+        _seg_data([0, 1], [3.0, None]),   # run_b: identical raw output
+    ])
+    fid = upload_probe_csv(client, tmp_path, name='drive.csv')['id']
+    run_a = client.post('/api/runs', json={'file_id': fid, 'params': {}}).json()
+    assert 'coefficients' not in run_a['params']
+
+    from src.db.models import CoefficientSet
+    engine = client.app.state.engine
+    with Session(engine) as s:
+        # helpers.make_probe_csv declares vehicle_type=sedan with no device
+        # line -> this resolves at the legacy (vehicle_type, phone_model=None) tier
+        s.add(CoefficientSet(name='sedan_bias', model='eq6_bias',
+                             params={'bias': -1.55}, vehicle_type='sedan',
+                             phone_model=None, status='confirmed'))
+        s.commit()
+
+    run_b = client.post('/api/runs', json={'file_id': fid, 'params': {}}).json()
+    assert run_b['params']['coefficients']['eq6_bias']['params'] == {'bias': -1.55}
+
+    r = client.get(f"/api/files/{fid}/compare",
+                   params={'run_a': run_a['id'], 'run_b': run_b['id']})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    rows = {row['seg_id']: row for row in body['segments']}
+
+    # seg 0: identical raw iri_multi (3.0) on both sides, but run_b's snapshot
+    # subtracts -1.55 -> effective_b = 3.0 - (-1.55) = 4.55, delta = +1.55
+    assert rows[0]['iri_multi_a'] == 3.0
+    assert rows[0]['iri_multi_b'] == pytest.approx(3.0 + 1.55)
+    assert rows[0]['delta_iri_multi'] == pytest.approx(1.55)
+
+    # seg 1: null on both sides stays null through the correction
+    assert rows[1]['iri_multi_a'] is None
+    assert rows[1]['iri_multi_b'] is None
+    assert rows[1]['delta_iri_multi'] is None
 
 
 def test_matched_is_less_than_segments_when_a_policy_drops_a_segment(client, tmp_path, monkeypatch):

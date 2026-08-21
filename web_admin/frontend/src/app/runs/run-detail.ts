@@ -61,8 +61,10 @@ export class RunDetail {
 
   readonly otherDoneRuns = computed(
     () => this.siblingDoneRuns().filter(run => run.id !== this.runId));
-  /** The button needs at least one OTHER done run to compare against */
-  readonly canCompare = computed(() => this.otherDoneRuns().length > 0);
+  /** The button needs the CURRENT run done too -- a queued/running/failed run
+   *  has no artifacts to compare and would 409 at the endpoint. */
+  readonly canCompare = computed(
+    () => this.run()?.status === 'done' && this.otherDoneRuns().length > 0);
 
   /** Whether any segment carries a corrected IRI — gates the extra table column */
   readonly hasCorrectedIri = computed(() =>

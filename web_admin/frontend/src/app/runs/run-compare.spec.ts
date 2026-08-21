@@ -141,4 +141,21 @@ describe('RunCompare', () => {
       .toContain('обидва рани мають бути завершені');
     expect(host.querySelector('#segments-table')).toBeFalsy();
   });
+
+  it('stringifies a FastAPI 422 array detail instead of printing [object Object]', async () => {
+    const fixture = createPage(apiStub({
+      compareRuns: (() => throwError(() => ({
+        error: {
+          detail: [
+            { type: 'int_parsing', loc: ['query', 'run_a'], msg: 'Input should be a valid integer' },
+          ],
+        },
+      }))) as unknown as ApiService['compareRuns'],
+    }));
+    await fixture.whenStable();
+
+    const text = (fixture.nativeElement as HTMLElement).querySelector('.error-banner')?.textContent ?? '';
+    expect(text).toContain('Input should be a valid integer');
+    expect(text).not.toContain('[object Object]');
+  });
 });

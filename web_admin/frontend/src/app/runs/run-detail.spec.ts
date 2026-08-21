@@ -266,6 +266,29 @@ describe('RunDetail', () => {
     expect(navigateSpy).toHaveBeenCalledWith(['/runs', 5, 'compare', 9]);
   });
 
+  it('hides the compare button for a running current run even with another done run present', async () => {
+    // A running run opens an EventSource to follow its log; jsdom has none.
+    class FakeEventSource {
+      onmessage: ((ev: MessageEvent) => void) | null = null;
+      addEventListener(): void { /* no-op */ }
+      close(): void { /* no-op */ }
+    }
+    vi.stubGlobal('EventSource', FakeEventSource);
+
+    const runningRun: RunOut = { ...RUN, status: 'running' };
+    const otherRun: RunOut = { ...RUN, id: 9 };
+    const fixture = createRunDetail(apiStub({
+      getRun: () => of(runningRun),
+      listRuns: () => of([runningRun, otherRun]),
+    }));
+    await fixture.whenStable();
+
+    const buttons = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('button'));
+    expect(buttons.some(b => b.textContent?.trim() === 'Порівняти з іншим раном')).toBe(false);
+
+    vi.unstubAllGlobals();
+  });
+
   it('never offers itself as a compare target when the file has 3 done runs', async () => {
     const otherA: RunOut = { ...RUN, id: 9 };
     const otherB: RunOut = { ...RUN, id: 12 };

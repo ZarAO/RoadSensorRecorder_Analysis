@@ -75,7 +75,18 @@ export class RunCompare {
     return '';
   }
 
-  private describe(err: { error?: { detail?: string }; message?: string }): string {
-    return err?.error?.detail ?? err?.message ?? 'Невідома помилка';
+  /** FastAPI 409s carry a plain string detail; a 422's detail is an array of
+   *  Pydantic error objects ({loc, msg, type, ...}) -- stringify those into
+   *  their `msg` fields instead of letting them print as "[object Object]". */
+  private describe(err: { error?: { detail?: unknown }; message?: string }): string {
+    const detail = err?.error?.detail;
+    if (typeof detail === 'string') return detail;
+    if (Array.isArray(detail) && detail.length) {
+      return detail
+        .map(d => (d && typeof d === 'object' && 'msg' in d) ? String((d as { msg: unknown }).msg)
+                                                              : JSON.stringify(d))
+        .join('; ');
+    }
+    return err?.message ?? 'Невідома помилка';
   }
 }

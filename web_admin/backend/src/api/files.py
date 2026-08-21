@@ -18,6 +18,7 @@ from src.api.schemas import FileCompareOut, FileOut
 from src.core.config import get_settings
 from src.db.models import AnalysisRun, SourceFile
 from src.db.session import get_session
+from src.services.coefficients import bias_of
 from src.services.preview import probe_csv
 
 router = APIRouter(prefix='/files', tags=['files'])
@@ -99,11 +100,29 @@ def _read_compare_segments(run: AnalysisRun) -> pd.DataFrame:
     return df[['s_start'] + _COMPARE_COLS]
 
 
+def _apply_eq6_correction(df: pd.DataFrame, run: AnalysisRun) -> pd.DataFrame:
+    """Controller ruling: compare must show what the run pages show, not the
+    raw analyzer artifact. runs.get_segments applies the run's own eq6_bias
+    snapshot (params.coefficients) to iri_multi before it reaches the UI, so
+    this endpoint applies the SAME correction per side here, via the SAME
+    bias_of() helper -- otherwise two runs differing only by a confirmed
+    eq6_bias set would show a zero delta while their run pages differ by the
+    bias. Raw values are untouched in the artifacts; NaN (a null iri_multi)
+    propagates through the subtraction, so a null side stays null."""
+    bias = bias_of((run.params or {}).get('coefficients'))
+    if bias is not None:
+        df = df.copy()
+        df['iri_multi'] = df['iri_multi'] - bias
+    return df
+
+
 @router.get('/{file_id}/compare', response_model=FileCompareOut)
 def compare_runs(file_id: int, run_a: int, run_b: int,
                  session: Session = Depends(get_session)):
     if session.get(SourceFile, file_id) is None:
         raise HTTPException(404, 'File not found')
+    if run_a == run_b:
+        raise HTTPException(409, 'оберіть два різні рани')
     ra = session.get(AnalysisRun, run_a)
     rb = session.get(AnalysisRun, run_b)
     if ra is None or rb is None:
@@ -113,8 +132,8 @@ def compare_runs(file_id: int, run_a: int, run_b: int,
     if ra.status != 'done' or rb.status != 'done':
         raise HTTPException(409, 'обидва рани мають бути завершені')
 
-    df_a = _read_compare_segments(ra)
-    df_b = _read_compare_segments(rb)
+    df_a = _apply_eq6_correction(_read_compare_segments(ra), ra)
+    df_b = _apply_eq6_correction(_read_compare_segments(rb), rb)
 
     segments_total = len(set(df_a['seg_id']) | set(df_b['seg_id']))
     # Same file -> identical seg_id grids unless low_speed_policy differs, in
