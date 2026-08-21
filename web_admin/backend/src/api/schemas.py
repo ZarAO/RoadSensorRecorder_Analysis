@@ -192,3 +192,38 @@ class ConfirmOut(BaseModel):
     set: CoefficientSetOut
     archived_set_id: Optional[int] = None
     reanalyze_candidates: int
+
+
+class CompareRunSide(BaseModel):
+    id: int
+    params: dict
+    summary: Optional[dict] = None
+
+
+class CompareSegmentRow(BaseModel):
+    seg_id: int
+    s_start: Optional[float] = None
+    iri_multi_a: Optional[float] = None
+    iri_multi_b: Optional[float] = None
+    delta_iri_multi: Optional[float] = None
+    iri_psd_a: Optional[float] = None
+    iri_psd_b: Optional[float] = None
+    grms_a: Optional[float] = None
+    grms_b: Optional[float] = None
+    mean_speed_a: Optional[float] = None
+    mean_speed_b: Optional[float] = None
+
+
+class CompareSummary(BaseModel):
+    segments: int
+    matched: int
+    mean_delta_iri_multi: Optional[float] = None
+    max_abs_delta: Optional[float] = None
+
+
+class FileCompareOut(BaseModel):
+    file_id: int
+    run_a: CompareRunSide
+    run_b: CompareRunSide
+    segments: list[CompareSegmentRow]
+    summary: CompareSummary

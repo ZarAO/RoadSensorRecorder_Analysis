@@ -1,6 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { ActivatedRoute } from '@angular/router';
-import { provideRouter } from '@angular/router';
+import { ActivatedRoute, Router, provideRouter } from '@angular/router';
 import { of } from 'rxjs';
 
 import { ApiService } from '../api/api.service';
@@ -31,6 +30,7 @@ function apiStub(overrides: Partial<ApiService> = {}): ApiService {
     logUrl: (id: number) => `/api/runs/${id}/log`,
     listRunArtifacts: () => of([]),
     listComparisons: () => of([]),
+    listRuns: () => of([RUN]),
     ...overrides,
   } as Partial<ApiService> as ApiService;
 }
@@ -232,5 +232,53 @@ describe('RunDetail', () => {
       .toContain('Кольори мапи — за некоригованим IRI_multi');
     expect(host.textContent).toContain('Середній IRI (кориг.)');
     expect(host.textContent).toContain('1.65');
+  });
+
+  it('hides the compare button when the file has fewer than 2 done runs', async () => {
+    const fixture = createRunDetail(apiStub({ listRuns: () => of([RUN]) }));
+    await fixture.whenStable();
+
+    const buttons = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('button'));
+    expect(buttons.some(b => b.textContent?.trim() === 'Порівняти з іншим раном')).toBe(false);
+  });
+
+  it('shows the compare button and navigates to the chosen run when the file has another done run', async () => {
+    const otherRun: RunOut = { ...RUN, id: 9 };
+    const fixture = createRunDetail(apiStub({ listRuns: () => of([RUN, otherRun]) }));
+    await fixture.whenStable();
+    const navigateSpy = vi.spyOn(TestBed.inject(Router), 'navigate');
+
+    const host = fixture.nativeElement as HTMLElement;
+    const button = Array.from(host.querySelectorAll('button'))
+      .find(b => b.textContent?.trim() === 'Порівняти з іншим раном');
+    expect(button).toBeTruthy();
+    button!.click();
+    await fixture.whenStable();
+
+    const dialog = host.querySelector('.dialog');
+    expect(dialog).toBeTruthy();
+    const options = Array.from(dialog!.querySelectorAll<HTMLOptionElement>('option')).map(o => o.value);
+    expect(options).toEqual(['9']);
+
+    const submit = Array.from(dialog!.querySelectorAll('button'))
+      .find(b => b.textContent?.trim() === 'Порівняти');
+    submit!.click();
+    expect(navigateSpy).toHaveBeenCalledWith(['/runs', 5, 'compare', 9]);
+  });
+
+  it('never offers itself as a compare target when the file has 3 done runs', async () => {
+    const otherA: RunOut = { ...RUN, id: 9 };
+    const otherB: RunOut = { ...RUN, id: 12 };
+    const fixture = createRunDetail(apiStub({ listRuns: () => of([RUN, otherA, otherB]) }));
+    await fixture.whenStable();
+
+    const host = fixture.nativeElement as HTMLElement;
+    const button = Array.from(host.querySelectorAll('button'))
+      .find(b => b.textContent?.trim() === 'Порівняти з іншим раном');
+    button!.click();
+    await fixture.whenStable();
+
+    const options = Array.from(host.querySelectorAll<HTMLOptionElement>('.dialog option')).map(o => o.value);
+    expect(options).toEqual(['9', '12']);
   });
 });

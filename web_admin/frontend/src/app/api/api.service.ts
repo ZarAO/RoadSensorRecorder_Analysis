@@ -4,8 +4,8 @@ import { Observable } from 'rxjs';
 
 import {
   AggregateChartData, AggregateOut, ArtifactEntry, ChartData, CoefficientSetOut, ComparisonOut,
-  ConfirmOut, DashboardOut, FileOut, GeoJsonFeatureCollection, PreviewResolutionOut,
-  ReferenceIntervalRow, ReferenceOut, RunOut, SegmentRow,
+  ConfirmOut, DashboardOut, FileCompareOut, FileOut, GeoJsonFeatureCollection,
+  PreviewResolutionOut, ReferenceIntervalRow, ReferenceOut, RunOut, SegmentRow,
 } from './dto';
 
 @Injectable({ providedIn: 'root' })
@@ -54,6 +54,11 @@ export class ApiService {
 
   getArtifactText(runId: number, name: string): Observable<string> {
     return this.http.get(this.artifactUrl(runId, name), { responseType: 'text' });
+  }
+
+  compareRuns(fileId: number, runA: number, runB: number): Observable<FileCompareOut> {
+    return this.http.get<FileCompareOut>(`${this.base}/files/${fileId}/compare`,
+      { params: { run_a: runA, run_b: runB } });
   }
 
   getDashboard(): Observable<DashboardOut> {

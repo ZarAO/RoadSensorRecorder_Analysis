@@ -26,6 +26,9 @@
         }
       </div>
     </div>
+    @if (canCompare()) {
+      <button (click)="openCompare()">Порівняти з іншим раном</button>
+    }
   </div>
 
   @if (currentRun.error) {
@@ -195,5 +198,28 @@
         <div class="skeleton" style="height:8rem"></div>
       }
     </section>
+  }
+
+  @if (compareOpen()) {
+    <div class="dialog-backdrop" (click)="compareOpen.set(false)">
+      <div class="dialog card" role="dialog" aria-modal="true"
+           aria-labelledby="compare-title" (click)="$event.stopPropagation()">
+        <h3 id="compare-title">Порівняти з іншим раном</h3>
+        <label>
+          Ран для порівняння:
+          <select [value]="compareTargetId()" (change)="onCompareTargetSelect($event)">
+            @for (other of otherDoneRuns(); track other.id) {
+              <option [value]="other.id">
+                #{{ other.id }} — {{ other.created_at | date:'yyyy-MM-dd HH:mm' }}
+              </option>
+            }
+          </select>
+        </label>
+        <div class="dialog-actions">
+          <button (click)="compareOpen.set(false)">Скасувати</button>
+          <button class="primary" (click)="submitCompare()">Порівняти</button>
+        </div>
+      </div>
+    </div>
   }
 }

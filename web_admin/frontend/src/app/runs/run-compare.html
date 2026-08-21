@@ -1,0 +1,89 @@
+@if (data(); as result) {
+  <div class="page-head">
+    <h2>Порівняння ранів #{{ result.run_a.id }} і #{{ result.run_b.id }}</h2>
+    <p class="meta-line">
+      <a routerLink="/runs/{{ result.run_a.id }}">до рану #{{ result.run_a.id }}</a>
+      · <a routerLink="/runs/{{ result.run_b.id }}">до рану #{{ result.run_b.id }}</a>
+    </p>
+  </div>
+
+  <div class="run-params">
+    <div class="run-col card">
+      <h3>Ран A — #{{ result.run_a.id }}</h3>
+      <p class="meta-line">політика: <code>{{ policyFor('run_a') }}</code></p>
+      <div class="coeff-chips">
+        @for (chip of coefficientChips('run_a'); track chip.model) {
+          <span class="chip accent" [title]="chip.model + ': ' + chip.name">
+            {{ chip.name }}@if (chip.label) { ({{ chip.label }}) }
+          </span>
+        } @empty {
+          <span class="chip" title="Книжкові константи">Книжкові константи</span>
+        }
+      </div>
+    </div>
+    <div class="run-col card">
+      <h3>Ран B — #{{ result.run_b.id }}</h3>
+      <p class="meta-line">політика: <code>{{ policyFor('run_b') }}</code></p>
+      <div class="coeff-chips">
+        @for (chip of coefficientChips('run_b'); track chip.model) {
+          <span class="chip accent" [title]="chip.model + ': ' + chip.name">
+            {{ chip.name }}@if (chip.label) { ({{ chip.label }}) }
+          </span>
+        } @empty {
+          <span class="chip" title="Книжкові константи">Книжкові константи</span>
+        }
+      </div>
+    </div>
+  </div>
+
+  <div class="cards">
+    <div class="card kpi-card">
+      <b class="num">{{ result.summary.segments }}</b><span>сегментів</span>
+    </div>
+    <div class="card kpi-card">
+      <b class="num">{{ result.summary.matched }}</b><span>співставлено</span>
+    </div>
+    <div class="card kpi-card">
+      <b class="num">{{ fmt(result.summary.mean_delta_iri_multi) }}</b><span>сер. Δ IRI_multi</span>
+    </div>
+    <div class="card kpi-card">
+      <b class="num">{{ fmt(result.summary.max_abs_delta) }}</b><span>макс |Δ| IRI_multi</span>
+    </div>
+  </div>
+
+  <section class="card rise-in">
+    <h3>Сегменти</h3>
+    <div class="table-wrap">
+      <table class="data" id="segments-table">
+        <thead>
+          <tr>
+            <th>seg</th><th>s, м</th>
+            <th>IRI_multi A</th><th>IRI_multi B</th><th>Δ IRI_multi</th>
+            <th>IRI_psd A</th><th>IRI_psd B</th>
+            <th>Grms A</th><th>Grms B</th>
+            <th>швидкість A</th><th>швидкість B</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of result.segments; track row.seg_id) {
+            <tr [class.hot]="isHot(row)">
+              <td>{{ row.seg_id }}</td>
+              <td>{{ fmt(row.s_start, 0) }}</td>
+              <td>{{ fmt(row.iri_multi_a) }}</td>
+              <td>{{ fmt(row.iri_multi_b) }}</td>
+              <td>{{ fmt(row.delta_iri_multi) }}</td>
+              <td>{{ fmt(row.iri_psd_a) }}</td>
+              <td>{{ fmt(row.iri_psd_b) }}</td>
+              <td>{{ fmt(row.grms_a, 4) }}</td>
+              <td>{{ fmt(row.grms_b, 4) }}</td>
+              <td>{{ fmt(row.mean_speed_a, 1) }}</td>
+              <td>{{ fmt(row.mean_speed_b, 1) }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </section>
+} @else if (error(); as err) {
+  <p class="error-banner">{{ err }}</p>
+}

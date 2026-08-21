@@ -1,7 +1,7 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { marked } from 'marked';
 
 import { ApiService } from '../api/api.service';
@@ -36,6 +36,7 @@ function parseFeatureCollection(text: string): GeoJsonFeatureCollection | null {
 export class RunDetail {
   private readonly api = inject(ApiService);
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly sanitizer = inject(DomSanitizer);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -51,6 +52,17 @@ export class RunDetail {
   readonly artifacts = signal<ArtifactEntry[]>([]);
   readonly comparisons = signal<ComparisonOut[]>([]);
   readonly plots = PLOTS;
+
+  /** Every done run of the same file (including this one) — feeds the
+   *  «Порівняти з іншим раном» button and its dialog's run list. */
+  readonly siblingDoneRuns = signal<RunOut[]>([]);
+  readonly compareOpen = signal(false);
+  readonly compareTargetId = signal<number | null>(null);
+
+  readonly otherDoneRuns = computed(
+    () => this.siblingDoneRuns().filter(run => run.id !== this.runId));
+  /** The button needs at least one OTHER done run to compare against */
+  readonly canCompare = computed(() => this.otherDoneRuns().length > 0);
 
   /** Whether any segment carries a corrected IRI — gates the extra table column */
   readonly hasCorrectedIri = computed(() =>
@@ -104,6 +116,9 @@ export class RunDetail {
     this.api.getRun(this.runId).subscribe({
       next: run => {
         this.run.set(run);
+        this.api.listRuns(run.file_id).subscribe({
+          next: runs => this.siblingDoneRuns.set(runs.filter(r => r.status === 'done')),
+        });
         if (run.status === 'queued' || run.status === 'running') {
           this.followLog();
           this.pollStatus();
@@ -113,6 +128,22 @@ export class RunDetail {
         }
       },
     });
+  }
+
+  openCompare(): void {
+    this.compareTargetId.set(this.otherDoneRuns()[0]?.id ?? null);
+    this.compareOpen.set(true);
+  }
+
+  onCompareTargetSelect(event: Event): void {
+    this.compareTargetId.set(Number((event.target as HTMLSelectElement).value));
+  }
+
+  submitCompare(): void {
+    const otherId = this.compareTargetId();
+    if (otherId == null) return;
+    this.compareOpen.set(false);
+    this.router.navigate(['/runs', this.runId, 'compare', otherId]);
   }
 
   private loadResults(): void {

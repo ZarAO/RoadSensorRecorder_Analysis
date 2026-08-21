@@ -15,6 +15,10 @@ export const routes: Routes = [
     loadComponent: () => import('./runs/run-detail').then(m => m.RunDetail),
   },
   {
+    path: 'runs/:id/compare/:other',
+    loadComponent: () => import('./runs/run-compare').then(m => m.RunCompare),
+  },
+  {
     path: 'map',
     loadComponent: () => import('./map/global-map-page').then(m => m.GlobalMapPage),
   },

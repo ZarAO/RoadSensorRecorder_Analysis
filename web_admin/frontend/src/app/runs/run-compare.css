@@ -1,0 +1,44 @@
+.page-head { margin-bottom: var(--space-4); }
+.page-head h2 { margin-bottom: var(--space-1); }
+.meta-line { color: var(--color-muted-fg); font-size: var(--text-sm); margin: 0; }
+
+.run-params {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+.run-col h3 { margin-top: 0; }
+
+.coeff-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+.kpi-card b {
+  display: block;
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-bold);
+  letter-spacing: -0.02em;
+  line-height: var(--leading-tight);
+}
+.kpi-card span:last-child {
+  color: var(--color-muted-fg);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+section.card { margin-bottom: var(--space-4); }
+.table-wrap { overflow-x: auto; }
+
+/* |delta_iri_multi| > 0.5 */
+#segments-table tbody tr.hot { background: var(--color-warn-bg); }

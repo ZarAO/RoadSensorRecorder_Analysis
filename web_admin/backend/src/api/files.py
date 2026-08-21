@@ -8,17 +8,24 @@ import shutil
 import tempfile
 from pathlib import Path
 
+import numpy as np
+import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from src.api.schemas import FileOut
+from src.api.schemas import FileCompareOut, FileOut
 from src.core.config import get_settings
-from src.db.models import SourceFile
+from src.db.models import AnalysisRun, SourceFile
 from src.db.session import get_session
 from src.services.preview import probe_csv
 
 router = APIRouter(prefix='/files', tags=['files'])
+
+# Columns pulled from road_segments.csv for a run-vs-run comparison. s_start is
+# not suffixed (both runs share the same seg_id grid — spec §Task 7); the rest
+# get an _a/_b suffix from the merge.
+_COMPARE_COLS = ['seg_id', 'iri_multi', 'iri_psd', 'grms', 'mean_speed_kmh']
 
 
 def _to_out(f: SourceFile) -> FileOut:
@@ -82,3 +89,60 @@ def delete_file(file_id: int, session: Session = Depends(get_session)):
     (settings.storage_data_dir / row.filename).unlink(missing_ok=True)
     row.source_deleted = True
     session.commit()
+
+
+def _read_compare_segments(run: AnalysisRun) -> pd.DataFrame:
+    path = Path(run.result_dir or '') / 'road_segments.csv'
+    if not path.is_file():
+        raise HTTPException(404, 'road_segments.csv not found')
+    df = pd.read_csv(path)
+    return df[['s_start'] + _COMPARE_COLS]
+
+
+@router.get('/{file_id}/compare', response_model=FileCompareOut)
+def compare_runs(file_id: int, run_a: int, run_b: int,
+                 session: Session = Depends(get_session)):
+    if session.get(SourceFile, file_id) is None:
+        raise HTTPException(404, 'File not found')
+    ra = session.get(AnalysisRun, run_a)
+    rb = session.get(AnalysisRun, run_b)
+    if ra is None or rb is None:
+        raise HTTPException(404, 'Run not found')
+    if ra.file_id != file_id or rb.file_id != file_id:
+        raise HTTPException(409, 'ран не належить цьому файлу')
+    if ra.status != 'done' or rb.status != 'done':
+        raise HTTPException(409, 'обидва рани мають бути завершені')
+
+    df_a = _read_compare_segments(ra)
+    df_b = _read_compare_segments(rb)
+
+    segments_total = len(set(df_a['seg_id']) | set(df_b['seg_id']))
+    # Same file -> identical seg_id grids unless low_speed_policy differs, in
+    # which case a policy may drop a segment from the artifacts entirely: the
+    # inner join then matches fewer rows than the union above (no error).
+    merged = df_a.merge(df_b.drop(columns=['s_start']), on='seg_id',
+                        how='inner', suffixes=('_a', '_b')).sort_values('seg_id')
+    merged['delta_iri_multi'] = merged['iri_multi_b'] - merged['iri_multi_a']
+    merged = merged.rename(columns={'mean_speed_kmh_a': 'mean_speed_a',
+                                    'mean_speed_kmh_b': 'mean_speed_b'})
+
+    segments = merged.replace({np.nan: None}).to_dict('records')
+    for row in segments:
+        row['seg_id'] = int(row['seg_id'])
+
+    deltas = merged['delta_iri_multi'].dropna()
+    mean_delta = float(deltas.mean()) if len(deltas) else None
+    max_abs_delta = float(deltas.abs().max()) if len(deltas) else None
+
+    return {
+        'file_id': file_id,
+        'run_a': {'id': ra.id, 'params': ra.params, 'summary': ra.summary},
+        'run_b': {'id': rb.id, 'params': rb.params, 'summary': rb.summary},
+        'segments': segments,
+        'summary': {
+            'segments': segments_total,
+            'matched': len(merged),
+            'mean_delta_iri_multi': mean_delta,
+            'max_abs_delta': max_abs_delta,
+        },
+    }

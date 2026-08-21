@@ -263,6 +263,42 @@ export interface ConfirmOut {
   reanalyze_candidates: number;
 }
 
+/** Task 7: run-vs-run comparison of one file (GET /files/{file_id}/compare). */
+export interface CompareRunSide {
+  id: number;
+  params: RunOut['params'];
+  summary: RunSummary | null;
+}
+
+export interface CompareSegmentRow {
+  seg_id: number;
+  s_start: number | null;
+  iri_multi_a: number | null;
+  iri_multi_b: number | null;
+  delta_iri_multi: number | null;
+  iri_psd_a: number | null;
+  iri_psd_b: number | null;
+  grms_a: number | null;
+  grms_b: number | null;
+  mean_speed_a: number | null;
+  mean_speed_b: number | null;
+}
+
+export interface CompareSummary {
+  segments: number;
+  matched: number;
+  mean_delta_iri_multi: number | null;
+  max_abs_delta: number | null;
+}
+
+export interface FileCompareOut {
+  file_id: number;
+  run_a: CompareRunSide;
+  run_b: CompareRunSide;
+  segments: CompareSegmentRow[];
+  summary: CompareSummary;
+}
+
 export interface ArtifactEntry {
   name: string;
   size_bytes: number;
