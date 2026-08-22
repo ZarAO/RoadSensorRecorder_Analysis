@@ -22,6 +22,12 @@
   `profilometer_validation.match.load_form_10m` — never re-derive them from the
   xlsx elsewhere. Comparison artifacts (`matched_pairs.csv`, `stats.json`,
   `chart_data.json`, `figures/`) live under `storage/results/comparisons/`.
+- Aggregate-comparison artifacts (`per_pass_pairs.csv`, `per_bin.csv`,
+  `aggregate_stats.json`, `chart_data.json`, `figures/`) live under
+  `storage/results/aggregates/`. Aggregation math (binning, repeatability,
+  bias CI, speed effect) comes ONLY from `profilometer_validation.aggregate`
+  — `src/services/aggregate.py` only orchestrates (guards, per-run matching,
+  artifacts, figures); never reimplement the math here.
 - Error-language policy: 404/403 (technical) in English; 409/422 (operator-facing
   business errors) in Ukrainian.
 - Coefficient resolution happens ONLY via `src/services/coefficients.resolve_for_meta`

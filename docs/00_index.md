@@ -20,9 +20,13 @@ CLI має два обов'язкові параметри — `--input` і `--o
 20 км/год (див. [08](08_user_guide_and_cli_reference.md)).
 
 **Веб-адмінка:** `web_admin/` (FastAPI + Angular 22) — керування файлами,
-ранами, глобальна мапа, дашборд; Phase 3 (2026-08-20) додав еталони
-профілометра, порівняння ран↔еталон і підтверджувані набори коефіцієнтів
-IRI; див. розділ у `08_user_guide_and_cli_reference.md`.
+ранами, глобальна мапа, дашборд (розбивка за типом авто); Phase 3
+(2026-08-20) додав еталони профілометра, порівняння ран↔еталон і
+підтверджувані набори коефіцієнтів IRI; Phase 2 (2026-08-20) додав
+мультипроїзні порівняння з еталоном (повторюваність, bias CI, ефект
+швидкості — та сама математика, що й `profilometer_validation.aggregate`),
+сторінку еталона (мапа інтервалів + профіль IRI) і run-vs-run порівняння
+двох ранів одного файла; див. розділ у `08_user_guide_and_cli_reference.md`.
 
 **Результати:** `out/new_analysis/` — `road_segments.csv`, `recording_meta.json`,
 `roughness.geojson`, `events.geojson`, `segments_map.html`, `report.md`, `plots/`.
@@ -57,7 +61,7 @@ IRI; див. розділ у `08_user_guide_and_cli_reference.md`.
     - Eq.4-6: Мультиваріантна регресія IRI (vehicle-specific)
   - Sampling compliance: dx ≤ 0.3m, fs 80–120Hz
   - Threshold anomaly: |a_vertical| > 10 m/s²
-  - Детермінізм та тестування (163 unit tests, 11 файлів)
+  - Детермінізм та тестування (182 unit tests, 12 файлів)
 
 - **[03 — Методи legacy пайплайну](03_methods_legacy_pipeline.md)**
   - Чесний опис legacy підходу (modules/)
@@ -196,7 +200,7 @@ IRI; див. розділ у `08_user_guide_and_cli_reference.md`.
   version={STAGE 3},
   url={https://github.com/ZarAO/RoadSensorRecorder_Analysis},
   commit={main branch, 2025-01-10},
-  note={Python 3.11+, 163 unit tests, Spearman ρ=0.783 validation (STAGE 2)}
+  note={Python 3.11+, 182 unit tests, Spearman ρ=0.783 validation (STAGE 2)}
 }
 ```
 
@@ -205,7 +209,7 @@ IRI; див. розділ у `08_user_guide_and_cli_reference.md`.
 - Version/commit: main branch, дата 2025-01-10
 - Python: >= 3.11 (перевірено на 3.14.4)
 - Key libraries: версії з `pip freeze` вашого середовища
-- Test coverage: 163/163 PASS (`pytest analyzer/tests -q`, 11 файлів)
+- Test coverage: 182/182 PASS (`pytest analyzer/tests -q`, 12 файлів)
 - Validation: Spearman ρ = 0.783 (IRI_multi vs legacy RMSA, p < 0.0001)
 
 **Ключові покращення для цитування:**
@@ -226,7 +230,7 @@ IRI; див. розділ у `08_user_guide_and_cli_reference.md`.
 - Формули: посилання `agent_prompt_pack/02_FORMULAS_TEST_MAP_UNIFIED.md` у документації
   вказує на зовнішній довідник із рівняннями (у репозиторії його немає). Фактичні
   коефіцієнти, які виконуються, — у `analyzer/src/road_quality_analyzer/metrics/iri.py`
-- Тести: `analyzer/tests/` (163 unit tests у 11 файлах)
+- Тести: `analyzer/tests/` (182 unit tests у 12 файлах)
 - Результати: [05_results_legacy_vs_new.md](05_results_legacy_vs_new.md)
 
 **Репозиторій:** https://github.com/ZarAO/RoadSensorRecorder_Analysis

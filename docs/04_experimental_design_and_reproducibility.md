@@ -298,7 +298,7 @@ OS: Windows 11 (або Linux, macOS)
 Python: >= 3.11 (поточний .venv: 3.14.4)
 Virtual environment: .venv/
 
-Dependencies (версії у поточному .venv, де 163/163 тестів проходять):
+Dependencies (версії у поточному .venv, де 182/182 тестів проходять):
   numpy: 2.5.2
   pandas: 3.0.5
   scipy: 1.18.0
@@ -324,7 +324,7 @@ Key files:
 - analyzer/src/road_quality_analyzer/ (io, preprocessing, orientation, filtering,
   anomaly, metrics, segmentation, artifacts, cli)
 - main.py (тонка обгортка над cli.analyze)
-- analyzer/tests/ (163 unit tests, 11 файлів)
+- analyzer/tests/ (182 unit tests, 12 файлів)
 - storage/data/sensor_data_20250729_163334.csv
 ```
 
@@ -515,7 +515,7 @@ diff run1/road_segments.csv run2/road_segments.csv
 1. ✅ Фіксовані версії dependencies (requirements.txt)
 2. ✅ Deterministic algorithms (no randomness)
 3. ✅ Fixed configuration parameters
-4. ✅ 163 unit test (validation)
+4. ✅ 182 unit test (validation)
 5. ✅ Documented input format
 6. ✅ Exact commands для запуску
 

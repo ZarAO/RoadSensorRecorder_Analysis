@@ -29,3 +29,10 @@
   data contract, not duplicated per page.
 - Comparison/calibration charts are hand-rolled SVG only — no chart libraries,
   no KaTeX; match the existing scatter/profile/Bland–Altman implementations.
+  `shared/charts/multi-line-chart.ts` (`MultiLineChart`) is the shared N-series
+  +band line chart (reference profile, aggregate profile) — reuse it instead
+  of hand-rolling another line chart.
+- `calibration/create-set-dialog.ts` (`CreateSetDialog`) is the single
+  "Створити набір коефіцієнтів" dialog, shared by the comparison and the
+  aggregate detail pages (provenance `{kind: 'comparison'|'aggregate', id}`) —
+  do not add a second set-creation dialog.
