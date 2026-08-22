@@ -110,6 +110,15 @@ describe('AggregateDetail', () => {
     expect(text(host, '.cards')).toContain('0.91');
   });
 
+  it('discloses that the aggregated IRI is raw and unaffected by eq6_bias', async () => {
+    const fixture = createPage(apiStub());
+    await fixture.whenStable();
+    const host = fixture.nativeElement as HTMLElement;
+
+    expect(host.textContent).toContain('сире значення аналізатора');
+    expect(host.textContent).toContain('eq6_bias на агрегацію не впливає');
+  });
+
   it('renders «—» instead of null for the missing repeatability and rho', async () => {
     const fixture = createPage(apiStub({
       getAggregate: () => of({

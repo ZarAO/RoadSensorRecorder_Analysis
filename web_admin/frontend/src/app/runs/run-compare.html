@@ -53,12 +53,19 @@
 
   <section class="card rise-in">
     <h3>Сегменти</h3>
+    @if (hasEq6BiasApplied()) {
+      <p class="corrected-note">
+        «IRI кориг. A» / «IRI кориг. B» — ефективне значення IRI_multi; якщо до
+        рану застосовано підтверджений набір eq6_bias, воно скориговане на
+        зсув, інакше збігається із сирим IRI_multi.
+      </p>
+    }
     <div class="table-wrap">
       <table class="data" id="segments-table">
         <thead>
           <tr>
             <th>seg</th><th>s, м</th>
-            <th>IRI_multi A</th><th>IRI_multi B</th><th>Δ IRI_multi</th>
+            <th>IRI кориг. A</th><th>IRI кориг. B</th><th>Δ IRI_multi</th>
             <th>IRI_psd A</th><th>IRI_psd B</th>
             <th>Grms A</th><th>Grms B</th>
             <th>швидкість A</th><th>швидкість B</th>

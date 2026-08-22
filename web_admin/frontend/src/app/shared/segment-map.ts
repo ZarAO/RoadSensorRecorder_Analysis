@@ -256,10 +256,9 @@ export class SegmentMap {
     if (props['seg_id'] != null) {
       return `${title}Сегмент ${props['seg_id']}, IRI_multi: ${this.iriLabel(props, metricKey)}${runLink}`;
     }
-    if (props['interval_id'] != null) {
-      return `Інтервал ${props['interval_id']}, IRI: ${this.metricLabel(props, metricKey)}`;
-    }
-    return `${title}${runLink}`;
+    // The only other caller-guaranteed case (render() only binds a popup when
+    // seg_id or interval_id is set -- see the guard there).
+    return `Інтервал ${props['interval_id']}, IRI: ${this.metricLabel(props, metricKey)}`;
   }
 
   private metricLabel(props: Record<string, unknown>, metricKey: SegmentMetricKey): string {

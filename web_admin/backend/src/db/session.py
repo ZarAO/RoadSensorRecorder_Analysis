@@ -29,10 +29,10 @@ _ADDED_COLUMNS = {
 
 def init_db(engine) -> None:
     Base.metadata.create_all(engine)
-    _ensure_run_columns(engine)
+    _ensure_schema_migrations(engine)
 
 
-def _ensure_run_columns(engine) -> None:
+def _ensure_schema_migrations(engine) -> None:
     from sqlalchemy import inspect, text
     inspector = inspect(engine)
     tables = set(inspector.get_table_names())

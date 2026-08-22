@@ -38,6 +38,11 @@
 }
 
 section.card { margin-bottom: var(--space-4); }
+.corrected-note {
+  color: var(--color-muted-fg);
+  font-size: var(--text-sm);
+  margin: 0 0 var(--space-3);
+}
 .table-wrap { overflow-x: auto; }
 
 /* |delta_iri_multi| > 0.5 */

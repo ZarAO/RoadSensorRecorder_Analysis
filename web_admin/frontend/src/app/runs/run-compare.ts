@@ -58,6 +58,16 @@ export class RunCompare {
     return this.data()?.[side]?.params?.low_speed_policy ?? 'invalid';
   }
 
+  /** Whether either side carries a confirmed eq6_bias snapshot -- gates the
+   *  hint that «IRI кориг.» is an effective (bias-corrected) value, not raw
+   *  IRI_multi (the backend overwrites iri_multi with the corrected value in
+   *  files.compare_runs when a run's params.coefficients carry a bias). */
+  hasEq6BiasApplied(): boolean {
+    const data = this.data();
+    return data != null && (data.run_a.params.coefficients?.eq6_bias != null
+      || data.run_b.params.coefficients?.eq6_bias != null);
+  }
+
   /** |delta| > 0.5 -> highlight the row (var(--color-warn-bg)) */
   isHot(row: CompareSegmentRow): boolean {
     return row.delta_iri_multi != null && Math.abs(row.delta_iri_multi) > DELTA_WARN_THRESHOLD;

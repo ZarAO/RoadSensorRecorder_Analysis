@@ -138,7 +138,7 @@ def _build_chart_data(bins: pd.DataFrame, stats: dict) -> dict:
     }
 
 
-def _build_summary(stats: dict) -> dict:
+def _build_summary(stats: dict, stale: bool) -> dict:
     speed = stats['speed_effect']
     return {
         'n_runs': stats['n_runs'],
@@ -150,8 +150,11 @@ def _build_summary(stats: dict) -> dict:
         'rho': _round4(stats['validation']['spearman_rho']),
         'mae_aggregated': _round4(stats['validation']['mae']),
         'speed_slope': _round4(speed['slope_iri_per_kmh']) if speed else None,
-        # Flipped to True by mark_stale_for_run when one of the passes is deleted
-        'stale': False,
+        # Threaded in by the caller, not hardcoded: mark_stale_for_run may commit
+        # 'stale': True (a pooled run got deleted) from another session while
+        # this job is still running its own long computation, and hardcoding
+        # False here would silently clobber that mark on this job's finalize.
+        'stale': stale,
     }
 
 
@@ -306,7 +309,16 @@ def execute_aggregate(aggregate_id: int, engine, settings: Settings) -> None:
             _write_figures(bins, binned, stats, reference.road_name,
                            result_dir / 'figures')
 
-            aggregate.summary = _json_safe(_build_summary(stats))
+            # A concurrent mark_stale_for_run (run deleted while this job was
+            # still computing) commits on another session; this session's own
+            # cached copy of `aggregate` would otherwise miss it. A scoped
+            # column read picks up that commit without disturbing this
+            # session's own pending, not-yet-flushed attributes on `aggregate`
+            # (result_dir, set above) -- session.refresh() would discard those.
+            existing_summary = session.scalar(
+                select(AggregateComparison.summary).where(AggregateComparison.id == aggregate.id))
+            stale = bool((existing_summary or {}).get('stale'))
+            aggregate.summary = _json_safe(_build_summary(stats, stale))
             aggregate.status = 'done'
             aggregate.error = None
         except Exception as exc:

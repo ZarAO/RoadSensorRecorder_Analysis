@@ -224,6 +224,22 @@ def test_coefficient_set_draft_from_aggregate(client, tmp_path):
                              'vehicle_type': 'van'}).status_code == 404
 
 
+def test_build_summary_preserves_existing_stale_flag():
+    """F3: the job's own finalize write must not hardcode 'stale': False over a
+    concurrent mark_stale_for_run -- the caller threads the existing flag in."""
+    from src.services.aggregate import _build_summary
+
+    stats = {
+        'n_runs': 2, 'n_bins': 5,
+        'bias': {'bias': -1.5, 'ci_low': -2.0, 'ci_high': -1.0},
+        'repeatability': {'sd': 0.1},
+        'validation': {'spearman_rho': 0.9, 'mae': 0.5},
+        'speed_effect': None,
+    }
+    assert _build_summary(stats, stale=False)['stale'] is False
+    assert _build_summary(stats, stale=True)['stale'] is True
+
+
 def test_run_delete_marks_aggregate_stale(client, tmp_path):
     run_ids, ref_id = _make_passes_and_reference(client, tmp_path)
     agg_id = _create_aggregate(client, run_ids, ref_id)

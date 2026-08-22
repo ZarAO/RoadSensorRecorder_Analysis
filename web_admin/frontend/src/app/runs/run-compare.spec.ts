@@ -128,6 +128,32 @@ describe('RunCompare', () => {
     expect(host.textContent).toContain('poor');
   });
 
+  it('labels the segment columns as corrected and shows the effective-value hint '
+    + 'when a side carries an eq6_bias snapshot', async () => {
+    const fixture = createPage(apiStub()); // COMPARE.run_b carries eq6_bias
+    await fixture.whenStable();
+
+    const host = fixture.nativeElement as HTMLElement;
+    const headers = Array.from(host.querySelectorAll('#segments-table thead th'))
+      .map(th => th.textContent?.trim());
+    expect(headers).toContain('IRI кориг. A');
+    expect(headers).toContain('IRI кориг. B');
+    expect(headers).not.toContain('IRI_multi A');
+    expect(headers).not.toContain('IRI_multi B');
+    expect(host.querySelector('.corrected-note')?.textContent).toContain('IRI кориг.');
+  });
+
+  it('hides the effective-value hint when neither run carries an eq6_bias snapshot', async () => {
+    const noBias: FileCompareOut = {
+      ...COMPARE,
+      run_b: { ...COMPARE.run_b, params: { low_speed_policy: 'poor' } },
+    };
+    const fixture = createPage(apiStub({ compareRuns: () => of(noBias) }));
+    await fixture.whenStable();
+
+    expect((fixture.nativeElement as HTMLElement).querySelector('.corrected-note')).toBeNull();
+  });
+
   it('shows an error banner when the compare request fails', async () => {
     const fixture = createPage(apiStub({
       compareRuns: (() => throwError(

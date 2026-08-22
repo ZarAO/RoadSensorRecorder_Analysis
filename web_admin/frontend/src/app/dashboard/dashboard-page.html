@@ -8,13 +8,13 @@
   </div>
 } @else if (data(); as d) {
   @if (showTypeChips()) {
-    <div class="type-chips" role="tablist" aria-label="Тип транспортного засобу">
+    <div class="type-chips" aria-label="Тип транспортного засобу">
       <button type="button" class="chip" [class.accent]="selectedType() === null"
-              role="tab" [attr.aria-selected]="selectedType() === null"
+              [attr.aria-pressed]="selectedType() === null"
               (click)="selectType(null)">Всі</button>
       @for (type of vehicleTypeKeys(); track type) {
         <button type="button" class="chip" [class.accent]="selectedType() === type"
-                role="tab" [attr.aria-selected]="selectedType() === type"
+                [attr.aria-pressed]="selectedType() === type"
                 (click)="selectType(type)">{{ type }}</button>
       }
     </div>
