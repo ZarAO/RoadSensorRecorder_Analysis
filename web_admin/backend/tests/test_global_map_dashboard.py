@@ -76,3 +76,38 @@ def test_dashboard_vehicle_type_defaults_to_unknown(client, tmp_path, fake_analy
     assert set(d['by_vehicle_type']) == {'невідомо'}
     assert d['by_vehicle_type']['невідомо']['files_total'] == 1
     assert d['by_vehicle_type']['невідомо']['runs_done'] == 1
+
+
+def test_dashboard_vehicle_type_runs_done_mirrors_the_global_population(client, fake_analyze):
+    """Controller ruling (Task 8 fix round): per-type files_total/runs_done must
+    mirror the GLOBAL counters' populations exactly -- every file (run or not)
+    and every done run (re-runs included, not deduped to latest-per-file) -- so
+    the two counters legitimately differ and every chip sums back to «Всі».
+    Shape: two van files (one re-run twice more, one never run) + one sedan
+    file with a single run."""
+    van_a = _upload_with_device(client, 'van_a.csv', 'pixel 9, android=15', 'van')
+    client.post('/api/runs', json={'file_id': van_a, 'params': {'low_speed_policy': 'invalid'}})
+
+    van_b = _upload_with_device(client, 'van_b.csv', 'pixel 9, android=15', 'van')
+    for _ in range(3):  # initial run + 2 re-runs -> 3 done runs for this one file
+        client.post('/api/runs', json={'file_id': van_b, 'params': {'low_speed_policy': 'invalid'}})
+
+    _upload_with_device(client, 'van_c.csv', 'pixel 9, android=15', 'van')  # never run
+
+    sedan_a = _upload_with_device(client, 'sedan_a.csv', 'pixel 9, android=15', 'sedan')
+    client.post('/api/runs', json={'file_id': sedan_a, 'params': {'low_speed_policy': 'invalid'}})
+
+    d = client.get('/api/dashboard').json()
+    van, sedan = d['by_vehicle_type']['van'], d['by_vehicle_type']['sedan']
+
+    assert van['files_total'] == 3          # van_a, van_b, van_c -- run or not
+    assert van['runs_done'] == 4            # 1 (a) + 3 (b, incl. re-runs) + 0 (c)
+    assert van['files_total'] != van['runs_done']
+
+    assert sedan['files_total'] == 1
+    assert sedan['runs_done'] == 1
+
+    # The chips partition «Всі»: per-type counters sum back to the globals.
+    assert d['files_total'] == 4 and d['runs_done'] == 5
+    assert sum(v['files_total'] for v in d['by_vehicle_type'].values()) == d['files_total']
+    assert sum(v['runs_done'] for v in d['by_vehicle_type'].values()) == d['runs_done']

@@ -1,13 +1,21 @@
 """
-Dashboard aggregation over the latest done run of each non-deleted file.
-Totals come from run summaries; the histogram and worst list read the
-segment CSVs (few local files — no caching needed).
+Dashboard aggregation, over two deliberately distinct populations (same at the
+top level and per vehicle_type -- the per-type buckets must sum back to the
+top-level totals, so the UI's chips partition «Всі»):
 
-The same totals are also broken down per vehicle_type: source is
-SourceFile.recording_meta via coefficients.vehicle_type_from_meta — the same
-per-file source files-page.html already reads to show a file's vehicle type
-(not the run's own recording_meta.json, which is a different, run-scoped
-artifact). Missing vehicle_type maps to UNKNOWN_VEHICLE_TYPE.
+  - files_total / runs_done count ALL SourceFile rows and ALL 'done'
+    AnalysisRun rows respectively -- every file (source_deleted or not, run or
+    not) and every done run (re-runs included), with no dedup.
+  - km_total / low_speed_total / mean_iri_multi / iri_histogram / the worst
+    list are computed over only the LATEST done run of each file; the
+    histogram and worst list additionally read the segment CSVs (few local
+    files — no caching needed).
+
+vehicle_type is read from SourceFile.recording_meta via
+coefficients.vehicle_type_from_meta — the same per-file source
+files-page.html already reads to show a file's vehicle type (not the run's
+own recording_meta.json, which is a different, run-scoped artifact). Missing
+vehicle_type maps to UNKNOWN_VEHICLE_TYPE.
 """
 
 from pathlib import Path
@@ -46,7 +54,16 @@ def build_dashboard(session: Session) -> dict:
     worst = []
     by_type: dict[str, dict] = {}
 
+    def _bucket(vehicle_type: str) -> dict:
+        return by_type.setdefault(vehicle_type, _new_type_bucket())
+
     for f in files:
+        vehicle_type = vehicle_type_from_meta(f.recording_meta) or UNKNOWN_VEHICLE_TYPE
+        # files_total mirrors the global population exactly: every file, run
+        # or not (same as len(files) below) -- counted regardless of whether
+        # the stats loop below finds a done run for it.
+        _bucket(vehicle_type)['files_total'] += 1
+
         run = _latest_done_run(f)
         if run is None:
             continue
@@ -56,10 +73,7 @@ def build_dashboard(session: Session) -> dict:
         km_total += run_km
         low_speed_total += run_low_speed
 
-        vehicle_type = vehicle_type_from_meta(f.recording_meta) or UNKNOWN_VEHICLE_TYPE
-        bucket = by_type.setdefault(vehicle_type, _new_type_bucket())
-        bucket['files_total'] += 1
-        bucket['runs_done'] += 1
+        bucket = _bucket(vehicle_type)
         bucket['km_total'] += run_km
         bucket['low_speed_total'] += run_low_speed
 
@@ -86,6 +100,14 @@ def build_dashboard(session: Session) -> dict:
                 'iri_multi': None if pd.isna(row['iri_multi']) else float(row['iri_multi']),
                 'needs_class12_survey': bool(row['needs_class12_survey']),
             })
+
+    # runs_done per type mirrors the global population exactly: every 'done'
+    # AnalysisRun row, including re-runs of the same file -- NOT deduped to
+    # the latest one (that dedup only applies to the stats loop above).
+    for r in runs_done:
+        vehicle_type = vehicle_type_from_meta(
+            r.file.recording_meta if r.file else None) or UNKNOWN_VEHICLE_TYPE
+        _bucket(vehicle_type)['runs_done'] += 1
 
     worst.sort(key=lambda s: s['iri_psd'], reverse=True)
 
