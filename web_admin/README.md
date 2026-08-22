@@ -3,7 +3,8 @@
 Локальна адмінка для Road Quality Analyzer: FastAPI + SQLite backend
 (`web_admin/backend/`), Angular 22 frontend (`web_admin/frontend/`).
 Повний опис функціоналу — `../docs/08_user_guide_and_cli_reference.md`
-(розділ «Веб-адмінка» і підрозділ «Калібрування (Phase 3)»).
+(розділ «Веб-адмінка», і Phase 2 — мультипроїзні порівняння, еталони,
+агрегати — і підрозділ «Калібрування (Phase 3)»).
 
 ## Передумови
 

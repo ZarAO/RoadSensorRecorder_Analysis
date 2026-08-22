@@ -14,10 +14,11 @@ python -m road_quality_analyzer analyze \
   --out out/new_analysis
 ```
 
-CLI має два обов'язкові параметри — `--input` і `--out` — та один
-необов'язковий: `--low-speed-policy {very-poor|poor|invalid|ignore}`
+CLI має два обов'язкові параметри — `--input` і `--out` — та три
+необов'язкові: `--low-speed-policy {very-poor|poor|invalid|ignore}`
 (за замовчуванням `invalid`), який керує сегментами, пройденими повільніше за
-20 км/год (див. [08](08_user_guide_and_cli_reference.md)).
+20 км/год, і `--iri-psd-A`/`--iri-psd-B` — калібровані коефіцієнти Eq.3
+(див. [08](08_user_guide_and_cli_reference.md)).
 
 **Веб-адмінка:** `web_admin/` (FastAPI + Angular 22) — керування файлами,
 ранами, глобальна мапа, дашборд (розбивка за типом авто); Phase 3

@@ -153,8 +153,8 @@ Recording Events) і `recording_meta.json`:
 
 ```csv
 # device_id=abc123                       ← v3.1: ідентичність телефона (преамбула, не блок авто)
+# vehicle_id=u-1                         ← v3.1: ідентичність авто (додатковий, 12-й ключ блоку — записується першим рядком блоку)
 # vehicle_type=sedan                     ← v3: блок профілю авто (11 ключів)
-# vehicle_id=u-1                         ← v3.1: ідентичність авто (12-й ключ блоку, разом із device_id)
 # event: t=1753796581000, type=gps_lost, age_s=12   ← v2.1: інцидент запису
 # end: duration_ms=40000, rows_accel=4000, rows_gyro=0, rows_gps=40, events=2, battery_end_pct=85, reason=user
 ```
@@ -832,8 +832,9 @@ IRI_multi, що й сторінка рану (`bias_of(run.params['coefficients'
 `vehicle_type` береться з `SourceFile.recording_meta` через
 `coefficients.vehicle_type_from_meta` (той самий геттер, що й сторінка
 файлів) — **не** з `recording_meta.json` конкретного рану. Відсутній тип
-авто мапиться у `невідомо`; якщо всі файли мають лише цей ключ, чипи
-розбивки на UI не показуються (тривіальна розбивка — нема з чим порівнювати).
+авто мапиться у `невідомо`; чипи розбивки на UI не показуються, коли типів
+узагалі немає (порожні дані) або коли єдиний наявний тип — `невідомо`
+(тривіальна розбивка — нема з чим порівнювати).
 
 `by_vehicle_type[type]` має ту саму форму, що й верхній рівень (`files_total`,
 `runs_done`, `km_total`, `low_speed_total`, `mean_iri_multi`, `iri_histogram`),
@@ -921,10 +922,10 @@ cmp<id>_<stamp>/
 Порівняння одного еталона з **кількома** ранами тієї самої дороги (мінімум 2,
 `MIN_RUNS`) — репрезентативніша оцінка, ніж один проїзд, і єдиний спосіб
 оцінити повторюваність і ефект швидкості. Математика — виключно з
-дисертаційного пакета `profilometer_validation.aggregate` (модуль сам себе
-документує як «unchanged — the admin runs exactly what the dissertation
-reports»); backend (`src/services/aggregate.py`) лише оркеструє: гарди,
-зіставлення по кожному рану, артефакти, графіки.
+дисертаційного пакета `profilometer_validation.aggregate`; backend-оркестратор
+(`src/services/aggregate.py`) сам документує це у своєму docstring як
+«unchanged — the admin runs exactly what the dissertation reports» — він лише
+оркеструє: гарди, зіставлення по кожному рану, артефакти, графіки.
 
 Методика:
 
