@@ -1,5 +1,7 @@
 import pytest
 
+from tests.helpers import make_probe_csv
+from tests.test_coefficients import _upload_with_device
 from tests.test_runs_api import fake_analyze, make_done_run  # noqa: F401 (fixtures)
 
 
@@ -36,3 +38,41 @@ def test_dashboard_aggregates(client, tmp_path, fake_analyze):
 def test_dashboard_empty_state(client):
     d = client.get('/api/dashboard').json()
     assert d['files_total'] == 0 and d['worst_segments'] == []
+    assert d['by_vehicle_type'] == {}
+
+
+def test_dashboard_breaks_down_by_vehicle_type(client, fake_analyze):
+    van_id = _upload_with_device(client, 'van.csv', 'pixel 9, android=15', 'van')
+    client.post('/api/runs', json={'file_id': van_id,
+                                   'params': {'low_speed_policy': 'invalid'}})
+    sedan_id = _upload_with_device(client, 'sedan.csv', 'pixel 9, android=15', 'sedan')
+    client.post('/api/runs', json={'file_id': sedan_id,
+                                   'params': {'low_speed_policy': 'invalid'}})
+
+    d = client.get('/api/dashboard').json()
+    by_type = d['by_vehicle_type']
+    assert set(by_type) == {'van', 'sedan'}
+    for key in ('van', 'sedan'):
+        assert by_type[key]['files_total'] == 1
+        assert by_type[key]['runs_done'] == 1
+        assert by_type[key]['km_total'] == pytest.approx(0.2)
+        assert by_type[key]['low_speed_total'] == 1
+        assert by_type[key]['mean_iri_multi'] == pytest.approx(3.2)
+        assert sum(b['count'] for b in by_type[key]['iri_histogram']) == 1
+    # Global totals stay the sum across types (unchanged shape/behaviour)
+    assert d['files_total'] == 2 and d['km_total'] == pytest.approx(0.4)
+
+
+def test_dashboard_vehicle_type_defaults_to_unknown(client, tmp_path, fake_analyze):
+    """A file with no vehicle preamble buckets under the 'невідомо' key."""
+    no_meta_path = make_probe_csv(tmp_path, name='no_meta.csv', preamble=False)
+    with open(no_meta_path, 'rb') as fh:
+        r = client.post('/api/files', files={'file': ('no_meta.csv', fh, 'text/csv')})
+    assert r.status_code == 201, r.text
+    client.post('/api/runs', json={'file_id': r.json()['id'],
+                                   'params': {'low_speed_policy': 'invalid'}})
+
+    d = client.get('/api/dashboard').json()
+    assert set(d['by_vehicle_type']) == {'невідомо'}
+    assert d['by_vehicle_type']['невідомо']['files_total'] == 1
+    assert d['by_vehicle_type']['невідомо']['runs_done'] == 1

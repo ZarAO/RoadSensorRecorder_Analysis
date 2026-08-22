@@ -227,3 +227,41 @@ class FileCompareOut(BaseModel):
     run_b: CompareRunSide
     segments: list[CompareSegmentRow]
     summary: CompareSummary
+
+
+class IriHistogramBin(BaseModel):
+    bin_start: float
+    bin_end: float
+    count: int
+
+
+class WorstSegment(BaseModel):
+    run_id: int
+    filename: str
+    seg_id: int
+    iri_psd: float
+    iri_multi: Optional[float] = None
+    needs_class12_survey: bool
+
+
+class VehicleTypeStats(BaseModel):
+    """Task 8: same totals as DashboardOut, computed over the latest done run
+    per file whose vehicle_type (SourceFile.recording_meta) matches this key."""
+
+    files_total: int
+    runs_done: int
+    km_total: float
+    low_speed_total: int
+    mean_iri_multi: Optional[float] = None
+    iri_histogram: list[IriHistogramBin]
+
+
+class DashboardOut(BaseModel):
+    files_total: int
+    runs_done: int
+    km_total: float
+    low_speed_total: int
+    iri_histogram: list[IriHistogramBin]
+    worst_segments: list[WorstSegment]
+    # Key = vehicle_type, or 'невідомо' when the file carries no vehicle block
+    by_vehicle_type: dict[str, VehicleTypeStats]

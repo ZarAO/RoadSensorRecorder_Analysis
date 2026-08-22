@@ -111,6 +111,17 @@ export interface WorstSegment {
   needs_class12_survey: boolean;
 }
 
+/** Task 8: same shape as the DashboardOut totals, computed over the latest
+ *  done run per file whose vehicle_type matches this key. */
+export interface VehicleTypeStats {
+  files_total: number;
+  runs_done: number;
+  km_total: number;
+  low_speed_total: number;
+  mean_iri_multi: number | null;
+  iri_histogram: IriHistogramBin[];
+}
+
 export interface DashboardOut {
   files_total: number;
   runs_done: number;
@@ -118,6 +129,8 @@ export interface DashboardOut {
   low_speed_total: number;
   iri_histogram: IriHistogramBin[];
   worst_segments: WorstSegment[];
+  /** Key = vehicle_type, or 'невідомо' when the file carries no vehicle block. */
+  by_vehicle_type: Record<string, VehicleTypeStats>;
 }
 
 export interface GeoJsonFeatureCollection {

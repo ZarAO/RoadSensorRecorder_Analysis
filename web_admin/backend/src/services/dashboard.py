@@ -2,6 +2,12 @@
 Dashboard aggregation over the latest done run of each non-deleted file.
 Totals come from run summaries; the histogram and worst list read the
 segment CSVs (few local files — no caching needed).
+
+The same totals are also broken down per vehicle_type: source is
+SourceFile.recording_meta via coefficients.vehicle_type_from_meta — the same
+per-file source files-page.html already reads to show a file's vehicle type
+(not the run's own recording_meta.json, which is a different, run-scoped
+artifact). Missing vehicle_type maps to UNKNOWN_VEHICLE_TYPE.
 """
 
 from pathlib import Path
@@ -11,9 +17,21 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from src.db.models import AnalysisRun, SourceFile
+from src.services.coefficients import vehicle_type_from_meta
 from src.services.global_map import _latest_done_run
 
 IRI_BIN_EDGES = [float(x) for x in range(0, 13)]  # 1 m/km bins, 0..12
+UNKNOWN_VEHICLE_TYPE = 'невідомо'
+
+
+def _empty_histogram() -> list[dict]:
+    return [{'bin_start': IRI_BIN_EDGES[i], 'bin_end': IRI_BIN_EDGES[i + 1],
+             'count': 0} for i in range(len(IRI_BIN_EDGES) - 1)]
+
+
+def _new_type_bucket() -> dict:
+    return {'files_total': 0, 'runs_done': 0, 'km_total': 0.0, 'low_speed_total': 0,
+            'iri_histogram': _empty_histogram(), '_iri_sum': 0.0, '_iri_count': 0}
 
 
 def build_dashboard(session: Session) -> dict:
@@ -24,17 +42,26 @@ def build_dashboard(session: Session) -> dict:
 
     km_total = 0.0
     low_speed_total = 0
-    histogram = [{'bin_start': IRI_BIN_EDGES[i], 'bin_end': IRI_BIN_EDGES[i + 1],
-                  'count': 0} for i in range(len(IRI_BIN_EDGES) - 1)]
+    histogram = _empty_histogram()
     worst = []
+    by_type: dict[str, dict] = {}
 
     for f in files:
         run = _latest_done_run(f)
         if run is None:
             continue
         summary = run.summary or {}
-        km_total += summary.get('km_total') or 0.0
-        low_speed_total += summary.get('low_speed_count') or 0
+        run_km = summary.get('km_total') or 0.0
+        run_low_speed = summary.get('low_speed_count') or 0
+        km_total += run_km
+        low_speed_total += run_low_speed
+
+        vehicle_type = vehicle_type_from_meta(f.recording_meta) or UNKNOWN_VEHICLE_TYPE
+        bucket = by_type.setdefault(vehicle_type, _new_type_bucket())
+        bucket['files_total'] += 1
+        bucket['runs_done'] += 1
+        bucket['km_total'] += run_km
+        bucket['low_speed_total'] += run_low_speed
 
         csv_path = Path(run.result_dir) / 'road_segments.csv'
         if not csv_path.is_file():
@@ -45,6 +72,9 @@ def build_dashboard(session: Session) -> dict:
         for iri in valid['iri_multi']:
             idx = min(int(iri), len(histogram) - 1) if iri >= 0 else 0
             histogram[idx]['count'] += 1
+            bucket['iri_histogram'][idx]['count'] += 1
+        bucket['_iri_sum'] += float(valid['iri_multi'].sum())
+        bucket['_iri_count'] += len(valid)
 
         by_psd = segments[segments['iri_psd'].notna()]
         for _, row in by_psd.iterrows():
@@ -58,6 +88,19 @@ def build_dashboard(session: Session) -> dict:
             })
 
     worst.sort(key=lambda s: s['iri_psd'], reverse=True)
+
+    by_vehicle_type = {
+        vt: {
+            'files_total': b['files_total'],
+            'runs_done': b['runs_done'],
+            'km_total': b['km_total'],
+            'low_speed_total': b['low_speed_total'],
+            'mean_iri_multi': (b['_iri_sum'] / b['_iri_count']) if b['_iri_count'] else None,
+            'iri_histogram': b['iri_histogram'],
+        }
+        for vt, b in by_type.items()
+    }
+
     return {
         'files_total': len(files),
         'runs_done': len(runs_done),
@@ -65,4 +108,5 @@ def build_dashboard(session: Session) -> dict:
         'low_speed_total': low_speed_total,
         'iri_histogram': histogram,
         'worst_segments': worst[:10],
+        'by_vehicle_type': by_vehicle_type,
     }
