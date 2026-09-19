@@ -33,7 +33,13 @@ from src.api.schemas import (
 )
 from src.db.models import AggregateComparison, AnalysisRun, Comparison, CoefficientSet, SourceFile
 from src.db.session import get_session
-from src.services.coefficients import files_applying_to, files_resolving_to, vehicle_type_from_meta
+from src.services.coefficients import (
+    device_id_from_meta,
+    files_applying_to,
+    files_resolving_to,
+    vehicle_id_from_meta,
+    vehicle_type_from_meta,
+)
 
 router = APIRouter(prefix='/coefficient-sets', tags=['coefficient-sets'])
 
@@ -41,8 +47,13 @@ MSG_ONE_PROVENANCE = ('вкажіть рівно одне джерело: compar
                       'порівняння) або aggregate_comparison_id (агрегація проїздів)')
 MSG_AGGREGATE_NO_EQ3 = ('агрегація не містить фіту Eq.3 — з неї можна створити '
                         'лише набір eq6_bias (зсув)')
-MSG_AGGREGATE_MIXED_VEHICLE_TYPE = ('проїзди агрегата зроблені різними типами авто — '
-                                    'зсув не можна прив’язати до однієї ідентичності')
+MSG_AGGREGATE_MIXED_VEHICLE_TYPE = ('проїзди агрегата зроблені різними типами авто, або в '
+                                    'одному з проїздів тип авто невідомий — зсув не можна '
+                                    'прив’язати до однієї ідентичності')
+MSG_AGGREGATE_IDENTITY_UNVERIFIABLE = ('ідентичність проїздів агрегата неможливо перевірити '
+                                       '— один із проїздів видалено')
+MSG_AGGREGATE_IDENTITY_MISMATCH = ('ідентичність у проїздах агрегата відсутня або не '
+                                   'збігається з указаною')
 
 
 def _to_out(cs: CoefficientSet) -> CoefficientSetOut:
@@ -167,23 +178,43 @@ def _draft_from_comparison(payload: CoefficientSetCreate, session: Session) -> C
     )
 
 
-def _check_identity_vehicle_type_consistency(
+def _check_identity_consistency(
         aggregate: AggregateComparison, payload: CoefficientSetCreate, session: Session) -> None:
-    """Defense in depth for the identity tier: the frontend already blocks
-    creation when an aggregate's pooled passes disagree on vehicle_type, but a
-    direct API call could still post identity keys (device_id + vehicle_id)
-    over such an aggregate and attribute a set fitted across two vehicles to
-    just one of them. Generic-tier payloads (no identity keys) are never
-    blocked here — that divergence is the frontend's warn-and-widen path, not
-    a hard error. Recording metadata comes only from the parsed
-    recording_meta column (never re-parsed here), per the backend rules."""
+    """Defense in depth for the identity tier: the frontend already blocks or
+    widens creation when an aggregate's pooled passes disagree, but a direct
+    API call could still post identity keys (device_id + vehicle_id) over such
+    an aggregate and attribute a set fitted across two vehicles -- or fitted
+    with no identity evidence at all -- to one (device_id, vehicle_id) pair.
+    Generic-tier payloads (no identity keys) are never blocked here — that
+    divergence is the frontend's warn-and-widen path, not a hard error.
+    Recording metadata comes only from the parsed recording_meta column
+    (never re-parsed here), per the backend rules.
+
+    Three checks, most fundamental first:
+      1) every run_id must still resolve to a live AnalysisRun — a deleted
+         pass leaves a gap the aggregate's own vehicle_type/identity cannot
+         be verified across, so it is refused rather than silently narrowed;
+      2) the surviving runs must agree on vehicle_type;
+      3) the surviving runs' own file identity (device_id, vehicle_id) must
+         match the posted key — the payload's IDs come from the operator
+         only through the dialog's own prefill, so the true source of truth
+         is what each run's file actually recorded."""
     if not (payload.device_id and payload.vehicle_id):
         return
     runs = session.scalars(
         select(AnalysisRun).where(AnalysisRun.id.in_(aggregate.run_ids))).all()
+    if len(runs) != len(aggregate.run_ids):
+        raise HTTPException(422, MSG_AGGREGATE_IDENTITY_UNVERIFIABLE)
+
     vehicle_types = {vehicle_type_from_meta(run.file.recording_meta) for run in runs}
     if len(vehicle_types) > 1:
         raise HTTPException(422, MSG_AGGREGATE_MIXED_VEHICLE_TYPE)
+
+    for run in runs:
+        meta = run.file.recording_meta
+        if (device_id_from_meta(meta) != payload.device_id
+                or vehicle_id_from_meta(meta) != payload.vehicle_id):
+            raise HTTPException(422, MSG_AGGREGATE_IDENTITY_MISMATCH)
 
 
 def _draft_from_aggregate(payload: CoefficientSetCreate, session: Session) -> CoefficientSet:
@@ -194,7 +225,7 @@ def _draft_from_aggregate(payload: CoefficientSetCreate, session: Session) -> Co
         raise HTTPException(
             409, 'агрегацію ще не завершено — набір коефіцієнтів можна '
             'створити лише із завершеної агрегації')
-    _check_identity_vehicle_type_consistency(aggregate, payload, session)
+    _check_identity_consistency(aggregate, payload, session)
     # Eq.3 is fitted per comparison (sqrtPSD -> IRI); an aggregate only pools
     # already-computed IRI, so only the Eq.6 bias can come out of it.
     if payload.model != 'eq6_bias':

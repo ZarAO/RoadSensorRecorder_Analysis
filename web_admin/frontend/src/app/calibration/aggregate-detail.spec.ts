@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 
 import { ApiService } from '../api/api.service';
 import { AggregateChartData, AggregateOut, CoefficientSetOut, RunOut } from '../api/dto';
@@ -322,6 +322,49 @@ describe('AggregateDetail', () => {
     expect(button.disabled).toBe(true);
     expect(host.textContent).toContain('різними типами авто');
     expect(host.querySelector('#set-dialog')).toBeFalsy();
+
+    // A disabled native button ignores .click(), and openSetDialog() itself
+    // refuses while blocked — belt and suspenders against a stale click.
+    button.click();
+    await fixture.whenStable();
+    expect(host.querySelector('#set-dialog')).toBeFalsy();
+  });
+
+  it('treats a pooled pass that fails to load as a mismatch, never as agreement', async () => {
+    // 2 of 3 passes load and agree; the third (id 8) fails outright — the
+    // survivors must NOT be trusted as if all three had agreed.
+    const getRunSpy = vi.fn((id: number) => id === 8
+      ? throwError(() => new Error('network error'))
+      : of({
+          ...RUN, id, phone_model: 'samsung SM-S948B', device_id: 'dev-1', vehicle_id: 'veh-1',
+          summary: { ...RUN.summary!, vehicle_type: 'van' },
+        } as RunOut));
+    const createSpy = vi.fn(() => of(CREATED_SET));
+    const fixture = createPage(apiStub({
+      getRun: getRunSpy as unknown as ApiService['getRun'],
+      createCoefficientSet: createSpy as unknown as ApiService['createCoefficientSet'],
+    }));
+    await fixture.whenStable();
+    const host = fixture.nativeElement as HTMLElement;
+
+    // Not blocked (no evidence the vehicle_type itself diverges) — button stays usable
+    const button = Array.from(host.querySelectorAll('button'))
+      .find(b => b.textContent?.trim() === 'Створити набір коефіцієнтів')!;
+    expect(button.disabled).toBe(false);
+
+    click(host, 'Створити набір коефіцієнтів');
+    await fixture.whenStable();
+    const dialog = host.querySelector('#set-dialog')!;
+    expect(dialog.querySelector('#set-warning')).toBeTruthy();
+    const select = dialog.querySelector<HTMLSelectElement>('select')!;
+    expect(Array.from(select.options).map(option => option.textContent?.trim()))
+      .toEqual(['Будь-який телефон цього типу авто']);
+
+    click(dialog.querySelector('.dialog-actions')!, 'Створити');
+    await fixture.whenStable();
+    expect(createSpy).toHaveBeenCalledWith(expect.objectContaining({
+      vehicle_type: 'van', phone_model: null, device_id: null, vehicle_id: null,
+    }));
   });
 
   it('links the aggregate figures, dropping the speed figure when there is no slope', async () => {

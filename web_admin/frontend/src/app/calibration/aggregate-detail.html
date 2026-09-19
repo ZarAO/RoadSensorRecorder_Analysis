@@ -5,8 +5,9 @@
   </div>
   @if (aggregate()?.status === 'done') {
     <div class="set-action">
-      <button class="primary" [disabled]="identityBlocked()"
-              [title]="identityBlocked() ? blockedMessage : ''"
+      <button class="primary" [disabled]="identityBlocked() || !keysLoaded()"
+              [title]="identityBlocked() ? blockedMessage
+                       : (!keysLoaded() ? 'Перевірка проїздів…' : '')"
               (click)="openSetDialog()">Створити набір коефіцієнтів</button>
       @if (identityBlocked()) {
         <p class="warning-note" role="alert">{{ blockedMessage }}</p>

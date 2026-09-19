@@ -9,9 +9,11 @@ import { BandPoint, LineSeries, MultiLineChart } from '../shared/charts/multi-li
 import { CreateSetDialog, SetProvenance, phoneOptionsFor } from './create-set-dialog';
 
 const MSG_MIXED_IDENTITY = 'Проїзди агрегата записані різними телефонами або '
-  + 'конфігураціями авто — набір буде прив’язаний лише до типу авто.';
-const MSG_MIXED_VEHICLE_TYPE = 'Проїзди агрегата зроблені різними типами авто — '
-  + 'зсув не можна прив’язати до однієї ідентичності.';
+  + 'конфігураціями авто (або один із проїздів не вдалося завантажити) — набір '
+  + 'буде прив’язаний лише до типу авто.';
+const MSG_MIXED_VEHICLE_TYPE = 'Проїзди агрегата зроблені різними типами авто, '
+  + 'або в одному з проїздів тип авто невідомий — зсув не можна прив’язати до '
+  + 'однієї ідентичності.';
 
 /** The identity keys of one pooled pass, as read off its RunOut. */
 interface RunKeys {
@@ -69,6 +71,10 @@ export class AggregateDetail {
    *  aggregate cannot be attributed to one identity at all, so creation is blocked. */
   readonly identityBlocked = signal(false);
   readonly blockedMessage = MSG_MIXED_VEHICLE_TYPE;
+  /** False until every pooled pass has been fetched (successfully or not) —
+   *  gates the create button so the operator can never open the dialog on a
+   *  stale/optimistic prefill while the consistency check is still in flight. */
+  readonly keysLoaded = signal(false);
 
   readonly summary = computed(() => this.aggregate()?.summary ?? null);
 
@@ -135,6 +141,7 @@ export class AggregateDetail {
         // An aggregate has no single run: every pooled pass is fetched so a
         // mixed-vehicle aggregate cannot silently inherit pass #1's identity.
         if (aggregate.run_ids.length) this.loadRunKeys(aggregate.run_ids);
+        else this.keysLoaded.set(true);
       },
       error: err => { this.loading.set(false); this.error.set(this.describe(err)); },
     });
@@ -155,27 +162,40 @@ export class AggregateDetail {
         deviceId: run.device_id,
         vehicleId: run.vehicle_id,
       })),
-      // A missing run only costs its own contribution to the prefill — the
-      // operator can still type the vehicle type, and a run that fails to load
-      // must never look like a false consistency match with the others.
+      // A run that fails to load is NOT the same as an agreeing run: the
+      // consistency check below must see the gap (via the expected count),
+      // never silently drop it and let the survivors look like full agreement.
       catchError(() => of(null)),
     ));
     forkJoin(perRun).subscribe(results => {
       const keys = results.filter((k): k is RunKeys => k !== null);
-      this.applyRunKeys(keys);
+      this.applyRunKeys(keys, runIds.length);
+      this.keysLoaded.set(true);
     });
   }
 
   /** Cross-pass consistency (spec: coefficient sets are attributed to one
-   *  identity, never to whichever pass happened to be listed first):
-   *   - identical (vehicle_type, phone/device, vehicle) on every pass -> prefill
-   *     that one identity, unchanged from the single-pass behavior;
-   *   - same vehicle_type but a diverging phone/device/vehicle -> fall back to
-   *     the generic (vehicle_type-only) tier and warn;
-   *   - vehicle_type itself diverges -> no identity applies at all, block
-   *     creation from this aggregate entirely. */
-  private applyRunKeys(keys: RunKeys[]): void {
-    if (!keys.length) return;
+   *  identity, never to whichever pass happened to be listed first, and never
+   *  to a false agreement of whichever passes happened to load):
+   *   - identical (vehicle_type, phone/device, vehicle) on EVERY pooled pass,
+   *     all of them successfully loaded -> prefill that one identity,
+   *     unchanged from the single-pass behavior;
+   *   - the loaded passes disagree on vehicle_type -> vehicle_type itself is
+   *     unattributable, block creation from this aggregate entirely;
+   *   - otherwise (a load failure, or a diverging phone/device/vehicle among
+   *     otherwise-agreeing vehicle types) -> fall back to the generic
+   *     (vehicle_type-only) tier and warn; a gap in the evidence is treated
+   *     as a mismatch, never as agreement. */
+  private applyRunKeys(keys: RunKeys[], expectedCount: number): void {
+    if (!keys.length) {
+      this.identityBlocked.set(false);
+      this.identityWarning.set(null);
+      this.vehicleType.set('');
+      this.phoneModel.set(null);
+      this.deviceId.set(null);
+      this.vehicleId.set(null);
+      return;
+    }
     const vehicleTypes = new Set(keys.map(k => k.vehicleType ?? ''));
     if (vehicleTypes.size > 1) {
       this.identityBlocked.set(true);
@@ -184,15 +204,17 @@ export class AggregateDetail {
       this.phoneModel.set(null);
       this.deviceId.set(null);
       this.vehicleId.set(null);
+      this.setOpen.set(false); // in case a race left it open on a now-blocked aggregate
       return;
     }
     this.identityBlocked.set(false);
     this.vehicleType.set(keys[0].vehicleType ?? '');
 
     const [first, ...rest] = keys;
-    const sameIdentity = rest.every(k => k.phoneModel === first.phoneModel
+    const identityAgrees = rest.every(k => k.phoneModel === first.phoneModel
       && k.deviceId === first.deviceId && k.vehicleId === first.vehicleId);
-    if (sameIdentity) {
+    const complete = keys.length === expectedCount;
+    if (identityAgrees && complete) {
       this.phoneModel.set(first.phoneModel);
       this.deviceId.set(first.deviceId);
       this.vehicleId.set(first.vehicleId);
@@ -212,6 +234,9 @@ export class AggregateDetail {
   // --- coefficient-set dialog ---------------------------------------------
 
   openSetDialog(): void {
+    // Defense behind the disabled button: a stale click (e.g. queued before a
+    // render) must never open the dialog on a blocked aggregate.
+    if (this.identityBlocked()) return;
     this.createdSet.set(null);
     this.setOpen.set(true);
   }

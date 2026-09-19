@@ -88,13 +88,18 @@ def _create_aggregate(client, run_ids, ref_id):
     return r.json()['id']
 
 
-def _make_passes_with_meta(client, tmp_path, vehicle_types):
+def _make_passes_with_meta(client, tmp_path, vehicle_types, device_ids=None, vehicle_ids=None):
     """Like _make_passes_and_reference, but each pass's file carries the given
-    per-pass vehicle_type in recording_meta — for the identity-consistency
-    check on the coefficient-set draft endpoint."""
+    per-pass vehicle_type (and, optionally, a contract v3.1 device_id/vehicle_id
+    identity) in recording_meta — for the identity-consistency check on the
+    coefficient-set draft endpoint. device_ids/vehicle_ids default to None per
+    pass (legacy files with no identity at all, as a real pre-v3.1 recording
+    or an un-retrofitted upload would carry)."""
     from src.core.config import get_settings
     from src.db.models import AnalysisRun, ReferenceDataset, SourceFile
 
+    device_ids = device_ids or [None] * len(vehicle_types)
+    vehicle_ids = vehicle_ids or [None] * len(vehicle_types)
     engine = client.app.state.engine
     settings = get_settings()
     run_ids = []
@@ -105,11 +110,16 @@ def _make_passes_with_meta(client, tmp_path, vehicle_types):
         s.add(ref)
         s.commit()
         _make_reference(settings.storage_reference_dir / str(ref.id))
-        for idx, ((shift, speed), vt) in enumerate(zip(PASSES, vehicle_types)):
-            f = SourceFile(
-                filename=f'pass_meta{idx}.csv', size_bytes=1,
-                recording_meta={'preamble': {'device': 'samsung SM-S948B, android=16'},
-                                'vehicle': {'vehicle_type': vt}})
+        for idx, ((shift, speed), vt, did, vid) in enumerate(
+                zip(PASSES, vehicle_types, device_ids, vehicle_ids)):
+            preamble = {'device': 'samsung SM-S948B, android=16'}
+            if did is not None:
+                preamble['device_id'] = did
+            vehicle = {'vehicle_type': vt}
+            if vid is not None:
+                vehicle['vehicle_id'] = vid
+            f = SourceFile(filename=f'pass_meta{idx}.csv', size_bytes=1,
+                           recording_meta={'preamble': preamble, 'vehicle': vehicle})
             s.add(f)
             s.commit()
             run = AnalysisRun(file_id=f.id, status='done',
@@ -258,11 +268,38 @@ def test_coefficient_set_draft_from_aggregate(client, tmp_path):
                              'vehicle_type': 'van'}).status_code == 404
 
 
-def test_coefficient_set_draft_identity_tier_ok_when_passes_agree(client, tmp_path):
-    """Happy path: every pooled pass shares one vehicle_type, so an identity-keyed
-    (device_id + vehicle_id) draft is allowed straight through."""
+def test_coefficient_set_draft_identity_tier_422_when_runs_carry_no_identity(client, tmp_path):
+    """An identity-keyed (device_id + vehicle_id) draft over passes that share a
+    vehicle_type but whose files carry NO device_id/vehicle_id at all (legacy /
+    un-retrofitted uploads) must be refused — the posted identity would be
+    attributed to runs that never recorded it. The SAME aggregate still allows
+    a generic-tier draft (no identity keys), which is the frontend's actual
+    fallback path for exactly this situation."""
     from tests.test_coefficients import DEVICE_ID, VEHICLE_ID
     run_ids, ref_id = _make_passes_with_meta(client, tmp_path, ['van', 'van', 'van'])
+    agg_id = _create_aggregate(client, run_ids, ref_id)
+
+    r = client.post('/api/coefficient-sets', json={
+        'aggregate_comparison_id': agg_id, 'model': 'eq6_bias', 'name': 'AGG_no_identity',
+        'vehicle_type': 'van', 'phone_model': 'samsung SM-S948B',
+        'device_id': DEVICE_ID, 'vehicle_id': VEHICLE_ID})
+    assert r.status_code == 422, r.text
+    assert 'не збігається' in r.json()['detail'] or 'відсутня' in r.json()['detail']
+
+    generic = client.post('/api/coefficient-sets', json={
+        'aggregate_comparison_id': agg_id, 'model': 'eq6_bias',
+        'name': 'AGG_no_identity_generic', 'vehicle_type': 'van'})
+    assert generic.status_code == 201, generic.text
+
+
+def test_coefficient_set_draft_identity_tier_ok_with_matching_metas(client, tmp_path):
+    """True tier-1 happy path: every pooled pass's file carries the SAME
+    device_id/vehicle_id as the posted payload (the retrofit-script shape) —
+    the identity-keyed draft is allowed straight through."""
+    from tests.test_coefficients import DEVICE_ID, VEHICLE_ID
+    run_ids, ref_id = _make_passes_with_meta(
+        client, tmp_path, ['van', 'van', 'van'],
+        device_ids=[DEVICE_ID] * 3, vehicle_ids=[VEHICLE_ID] * 3)
     agg_id = _create_aggregate(client, run_ids, ref_id)
 
     r = client.post('/api/coefficient-sets', json={
@@ -294,6 +331,30 @@ def test_coefficient_set_draft_identity_tier_422_on_mixed_vehicle_type(client, t
     generic = client.post('/api/coefficient-sets', json={
         'aggregate_comparison_id': agg_id, 'model': 'eq6_bias',
         'name': 'AGG_identity_bad_generic', 'vehicle_type': 'van'})
+    assert generic.status_code == 201, generic.text
+
+
+def test_coefficient_set_draft_identity_tier_422_when_a_pooled_run_was_deleted(client, tmp_path):
+    """CRITICAL: a deleted pooled run must never silently narrow the identity
+    check to whichever runs happen to still exist — the aggregate's run_ids
+    still lists it, so the gap is refused outright rather than verified
+    against fewer runs than the aggregate actually pools."""
+    from tests.test_coefficients import DEVICE_ID, VEHICLE_ID
+    run_ids, ref_id = _make_passes_and_reference(client, tmp_path)
+    agg_id = _create_aggregate(client, run_ids, ref_id)
+    assert client.delete(f'/api/runs/{run_ids[0]}').status_code == 204
+
+    r = client.post('/api/coefficient-sets', json={
+        'aggregate_comparison_id': agg_id, 'model': 'eq6_bias', 'name': 'AGG_deleted_pass',
+        'vehicle_type': 'van', 'phone_model': 'samsung SM-S948B',
+        'device_id': DEVICE_ID, 'vehicle_id': VEHICLE_ID})
+    assert r.status_code == 422, r.text
+    assert 'неможливо перевірити' in r.json()['detail']
+
+    # Generic-tier is unaffected by the same gap — it never reads identity at all
+    generic = client.post('/api/coefficient-sets', json={
+        'aggregate_comparison_id': agg_id, 'model': 'eq6_bias',
+        'name': 'AGG_deleted_pass_generic', 'vehicle_type': 'van'})
     assert generic.status_code == 201, generic.text
 
 
