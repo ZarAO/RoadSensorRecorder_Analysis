@@ -15,21 +15,25 @@ Never mutates the source file: it always writes a new file at --out and
 refuses to overwrite an existing one. A provenance comment line is appended
 right after the vehicle block, marking the file as retrofitted (and letting a
 second, accidental retrofit attempt over the same input refuse outright).
+--retrofit-date pins that line's date (default: today) so the same command
+line reproduces a byte-identical output on a later run, per the dissertation
+project's reproducibility rule.
 
 Contract v3.1 (pinned by analyzer/tests/test_metadata.py):
   - `# device_id=<token>` is inserted into the preamble immediately after the
     `# device: ...` line;
   - `# vehicle_id=<uuid>` is inserted as the FIRST line of the `# vehicle_*`
     block, immediately before the first `# vehicle_` line.
-Both keys are read by the parser's tolerant '#'-comment scanner
-(road_quality_analyzer.io.parse_recording_metadata) without raising -- unknown
-comment lines only ever produce a warning, never an exception. Everything
-else in the file (including its own '\\n' vs '\\r\\n' line endings) is passed
-through byte-identical.
+Both keys, and the provenance line's own `# retrofit=...` key, are read by the
+parser's tolerant '#'-comment scanner (road_quality_analyzer.io.parse_
+recording_metadata) without raising -- an unrecognized comment line only ever
+produces a warning, never an exception. Everything else in the file
+(including its own '\\n' vs '\\r\\n' line endings) is passed through
+byte-identical.
 
 Usage:
     python scripts/retrofit_v31.py --input src.csv --out dst.csv \\
-        --device-id <token> --vehicle-id <uuid>
+        --device-id <token> --vehicle-id <uuid> [--retrofit-date 2026-09-19]
     python scripts/retrofit_v31.py --verify dst.csv
 """
 
@@ -41,6 +45,7 @@ DEVICE_LINE_PREFIX = '# device:'
 DEVICE_ID_PREFIX = '# device_id='
 VEHICLE_LINE_PREFIX = '# vehicle_'
 VEHICLE_ID_PREFIX = '# vehicle_id='
+PROVENANCE_PREFIX = '# retrofit='
 TOOL_NAME = 'scripts/retrofit_v31.py'
 
 
@@ -80,7 +85,8 @@ def _insert_device_id(lines: list[str], device_id: str) -> list[str]:
     raise SystemExit("no '# device:' preamble line found -- not a v2/v3 recording")
 
 
-def _insert_vehicle_id_and_provenance(lines: list[str], vehicle_id: str) -> list[str]:
+def _insert_vehicle_id_and_provenance(
+        lines: list[str], vehicle_id: str, retrofit_date: dt.date) -> list[str]:
     start = next((i for i, line in enumerate(lines)
                  if line.startswith(VEHICLE_LINE_PREFIX)), None)
     if start is None:
@@ -88,19 +94,23 @@ def _insert_vehicle_id_and_provenance(lines: list[str], vehicle_id: str) -> list
     end = start
     while end < len(lines) and lines[end].startswith(VEHICLE_LINE_PREFIX):
         end += 1
-    provenance = (f'# retrofit: v3.1 identity added {dt.date.today().isoformat()}, '
-                  f'tool={TOOL_NAME}')
+    # A plain 'key=value' payload (single '=', no nested '='), same shape as
+    # every other machine-readable comment line the parser already recognizes
+    # -- it lands in preamble['retrofit'] instead of an unrecognized-line warning.
+    provenance = f'{PROVENANCE_PREFIX}v3.1-identity {retrofit_date.isoformat()} {TOOL_NAME}'
     return (lines[:start] + [f'{VEHICLE_ID_PREFIX}{vehicle_id}'] + lines[start:end]
             + [provenance] + lines[end:])
 
 
-def retrofit(input_path: Path, out_path: Path, device_id: str, vehicle_id: str) -> None:
+def retrofit(input_path: Path, out_path: Path, device_id: str, vehicle_id: str,
+            retrofit_date: dt.date | None = None) -> None:
     if out_path.exists():
         raise SystemExit(f'{out_path}: already exists -- refusing to overwrite')
     lines, eol, trailing = _read_lines(input_path)
     _refuse_if_already_retrofitted(lines, input_path)
     lines = _insert_device_id(lines, device_id)
-    lines = _insert_vehicle_id_and_provenance(lines, vehicle_id)
+    lines = _insert_vehicle_id_and_provenance(
+        lines, vehicle_id, retrofit_date or dt.date.today())
     out_path.parent.mkdir(parents=True, exist_ok=True)
     _write_lines(out_path, lines, eol, trailing)
 
@@ -114,6 +124,7 @@ def verify(path: Path) -> None:
     print(f'device_id: {meta.preamble.get("device_id")!r}')
     print(f'vehicle_id: {meta.vehicle.get("vehicle_id")!r}')
     print(f'vehicle_type: {meta.vehicle.get("vehicle_type")!r}')
+    print(f'retrofit provenance: {meta.preamble.get("retrofit")!r}')
     print(f'warnings ({len(meta.warnings)}):')
     for warning in meta.warnings:
         print(f'  - {warning}')
@@ -126,6 +137,9 @@ def main() -> None:
     parser.add_argument('--out', type=Path, help='retrofitted CSV to write (must not exist)')
     parser.add_argument('--device-id', help='contract v3.1 device_id token')
     parser.add_argument('--vehicle-id', help='contract v3.1 vehicle_id (uuid)')
+    parser.add_argument('--retrofit-date', type=dt.date.fromisoformat, metavar='YYYY-MM-DD',
+                        help='provenance line date (default: today); pin it to reproduce '
+                             'a byte-identical output on a later run')
     parser.add_argument('--verify', type=Path, metavar='FILE.csv',
                         help='self-check mode: parse FILE and print its identity fields')
     args = parser.parse_args()
@@ -141,7 +155,7 @@ def main() -> None:
     if missing:
         parser.error(f'retrofit mode requires {", ".join(missing)} (or use --verify alone)')
 
-    retrofit(args.input, args.out, args.device_id, args.vehicle_id)
+    retrofit(args.input, args.out, args.device_id, args.vehicle_id, args.retrofit_date)
     print(f'{args.out}: retrofitted from {args.input}')
 
 

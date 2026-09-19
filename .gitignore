@@ -135,14 +135,17 @@ venv.bak/
 # A venv created straight in the repo root (`python -m venv .`) drops these here.
 # Anchored to the root on purpose: an unanchored `Scripts/` matches at every depth
 # and (git compares paths case-insensitively on Windows) also swallowed the
-# backend's own scripts/ — that one is source.
+# backend's own scripts/ — that one is source. For the same case-insensitivity
+# reason a blanket `/Scripts/` rule would ALSO swallow a real top-level
+# `scripts/` (lowercase) source directory, so this only ignores the venv's own
+# generated entry points/executables by name, never a directory as a whole.
 /Lib/
-/Scripts/
+/Scripts/*.exe
+/Scripts/activate*
+/Scripts/pip*
+/Scripts/python*
 /share/
 /pyvenv.cfg
-# Windows git compares paths case-insensitively, so /Scripts/ above also
-# swallows a real top-level scripts/ (lowercase) source directory -- un-ignore it.
-!/scripts/
 
 # === IDE ===
 # VS Code
