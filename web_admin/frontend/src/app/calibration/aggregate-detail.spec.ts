@@ -244,6 +244,86 @@ describe('AggregateDetail', () => {
       .toContain('eq6_bias_sedan_2026-08-20');
   });
 
+  it('prefills the shared identity when every pooled pass fetched separately agrees', async () => {
+    const runOf = (id: number): RunOut => ({
+      ...RUN, id, phone_model: 'samsung SM-S948B', device_id: 'dev-1', vehicle_id: 'veh-1',
+      summary: { ...RUN.summary!, vehicle_type: 'van' },
+    });
+    const getRunSpy = vi.fn((id: number) => of(runOf(id)));
+    const fixture = createPage(apiStub({
+      getRun: getRunSpy as unknown as ApiService['getRun'],
+    }));
+    await fixture.whenStable();
+    const host = fixture.nativeElement as HTMLElement;
+
+    expect(getRunSpy).toHaveBeenCalledTimes(3);
+    expect([5, 6, 8]).toEqual(getRunSpy.mock.calls.map(call => call[0]).sort((a, b) => a - b));
+
+    click(host, 'Створити набір коефіцієнтів');
+    await fixture.whenStable();
+    const dialog = host.querySelector('#set-dialog')!;
+    expect(dialog.querySelector('#set-warning')).toBeFalsy();
+    const select = dialog.querySelector<HTMLSelectElement>('select')!;
+    expect(Array.from(select.options).map(option => option.textContent?.trim())).toEqual([
+      'Цей телефон і авто (samsung SM-S948B)',
+      'Будь-який телефон цього типу авто',
+    ]);
+  });
+
+  it('falls back to the generic tier and warns when the pooled passes carry different phones', async () => {
+    const getRunSpy = vi.fn((id: number) => of({
+      ...RUN, id,
+      phone_model: id === 5 ? 'samsung SM-S948B' : 'google Pixel 9',
+      device_id: null, vehicle_id: null,
+      summary: { ...RUN.summary!, vehicle_type: 'van' },
+    } as RunOut));
+    const createSpy = vi.fn(() => of(CREATED_SET));
+    const fixture = createPage(apiStub({
+      getRun: getRunSpy as unknown as ApiService['getRun'],
+      createCoefficientSet: createSpy as unknown as ApiService['createCoefficientSet'],
+    }));
+    await fixture.whenStable();
+    const host = fixture.nativeElement as HTMLElement;
+
+    // Not blocked — same vehicle_type everywhere — so the button stays enabled
+    const button = Array.from(host.querySelectorAll('button'))
+      .find(b => b.textContent?.trim() === 'Створити набір коефіцієнтів')!;
+    expect(button.disabled).toBe(false);
+
+    click(host, 'Створити набір коефіцієнтів');
+    await fixture.whenStable();
+    const dialog = host.querySelector('#set-dialog')!;
+    expect(dialog.querySelector('#set-warning')?.textContent)
+      .toContain('різними телефонами або конфігураціями авто');
+    const select = dialog.querySelector<HTMLSelectElement>('select')!;
+    expect(Array.from(select.options).map(option => option.textContent?.trim()))
+      .toEqual(['Будь-який телефон цього типу авто']);
+
+    click(dialog.querySelector('.dialog-actions')!, 'Створити');
+    await fixture.whenStable();
+    expect(createSpy).toHaveBeenCalledWith(expect.objectContaining({
+      vehicle_type: 'van', phone_model: null, device_id: null, vehicle_id: null,
+    }));
+  });
+
+  it('blocks set creation when the pooled passes carry different vehicle types', async () => {
+    const getRunSpy = vi.fn((id: number) => of({
+      ...RUN, id,
+      summary: { ...RUN.summary!, vehicle_type: id === 8 ? 'suv' : 'van' },
+    } as RunOut));
+    const fixture = createPage(apiStub({
+      getRun: getRunSpy as unknown as ApiService['getRun'],
+    }));
+    await fixture.whenStable();
+    const host = fixture.nativeElement as HTMLElement;
+
+    const button = Array.from(host.querySelectorAll('button'))
+      .find(b => b.textContent?.trim() === 'Створити набір коефіцієнтів')!;
+    expect(button.disabled).toBe(true);
+    expect(host.textContent).toContain('різними типами авто');
+    expect(host.querySelector('#set-dialog')).toBeFalsy();
+  });
+
   it('links the aggregate figures, dropping the speed figure when there is no slope', async () => {
     const fixture = createPage(apiStub());
     await fixture.whenStable();

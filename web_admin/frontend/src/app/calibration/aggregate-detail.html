@@ -4,7 +4,14 @@
     <a routerLink="/calibration">← до калібрування</a>
   </div>
   @if (aggregate()?.status === 'done') {
-    <button class="primary" (click)="openSetDialog()">Створити набір коефіцієнтів</button>
+    <div class="set-action">
+      <button class="primary" [disabled]="identityBlocked()"
+              [title]="identityBlocked() ? blockedMessage : ''"
+              (click)="openSetDialog()">Створити набір коефіцієнтів</button>
+      @if (identityBlocked()) {
+        <p class="warning-note" role="alert">{{ blockedMessage }}</p>
+      }
+    </div>
   }
 </div>
 
@@ -186,6 +193,6 @@
   <app-create-set-dialog [provenance]="provenance()" [eq3Disabled]="true"
                          eq3DisabledReason="агрегація не оцінює Eq.3 — лише зсув"
                          [vehicleType]="vehicleType()" [phoneOptions]="phoneOptions()"
-                         [nameDate]="createdDate()"
+                         [nameDate]="createdDate()" [warning]="identityWarning()"
                          (created)="onSetCreated($event)" (closed)="setOpen.set(false)" />
 }

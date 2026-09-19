@@ -88,6 +88,40 @@ def _create_aggregate(client, run_ids, ref_id):
     return r.json()['id']
 
 
+def _make_passes_with_meta(client, tmp_path, vehicle_types):
+    """Like _make_passes_and_reference, but each pass's file carries the given
+    per-pass vehicle_type in recording_meta — for the identity-consistency
+    check on the coefficient-set draft endpoint."""
+    from src.core.config import get_settings
+    from src.db.models import AnalysisRun, ReferenceDataset, SourceFile
+
+    engine = client.app.state.engine
+    settings = get_settings()
+    run_ids = []
+    with Session(engine) as s:
+        ref = ReferenceDataset(filename='agg_meta.xlsx', road_name='Т-9999', step_m=10.0,
+                               intervals_count=100, chainage_span_m=1000.0,
+                               bbox=[50.0, 30.4, 50.01, 30.6], parse_warnings=[])
+        s.add(ref)
+        s.commit()
+        _make_reference(settings.storage_reference_dir / str(ref.id))
+        for idx, ((shift, speed), vt) in enumerate(zip(PASSES, vehicle_types)):
+            f = SourceFile(
+                filename=f'pass_meta{idx}.csv', size_bytes=1,
+                recording_meta={'preamble': {'device': 'samsung SM-S948B, android=16'},
+                                'vehicle': {'vehicle_type': vt}})
+            s.add(f)
+            s.commit()
+            run = AnalysisRun(file_id=f.id, status='done',
+                              result_dir=str(tmp_path / f'pass_meta{idx}'))
+            s.add(run)
+            s.commit()
+            _make_pass(Path(run.result_dir), shift, speed)
+            run_ids.append(run.id)
+        ref_id = ref.id
+    return run_ids, ref_id
+
+
 def test_aggregate_flow_and_artifacts(client, tmp_path):
     run_ids, ref_id = _make_passes_and_reference(client, tmp_path)
     agg_id = _create_aggregate(client, run_ids, ref_id)
@@ -222,6 +256,45 @@ def test_coefficient_set_draft_from_aggregate(client, tmp_path):
                        json={'aggregate_comparison_id': 9999, 'model': 'eq6_bias',
                              'name': 'AGG_missing',
                              'vehicle_type': 'van'}).status_code == 404
+
+
+def test_coefficient_set_draft_identity_tier_ok_when_passes_agree(client, tmp_path):
+    """Happy path: every pooled pass shares one vehicle_type, so an identity-keyed
+    (device_id + vehicle_id) draft is allowed straight through."""
+    from tests.test_coefficients import DEVICE_ID, VEHICLE_ID
+    run_ids, ref_id = _make_passes_with_meta(client, tmp_path, ['van', 'van', 'van'])
+    agg_id = _create_aggregate(client, run_ids, ref_id)
+
+    r = client.post('/api/coefficient-sets', json={
+        'aggregate_comparison_id': agg_id, 'model': 'eq6_bias', 'name': 'AGG_identity_ok',
+        'vehicle_type': 'van', 'phone_model': 'samsung SM-S948B',
+        'device_id': DEVICE_ID, 'vehicle_id': VEHICLE_ID})
+    assert r.status_code == 201, r.text
+    assert r.json()['device_id'] == DEVICE_ID
+    assert r.json()['vehicle_id'] == VEHICLE_ID
+
+
+def test_coefficient_set_draft_identity_tier_422_on_mixed_vehicle_type(client, tmp_path):
+    """Defense in depth: an identity-keyed draft over an aggregate whose passes
+    disagree on vehicle_type would attribute a bias fitted across two vehicles
+    to a single (device_id, vehicle_id) identity — refused with 422. A
+    generic-tier draft (no identity keys) over the SAME aggregate is not
+    blocked here; that divergence is the frontend's warn-and-widen path."""
+    from tests.test_coefficients import DEVICE_ID, VEHICLE_ID
+    run_ids, ref_id = _make_passes_with_meta(client, tmp_path, ['van', 'van', 'suv'])
+    agg_id = _create_aggregate(client, run_ids, ref_id)
+
+    r = client.post('/api/coefficient-sets', json={
+        'aggregate_comparison_id': agg_id, 'model': 'eq6_bias', 'name': 'AGG_identity_bad',
+        'vehicle_type': 'van', 'phone_model': 'samsung SM-S948B',
+        'device_id': DEVICE_ID, 'vehicle_id': VEHICLE_ID})
+    assert r.status_code == 422, r.text
+    assert 'різними типами авто' in r.json()['detail']
+
+    generic = client.post('/api/coefficient-sets', json={
+        'aggregate_comparison_id': agg_id, 'model': 'eq6_bias',
+        'name': 'AGG_identity_bad_generic', 'vehicle_type': 'van'})
+    assert generic.status_code == 201, generic.text
 
 
 def test_build_summary_preserves_existing_stale_flag():

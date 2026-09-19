@@ -10,6 +10,15 @@
 .page-head h2 { margin-bottom: var(--space-1); }
 .page-head a { font-size: var(--text-sm); }
 
+.set-action { display: grid; gap: var(--space-2); justify-items: end; }
+.set-action .warning-note {
+  margin: 0;
+  color: var(--color-warn);
+  font-size: var(--text-xs);
+  max-width: 20rem;
+  text-align: right;
+}
+
 section.card { margin-bottom: var(--space-4); }
 
 .cards {

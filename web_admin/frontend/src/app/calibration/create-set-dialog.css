@@ -45,6 +45,15 @@
   margin: var(--space-3) 0 0;
   font-size: var(--text-sm);
 }
+.dialog .warning-banner {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-sm);
+  color: var(--color-warn);
+  background: var(--color-warn-bg);
+  border: 1px solid var(--color-warn);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+}
 .dialog-actions {
   display: flex;
   justify-content: flex-end;

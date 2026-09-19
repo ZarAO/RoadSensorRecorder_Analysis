@@ -104,6 +104,9 @@ export function phoneOptionsFor(phoneModel: string | null | undefined,
         <p class="hint">
           Набір створюється як чернетка — на рани він впливає лише після підтвердження.
         </p>
+        @if (warning(); as message) {
+          <p class="warning-banner" id="set-warning" role="alert">{{ message }}</p>
+        }
         @if (error(); as message) {
           <p class="error-banner" id="set-error" role="alert">{{ message }}</p>
         }
@@ -130,6 +133,10 @@ export class CreateSetDialog {
   /** yyyy-MM-dd of the source's created_at: the suggested name stays reproducible
    *  instead of drifting with the wall clock. */
   readonly nameDate = input('');
+  /** Set by the caller when its identity prefill had to be widened (e.g. an
+   *  aggregate's pooled passes diverge on phone/device/car) — shown as a
+   *  non-blocking banner; null renders nothing. */
+  readonly warning = input<string | null>(null);
 
   readonly created = output<CoefficientSetOut>();
   readonly closed = output<void>();

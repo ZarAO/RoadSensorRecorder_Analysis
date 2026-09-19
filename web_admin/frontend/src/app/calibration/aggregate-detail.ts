@@ -1,11 +1,25 @@
 import { DatePipe } from '@angular/common';
 import { Component, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
+import { catchError, forkJoin, map, of } from 'rxjs';
 
 import { ApiService } from '../api/api.service';
-import { AggregateChartData, AggregateOut, CoefficientSetOut } from '../api/dto';
+import { AggregateChartData, AggregateOut, CoefficientSetOut, RunOut } from '../api/dto';
 import { BandPoint, LineSeries, MultiLineChart } from '../shared/charts/multi-line-chart';
 import { CreateSetDialog, SetProvenance, phoneOptionsFor } from './create-set-dialog';
+
+const MSG_MIXED_IDENTITY = 'Проїзди агрегата записані різними телефонами або '
+  + 'конфігураціями авто — набір буде прив’язаний лише до типу авто.';
+const MSG_MIXED_VEHICLE_TYPE = 'Проїзди агрегата зроблені різними типами авто — '
+  + 'зсув не можна прив’язати до однієї ідентичності.';
+
+/** The identity keys of one pooled pass, as read off its RunOut. */
+interface RunKeys {
+  vehicleType: string | null;
+  phoneModel: string | null;
+  deviceId: string | null;
+  vehicleId: string | null;
+}
 
 const FIGURE_PROFILE = { name: 'fig_agg_profile', label: 'Агрегований профіль IRI' };
 const FIGURE_SPEED = { name: 'fig_agg_speed', label: 'Швидкісний ефект (центровані відхилення)' };
@@ -39,14 +53,22 @@ export class AggregateDetail {
   readonly setOpen = signal(false);
   readonly createdSet = signal<CoefficientSetOut | null>(null);
   readonly vehicleType = signal('');
-  /** Device of the first pooled pass — the passes are meant to be one phone in
-   *  one vehicle, and «Будь-який телефон цього типу авто» covers a mixed set. */
+  /** Device shared by every pooled pass, once cross-pass consistency is
+   *  confirmed — a divergent phone/car falls back to the «any phone» tier. */
   readonly phoneModel = signal<string | null>(null);
-  /** Contract v3.1 identity of that same pass — the exact calibration key */
+  /** Contract v3.1 identity shared by every pooled pass — the exact calibration key */
   readonly deviceId = signal<string | null>(null);
   readonly vehicleId = signal<string | null>(null);
   readonly phoneOptions = computed(
     () => phoneOptionsFor(this.phoneModel(), this.deviceId(), this.vehicleId()));
+
+  /** Set when the passes share a vehicle_type but diverge on phone/device/car —
+   *  the dialog falls back to the generic tier and shows this Ukrainian warning. */
+  readonly identityWarning = signal<string | null>(null);
+  /** Set when the passes themselves diverge on vehicle_type — a set from this
+   *  aggregate cannot be attributed to one identity at all, so creation is blocked. */
+  readonly identityBlocked = signal(false);
+  readonly blockedMessage = MSG_MIXED_VEHICLE_TYPE;
 
   readonly summary = computed(() => this.aggregate()?.summary ?? null);
 
@@ -110,9 +132,9 @@ export class AggregateDetail {
         this.loading.set(false);
         this.aggregate.set(aggregate);
         if (aggregate.status === 'done') this.loadChart();
-        // An aggregate has no single run: the keys of the first pass are the
-        // prefill (all pooled passes are meant to be the same vehicle).
-        if (aggregate.run_ids.length) this.loadRunKeys(aggregate.run_ids[0]);
+        // An aggregate has no single run: every pooled pass is fetched so a
+        // mixed-vehicle aggregate cannot silently inherit pass #1's identity.
+        if (aggregate.run_ids.length) this.loadRunKeys(aggregate.run_ids);
       },
       error: err => { this.loading.set(false); this.error.set(this.describe(err)); },
     });
@@ -125,18 +147,62 @@ export class AggregateDetail {
     });
   }
 
-  private loadRunKeys(runId: number): void {
-    this.api.getRun(runId).subscribe({
-      next: run => {
-        this.vehicleType.set(run.summary?.vehicle_type ?? '');
-        this.phoneModel.set(run.phone_model);
-        this.deviceId.set(run.device_id);
-        this.vehicleId.set(run.vehicle_id);
-      },
-      // A missing run only costs the prefill — the operator can still type the
-      // vehicle type, and the dialog falls back to the «any phone» tier
-      error: () => undefined,
+  private loadRunKeys(runIds: number[]): void {
+    const perRun = runIds.map(id => this.api.getRun(id).pipe(
+      map((run: RunOut): RunKeys => ({
+        vehicleType: run.summary?.vehicle_type ?? null,
+        phoneModel: run.phone_model,
+        deviceId: run.device_id,
+        vehicleId: run.vehicle_id,
+      })),
+      // A missing run only costs its own contribution to the prefill — the
+      // operator can still type the vehicle type, and a run that fails to load
+      // must never look like a false consistency match with the others.
+      catchError(() => of(null)),
+    ));
+    forkJoin(perRun).subscribe(results => {
+      const keys = results.filter((k): k is RunKeys => k !== null);
+      this.applyRunKeys(keys);
     });
+  }
+
+  /** Cross-pass consistency (spec: coefficient sets are attributed to one
+   *  identity, never to whichever pass happened to be listed first):
+   *   - identical (vehicle_type, phone/device, vehicle) on every pass -> prefill
+   *     that one identity, unchanged from the single-pass behavior;
+   *   - same vehicle_type but a diverging phone/device/vehicle -> fall back to
+   *     the generic (vehicle_type-only) tier and warn;
+   *   - vehicle_type itself diverges -> no identity applies at all, block
+   *     creation from this aggregate entirely. */
+  private applyRunKeys(keys: RunKeys[]): void {
+    if (!keys.length) return;
+    const vehicleTypes = new Set(keys.map(k => k.vehicleType ?? ''));
+    if (vehicleTypes.size > 1) {
+      this.identityBlocked.set(true);
+      this.identityWarning.set(null);
+      this.vehicleType.set('');
+      this.phoneModel.set(null);
+      this.deviceId.set(null);
+      this.vehicleId.set(null);
+      return;
+    }
+    this.identityBlocked.set(false);
+    this.vehicleType.set(keys[0].vehicleType ?? '');
+
+    const [first, ...rest] = keys;
+    const sameIdentity = rest.every(k => k.phoneModel === first.phoneModel
+      && k.deviceId === first.deviceId && k.vehicleId === first.vehicleId);
+    if (sameIdentity) {
+      this.phoneModel.set(first.phoneModel);
+      this.deviceId.set(first.deviceId);
+      this.vehicleId.set(first.vehicleId);
+      this.identityWarning.set(null);
+    } else {
+      this.phoneModel.set(null);
+      this.deviceId.set(null);
+      this.vehicleId.set(null);
+      this.identityWarning.set(MSG_MIXED_IDENTITY);
+    }
   }
 
   figureUrl(name: string, extension: 'png' | 'pdf'): string {
