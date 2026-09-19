@@ -140,6 +140,9 @@ venv.bak/
 /Scripts/
 /share/
 /pyvenv.cfg
+# Windows git compares paths case-insensitively, so /Scripts/ above also
+# swallows a real top-level scripts/ (lowercase) source directory -- un-ignore it.
+!/scripts/
 
 # === IDE ===
 # VS Code
