@@ -21,7 +21,7 @@
 - Style: control-room dark, Restrained color commitment (single sky accent <=10%);
   no glow shadows, no glassmorphism panels, no side-stripe accents (ai-slop catalog).
 - Theme switch: ThemeService toggles `data-theme` on <html>, persisted in localStorage;
-  index.html applies it pre-paint. Map tiles follow the theme (CARTO dark/light).
+  index.html applies it pre-paint. Map tiles are the keyless OpenStreetMap raster; the dark theme inverts them with a CSS filter (CARTO basemaps now answer "API KEY REQUIRED").
 - All contrast pairs verified AA with the ui-quality-gates contrast.py — re-run it
   after any token color change.
 - All maps render through the shared `shared/segment-map.ts` component — the

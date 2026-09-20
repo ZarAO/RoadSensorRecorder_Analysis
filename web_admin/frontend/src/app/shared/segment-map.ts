@@ -46,12 +46,16 @@ const LEGEND: ReadonlyArray<{ color: string; label: string }> = [
   { color: IRI_SCALE.unknown, label: 'IRI недоступний' },
 ];
 
-// Theme-matched basemaps (CARTO, free with attribution)
-const TILES = {
-  dark: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-  light: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-};
-const TILE_ATTR = '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> © <a href="https://carto.com/attributions">CARTO</a>';
+// Keyless basemap. CARTO's public basemaps started serving "API KEY REQUIRED"
+// tiles (2026-09), so both themes draw the standard OpenStreetMap raster and the
+// dark theme inverts it with a CSS filter instead of loading a second source.
+export const TILES = {
+  dark: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+  light: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+} as const;
+export const TILE_CLASS = { dark: 'tiles-dark', light: '' } as const;
+const TILE_MAX_ZOOM = 19;
+const TILE_ATTR = '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 
 /** Casing is drawn in the inverse of the basemap so every hue stays readable. */
 const CASING = { dark: 'rgba(245,245,244,0.9)', light: 'rgba(15,18,25,0.85)' };
@@ -121,6 +125,11 @@ const DEFAULT_ZOOM = 11;
       vertical-align: -1px;
     }
 
+    /* Dark theme: invert the light OSM raster; hue-rotate keeps water blue and parks green */
+    :host ::ng-deep .tiles-dark {
+      filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.85) saturate(0.6);
+    }
+
     /* Leaflet chrome follows the theme */
     :host ::ng-deep .leaflet-popup-content-wrapper,
     :host ::ng-deep .leaflet-popup-tip {
@@ -178,7 +187,9 @@ export class SegmentMap {
       const theme = this.themeService.theme();
       if (!this.ready() || !this.map) return;
       this.tiles?.remove();
-      this.tiles = L.tileLayer(TILES[theme], { attribution: TILE_ATTR }).addTo(this.map);
+      this.tiles = L.tileLayer(TILES[theme], {
+        attribution: TILE_ATTR, className: TILE_CLASS[theme], maxZoom: TILE_MAX_ZOOM,
+      }).addTo(this.map);
       this.casing?.setStyle({ color: CASING[theme] });
     });
 

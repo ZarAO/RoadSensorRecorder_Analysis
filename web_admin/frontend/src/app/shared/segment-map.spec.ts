@@ -2,7 +2,23 @@ import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 
 import { ThemeService } from '../theme.service';
-import { SegmentMap, escapeHtml, segmentColor } from './segment-map';
+import { SegmentMap, TILES, TILE_CLASS, escapeHtml, segmentColor } from './segment-map';
+
+describe('basemap tiles', () => {
+  // CARTO basemaps started answering "API KEY REQUIRED" tiles (2026-09); the map
+  // must stay usable with a keyless provider in both themes.
+  it('are served by a provider that needs no API key, in both themes', () => {
+    expect(TILES.light).toMatch(/^https:\/\/tile\.openstreetmap\.org\//);
+    expect(TILES.dark).toMatch(/^https:\/\/tile\.openstreetmap\.org\//);
+    expect(TILES.light).not.toMatch(/cartocdn|apikey/);
+    expect(TILES.dark).not.toMatch(/cartocdn|apikey/);
+  });
+
+  it('darken the light basemap by a CSS class instead of a second tile source', () => {
+    expect(TILE_CLASS.dark).toBe('tiles-dark');
+    expect(TILE_CLASS.light).toBe('');
+  });
+});
 
 describe('segmentColor', () => {
   it('maps IRI_multi onto the severity scale', () => {
