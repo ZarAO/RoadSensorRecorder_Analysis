@@ -43,13 +43,13 @@ DATASETS = [
         'road': 'М-03',
         'form_csv': 'storage/field_measurements/derived/М-03_км19-км30смуга2_100.csv',
         'form_10m_csv': 'storage/field_measurements/derived/М-03_км19-км30смуга2_10.csv',
-        'segments_csv': 'storage/results/field_new_sensor_data_20260820_100807/road_segments.csv',
+        'segments_csv': 'storage/results/field_new_sensor_data_20260820_100807_v31/road_segments.csv',
     },
     {
         'road': 'Т1016',
         'form_csv': 'storage/field_measurements/derived/Т1016_км17-км0+200зворотній_100.csv',
         'form_10m_csv': 'storage/field_measurements/derived/Т1016_км17-км0+200зворотній_10.csv',
-        'segments_csv': 'storage/results/field_new_sensor_data_20260820_102552/road_segments.csv',
+        'segments_csv': 'storage/results/field_new_sensor_data_20260820_102552_v31/road_segments.csv',
     },
 ]
 
@@ -66,7 +66,7 @@ GATES = {'r2_min': 0.85, 'mae_max': 0.5}
 
 PAIR_COLUMNS = (['road', 'seg_id', 'chainage_m', 'match_dist_m', 'n_ref_rows',
                  'iri_ref', 'psd_sqrt_scalar', 'grms', 'mean_speed_kmh',
-                 'iri_psd_raw', 'iri_multi']
+                 'iri_psd_raw', 'iri_multi', 'iri_multi_vehicle']
                 + [f'iri_ref_{c[4:]}' for c in REFERENCE_CHANNELS])
 
 MODELS = {
@@ -75,6 +75,12 @@ MODELS = {
     'grms_speed': ['grms', 'mean_speed_kmh'],
     'speed_only': ['mean_speed_kmh'],   # endogeneity baseline, NOT a candidate
 }
+
+
+def _vehicle_resolved(ds) -> dict:
+    """The Eq.4/5/6 set the analyzer resolved from the recording's vehicle passport."""
+    meta_path = Path(REPO_ROOT / ds['segments_csv']).parent / 'recording_meta.json'
+    return json.loads(meta_path.read_text(encoding='utf-8'))['vehicle_params']
 
 
 def _segment_geometry(ds) -> pd.DataFrame:
@@ -178,8 +184,11 @@ def main() -> None:
         'sqrt_psd': per_road_and_pooled(pairs, lambda d: validation_stats(d, 'psd_sqrt_scalar')),
         'grms': per_road_and_pooled(pairs, lambda d: validation_stats(d, 'grms')),
         'iri_multi_generic': per_road_and_pooled(pairs, lambda d: validation_stats(d, 'iri_multi')),
+        # Same pairs, Eq.4/5/6 set chosen from the vehicle passport (sensitivity to the carrier class)
+        'iri_multi_vehicle': per_road_and_pooled(pairs, lambda d: validation_stats(d, 'iri_multi_vehicle')),
     }
     ba_before = per_road_and_pooled(pairs, lambda d: bland_altman(d, 'iri_multi'))
+    ba_vehicle_before = per_road_and_pooled(pairs, lambda d: bland_altman(d, 'iri_multi_vehicle'))
 
     # --- All models: in-sample AND out-of-sample, plus the endogeneity baseline ---
     fits = {name: fit_linear(pairs, cols) for name, cols in MODELS.items()}
@@ -193,6 +202,15 @@ def main() -> None:
     bias_corrected_stats = per_road_and_pooled(
         pairs, lambda d: validation_stats(d, 'iri_multi_bias_corrected'))
     bias_loro = loro_bias_correction(pairs)
+
+    # --- The same constant correction for the passport-resolved set: does the
+    # carrier class of the guidebook explain the offset of this phone-vehicle pair? ---
+    vehicle_resolved = {ds['road']: _vehicle_resolved(ds) for ds in DATASETS}
+    iri_multi_vehicle_bias = float((pairs['iri_multi_vehicle'] - pairs['iri_ref']).mean())
+    pairs['iri_multi_vehicle_bias_corrected'] = pairs['iri_multi_vehicle'] - iri_multi_vehicle_bias
+    vehicle_bias_corrected_stats = per_road_and_pooled(
+        pairs, lambda d: validation_stats(d, 'iri_multi_vehicle_bias_corrected'))
+    bias_loro_vehicle = loro_bias_correction(pairs, metric_col='iri_multi_vehicle')
 
     # --- Diagnostics the adversarial review demanded ---
     autocorrelation = {
@@ -250,6 +268,12 @@ def main() -> None:
         'iri_multi_pooled_bias': iri_multi_bias,
         'iri_multi_bias_corrected': bias_corrected_stats,
         'bias_correction_loro': bias_loro,
+        'vehicle_resolved': vehicle_resolved,
+        'vehicle_block_added': '2026-09-20',
+        'bland_altman_iri_multi_vehicle_before': ba_vehicle_before,
+        'iri_multi_vehicle_pooled_bias': iri_multi_vehicle_bias,
+        'iri_multi_vehicle_bias_corrected': vehicle_bias_corrected_stats,
+        'bias_correction_loro_vehicle': bias_loro_vehicle,
         'profilometer_noise_floor': profilometer_noise_floor(),
         'autocorrelation_effective_n': autocorrelation,
         'eq3_influence_analysis': influence,
@@ -274,6 +298,10 @@ def main() -> None:
     written += bland_altman_plot(pairs, 'iri_multi',
                                  'До калібрування: IRI_multi (GENERIC)',
                                  figures_dir, 'fig2a_bland_altman_before')
+    vehicle_equations = '/'.join(sorted({v['equation'] for v in vehicle_resolved.values()}))
+    written += bland_altman_plot(pairs, 'iri_multi_vehicle',
+                                 f'До калібрування: IRI_multi (паспорт носія, {vehicle_equations})',
+                                 figures_dir, 'fig2c_bland_altman_vehicle_before')
     written += bland_altman_plot(pairs, 'iri_multi_bias_corrected',
                                  'Після корекції зсуву Eq.6 (+1.55 м/км)',
                                  figures_dir, 'fig2b_bland_altman_bias_corrected')
@@ -333,6 +361,30 @@ def main() -> None:
         f"{bias_corrected_stats['pooled_CAUTION_between_road_contrast']['mae']:.3f} "
         f"(оптимістична за побудовою); out-of-sample (LORO): М-03 {bias_loro['М-03']['mae']:.3f} м/км "
         f"(проходить гейт 0.5), Т1016 {bias_loro['Т1016']['mae']:.3f} м/км (НЕ проходить).",
+        '',
+        '## Паспорт носія: набір Eq.4/5/6 за класом автомобіля (чутливість)',
+    ]
+    v_vehicle = validation['iri_multi_vehicle']
+    resolved = vehicle_resolved['Т1016']
+    bias_grows = abs(iri_multi_vehicle_bias) > abs(iri_multi_bias)
+    lines += [
+        f"- Резолвер аналізатора підставив у рівняння паспорт запису: {resolved['equation']} "
+        f"({resolved['vehicle_type']}), параметри {resolved['params']}, походження "
+        f"{resolved['provenance']}.",
+        f"- Рангова валідність: Т1016 ρ = {v_vehicle['Т1016']['spearman_rho']:.3f} проти "
+        f"{v_multi['Т1016']['spearman_rho']:.3f} у Eq.6 "
+        f"(зміна {v_vehicle['Т1016']['spearman_rho'] - v_multi['Т1016']['spearman_rho']:+.3f}); "
+        f"М-03 ρ = {v_vehicle['М-03']['spearman_rho']:.3f} проти {v_multi['М-03']['spearman_rho']:.3f}.",
+        f"- Постійний зсув: {iri_multi_vehicle_bias:+.3f} м/км проти {iri_multi_bias:+.3f} у Eq.6 — "
+        + ('клас носія за довідником зсув НЕ пояснює: за модулем він зростає. '
+           if bias_grows else 'клас носія за довідником зменшує зсув. ')
+        + f"LORO після корекції зсуву: М-03 {bias_loro_vehicle['М-03']['mae']:.3f} "
+        f"(Eq.6: {bias_loro['М-03']['mae']:.3f}), Т1016 {bias_loro_vehicle['Т1016']['mae']:.3f} "
+        f"(Eq.6: {bias_loro['Т1016']['mae']:.3f}) м/км.",
+        ('- Висновок: зсув є властивістю пари «телефон — автомобіль», а не класу носія у довіднику; '
+         'книжковий набір класу не заміняє польового калібрування з провенансом.'
+         if bias_grows else
+         '- Висновок: частина зсуву пояснюється класом носія; решта лишається за польовим калібруванням.'),
         '',
         '## LORO всіх моделей (out-of-sample MAE, м/км)',
     ]
