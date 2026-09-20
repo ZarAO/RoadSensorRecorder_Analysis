@@ -103,7 +103,13 @@ def export_segments_geojson(
             properties['psd_scalar_mode'] = str(row['psd_scalar_mode'])
         if 'psd_band_power' in row:
             properties['psd_band_power'] = _json_num(row['psd_band_power'])
-        
+
+        # Passport-resolved IRI (Eq.4/5/6 set chosen from the vehicle profile)
+        if 'iri_multi_vehicle' in row:
+            properties['iri_multi_vehicle'] = _json_num(row['iri_multi_vehicle'])
+        if 'iri_multi_equation' in row:
+            properties['iri_multi_equation'] = str(row['iri_multi_equation'])
+
         feature = {
             "type": "Feature",
             "geometry": geometry,

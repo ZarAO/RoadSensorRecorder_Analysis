@@ -29,7 +29,7 @@ python main.py --input "storage\data\sensor_data_20250729_163334.csv" --out stor
 **Output:**
 ```
 storage/results/my_run/
-├── road_segments.csv       (метрики на 100 м сегмент, 24 колонки)
+├── road_segments.csv       (метрики на 100 м сегмент, 26 колонок)
 ├── recording_meta.json     (преамбула, профіль авто, події, футер запису)
 ├── roughness.geojson       (LineString на сегмент)
 ├── events.geojson          (Point на кожну аномалію)
@@ -101,7 +101,7 @@ python -c "import numpy, pandas, scipy, matplotlib, scienceplots, folium; print(
 # Expected: OK
 
 python -m pytest analyzer/tests -q
-# Expected: 182 passed
+# Expected: 209 passed
 ```
 
 ---
@@ -296,7 +296,7 @@ python -m road_quality_analyzer analyze `
 
 **Purpose:** метрики на кожен 100 м сегмент (`seg_id = floor(s / 100)`)
 
-**Format** (24 колонки; приклад — сегмент 1 датасету 2025-07-29):
+**Format** (26 колонок; приклад — сегмент 1 датасету 2025-07-29):
 ```csv
 seg_id,s_start,s_end,length_m,partial,n_samples,mean_speed_mps,mean_speed_kmh,speed_valid,low_speed_class,needs_class12_survey,dx_le_03_share,grms,iri_psd_raw,iri_psd,psd_band_power,psd_sqrt_scalar,psd_scalar_mode,psd_n_samples_used,psd_df_hz,fs_used_hz,iri_multi,anomaly_count,events_per_km
 1,100.08,199.97,99.90,False,502,10.49,37.76,True,normal,False,1.0,0.0664,-0.81,0.0,...,mean_psd_sqrt,502,...,52.63,4.38,0,0.0
@@ -326,6 +326,8 @@ seg_id,s_start,s_end,length_m,partial,n_samples,mean_speed_mps,mean_speed_kmh,sp
 | `psd_df_hz` | Hz | роздільність частоти Welch |
 | `fs_used_hz` | Hz | fs, з якою рахувався сегмент |
 | `iri_multi` | m/km | Eq.6 (GENERIC vehicle); `NaN`, якщо `speed_valid = False` |
+| `iri_multi_vehicle` | m/km | Eq.4/5/6 з набором і параметрами, резолвленими з паспорта `# vehicle_*` (`metrics/vehicle_params.py`); дорівнює `iri_multi`, якщо паспорта немає; `NaN`, якщо `speed_valid = False` |
+| `iri_multi_equation` | — | токен набору для `iri_multi_vehicle`: `eq4` / `eq5` / `eq6`; сталий для запису |
 | `anomaly_count` | — | кількість семплів із \|a_vertical\| > 10 м/с² |
 | `events_per_km` | 1/km | `anomaly_count` / довжину сегмента в км; `NaN` при нульовій довжині |
 
@@ -360,7 +362,7 @@ print(f"Mean IRI: {full['iri_multi'].mean():.2f} m/km")
 - Properties: `seg_id`, `s_start`, `s_end`, `length_m`, `partial`, `iri_multi`,
   `iri_psd_raw`, `iri_psd`, `grms`, `mean_speed_kmh`, `speed_valid`,
   `low_speed_class`, `needs_class12_survey`, `dx_le_03_share`, `anomaly_count`,
-  `events_per_km` (+ PSD-діагностика)
+  `events_per_km`, `iri_multi_vehicle`, `iri_multi_equation` (+ PSD-діагностика)
 - `low_speed_class` / `needs_class12_survey` / `events_per_km` дозволяють
   відфільтрувати кандидатів на обстеження профілометром прямо в QGIS:
   `needs_class12_survey = true`

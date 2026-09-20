@@ -863,7 +863,7 @@ def aggregate_segment_metrics(seg_id, indices, a_vertical_g, a_vertical_g_psd,
 рядки з `road_segments.csv`, `roughness.geojson` і карти — але не зі звіту:
 `report.md` рахує та перелічує їх у секції «Сегменти з низькою швидкістю».
 
-**Результат:** `road_segments.csv` має 24 колонки (значення нижче округлені для
+**Результат:** `road_segments.csv` має 26 колонок (значення нижче округлені для
 читабельності; повний опис колонок — у
 [08_user_guide_and_cli_reference.md](08_user_guide_and_cli_reference.md)):
 

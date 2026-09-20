@@ -131,6 +131,7 @@ def aggregate_segment_metrics(
     low_speed_policy: str = DEFAULT_LOW_SPEED_POLICY,
     iri_psd_A: float = None,
     iri_psd_B: float = None,
+    vehicle_params=None,
     **kwargs
 ) -> Dict:
     """
@@ -149,6 +150,8 @@ def aggregate_segment_metrics(
         f_low, f_high: Welch band for Eq.3 (must match the band-pass the caller applied)
         low_speed_policy: label written into low_speed_class for a segment below
             LOW_SPEED_MAX_KMH (see LOW_SPEED_CLASS_BY_POLICY)
+        vehicle_params: ResolvedVehicleParams from the recording's vehicle
+            passport; None resolves to the generic Eq.6 with book defaults
         **kwargs: additional metrics to store
 
     Returns:
@@ -161,6 +164,7 @@ def aggregate_segment_metrics(
     from road_quality_analyzer.metrics.iri import (
         compute_iri_psd, compute_iri_multi, VehicleType, IRI_MULTI_DEFAULT_PARAMS
     )
+    from road_quality_analyzer.metrics.vehicle_params import resolve_vehicle_params
 
     if low_speed_policy not in LOW_SPEED_CLASS_BY_POLICY:
         raise ValueError(
@@ -227,10 +231,14 @@ def aggregate_segment_metrics(
     metrics['psd_df_hz'] = debug_info['psd_df_hz']
     metrics['fs_used_hz'] = fs
 
-    # IRI_multi (GENERIC by default).
+    # IRI_multi: the generic Eq.6 with book defaults stays the primary, published
+    # column; the passport-resolved set (equation by vehicle class, factors from
+    # the profile) is an additional column so the two can be compared per segment.
     # Eq.4/5/6 carry a speed term and are calibrated for 20-100 km/h only - outside
     # that range NaN, not 0. Eq.3 has no speed term, so iri_psd is not gated here
     # and keeps its contract iri_psd == max(0, iri_psd_raw).
+    if vehicle_params is None:
+        vehicle_params = resolve_vehicle_params({})
     if metrics['speed_valid']:
         metrics['iri_multi'] = compute_iri_multi(
             metrics['grms'],
@@ -238,8 +246,16 @@ def aggregate_segment_metrics(
             vehicle_type=VehicleType.GENERIC,
             **IRI_MULTI_DEFAULT_PARAMS
         )
+        metrics['iri_multi_vehicle'] = compute_iri_multi(
+            metrics['grms'],
+            mean_speed_kmh,
+            vehicle_type=vehicle_params.vehicle_type,
+            **vehicle_params.params
+        )
     else:
         metrics['iri_multi'] = np.nan
+        metrics['iri_multi_vehicle'] = np.nan
+    metrics['iri_multi_equation'] = vehicle_params.equation
 
     # Anomaly count
     if anomaly_mask is not None:
@@ -278,7 +294,8 @@ def create_segments_dataframe(
     f_high: float = 6.0,
     low_speed_policy: str = DEFAULT_LOW_SPEED_POLICY,
     iri_psd_A: float = None,
-    iri_psd_B: float = None
+    iri_psd_B: float = None,
+    vehicle_params=None
 ) -> pd.DataFrame:
     """
     Create a DataFrame with metrics per 100 m segment
@@ -294,6 +311,7 @@ def create_segments_dataframe(
         scalar_mode: PSD scalarization mode
         f_low, f_high: Welch band for Eq.3 (must match the band-pass the caller applied)
         low_speed_policy: label for segments below LOW_SPEED_MAX_KMH
+        vehicle_params: ResolvedVehicleParams of the recording (None = generic Eq.6)
 
     Returns:
         df: DataFrame with segment metrics
@@ -305,7 +323,8 @@ def create_segments_dataframe(
         metrics = aggregate_segment_metrics(
             seg_id, indices, a_vertical_g, a_vertical_g_psd, v_grid, s_grid,
             fs, anomaly_mask, scalar_mode=scalar_mode, f_low=f_low, f_high=f_high,
-            low_speed_policy=low_speed_policy, iri_psd_A=iri_psd_A, iri_psd_B=iri_psd_B
+            low_speed_policy=low_speed_policy, iri_psd_A=iri_psd_A, iri_psd_B=iri_psd_B,
+            vehicle_params=vehicle_params
         )
         if metrics is not None:
             metrics_list.append(metrics)

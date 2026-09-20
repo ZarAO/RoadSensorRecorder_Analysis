@@ -134,6 +134,15 @@ def analyze(input_path: str, output_dir: str,
           f"events={len(recording_meta.events)}, "
           f"{'clean stop' if recording_meta.clean_stop else 'truncated or pre-v2.1'}")
 
+    # The passport selects the Eq.4/5/6 set for the additional iri_multi_vehicle
+    # column; an empty passport resolves to the generic Eq.6 with book defaults
+    from road_quality_analyzer.metrics.vehicle_params import resolve_vehicle_params
+    vehicle_params = resolve_vehicle_params(recording_meta.vehicle)
+    print(f"  Vehicle params: {vehicle_params.equation} {vehicle_params.params} "
+          f"(provenance: {vehicle_params.provenance})")
+    for warning in vehicle_params.warnings:
+        print(f"  ⚠ {warning}")
+
     # 2. Uniform time grid
     print("\n[2/9] Побудова uniform time grid...")
     t_grid, ax_grid, ay_grid, az_grid = build_uniform_time_grid(
@@ -279,7 +288,8 @@ def analyze(input_path: str, output_dir: str,
             segment_length_m=SEGMENT_LENGTH_M, scalar_mode=mode,
             f_low=BAND_LOW_HZ, f_high=BAND_HIGH_HZ,
             low_speed_policy=low_speed_policy,
-            iri_psd_A=iri_psd_A, iri_psd_B=iri_psd_B
+            iri_psd_A=iri_psd_A, iri_psd_B=iri_psd_B,
+            vehicle_params=vehicle_params
         )
 
     # Low-speed segments are captured before any exclusion: under the 'ignore'
@@ -327,8 +337,12 @@ def analyze(input_path: str, output_dir: str,
     import json
     meta_json = output_path / "recording_meta.json"
     meta_payload = dataclasses.asdict(recording_meta)
+    # VehicleType is an Enum: JSON gets its machine token (lev/dsd/generic)
+    vehicle_params_payload = dataclasses.asdict(vehicle_params)
+    vehicle_params_payload['vehicle_type'] = vehicle_params.vehicle_type.value
     meta_payload.update(source_file=str(input_path),
-                        clean_stop=recording_meta.clean_stop)
+                        clean_stop=recording_meta.clean_stop,
+                        vehicle_params=vehicle_params_payload)
     with open(meta_json, 'w', encoding='utf-8') as jf:
         json.dump(meta_payload, jf, ensure_ascii=False, indent=2)
     print(f"  ✓ {meta_json}")
@@ -438,12 +452,23 @@ def analyze(input_path: str, output_dir: str,
             f.write("| Параметр | Значення |\n|---|---|\n")
             for key, value in recording_meta.vehicle.items():
                 f.write(f"| `{key}` | {value} |\n")
-            f.write("\nПараметри записані як контекст для порівняння заїздів. "
-                    "Обчислення IRI_multi (Eq.4/5/6) використовують GENERIC-коефіцієнти "
-                    "незалежно від профілю: довідник калібрує лише тестові класи "
-                    "LEV/DSD/GENERIC.\n")
+            f.write("\nПараметри профілю підставляються у рівняння Eq.4/5/6 "
+                    "(колонка `iri_multi_vehicle`); опублікована колонка `iri_multi` "
+                    "залишається узагальненим Eq.6 з книжковими номіналами, щоб обидві "
+                    "оцінки можна було порівняти посегментно.\n")
         else:
-            f.write("Немає блоку профілю (запис до v3 або без активного профілю).\n")
+            f.write("Немає блоку профілю (запис до v3 або без активного профілю): "
+                    "`iri_multi_vehicle` збігається з `iri_multi` (Eq.6, номінали).\n")
+
+        equation_label = {'eq4': 'Eq.4 (LEV)', 'eq5': 'Eq.5 (DSD)', 'eq6': 'Eq.6 (GENERIC)'}
+        f.write(f"\n**Набір для `iri_multi_vehicle`:** "
+                f"{equation_label[vehicle_params.equation]} — походження: "
+                f"{vehicle_params.provenance['equation']}\n\n")
+        f.write("| Параметр рівняння | Значення | Походження |\n|---|---|---|\n")
+        for name, value in vehicle_params.params.items():
+            f.write(f"| `{name}` | {value} | {vehicle_params.provenance[name]} |\n")
+        for warning in vehicle_params.warnings:
+            f.write(f"- ⚠ {warning}\n")
 
         f.write("\n## Recording Events\n\n")
         if recording_meta.events:

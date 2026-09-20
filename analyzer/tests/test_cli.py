@@ -7,6 +7,8 @@ recording is deliberately not used, so the suite stays fast and hermetic.
 
 import contextlib
 import io
+import json
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -16,7 +18,7 @@ import road_quality_analyzer.segmentation as segmentation
 from road_quality_analyzer.cli import analyze
 from road_quality_analyzer.metrics.iri import compute_iri_psd
 from road_quality_analyzer.segmentation.segment_100m import create_segments
-from tests.conftest import G0, write_drive_csv
+from tests.conftest import CSV_PREAMBLE, G0, write_drive_csv
 
 # Baseline drive: 40 s at 15 m/s = 600 m -> four full 100 m segments
 BASELINE_SPEED_MPS = 15.0
@@ -455,3 +457,61 @@ def test_analyze_with_calibrated_coefficients(tmp_path, drive_csv):
     report_custom = (out_custom / 'report.md').read_text(encoding='utf-8')
     assert 'book values, not modified' in report_book
     assert 'CUSTOM calibrated set (A=6.0, B=0.4)' in report_custom
+
+
+# --- Vehicle passport: equation set resolved end to end ----------------------
+
+# The validation carrier of 2026-08-20, as the recorder wrote it (contract v3.1)
+VAN_PASSPORT = (
+    "# vehicle_id=95de9ea6-9c9f-4369-8b8f-bf542fa53f8d\n"
+    "# vehicle_type=van\n"
+    "# vehicle_make_model=Ford Transit\n"
+    "# vehicle_year=2011\n"
+    "# vehicle_suspension_type=torsion_beam\n"
+    "# vehicle_suspension_condition=worn\n"
+    "# vehicle_tire_size=215/75R16\n"
+    "# vehicle_tire_type=summer\n"
+    "# vehicle_load=half_load\n"
+    "# vehicle_mount=console\n"
+    "# vehicle_mount_rigid=true\n"
+)
+
+
+def test_vehicle_passport_selects_the_equation_set_end_to_end(tmp_path):
+    """A van passport puts Eq.4 into the extra column; the published iri_multi stays Eq.6."""
+    csv_path = Path(write_drive_csv(
+        tmp_path / 'van.csv', duration_s=40.0, speed_mps=BASELINE_SPEED_MPS,
+        a_vert=_baseline_excitation, preamble=False))
+    csv_path.write_text(CSV_PREAMBLE + VAN_PASSPORT + csv_path.read_text(encoding='utf-8'),
+                        encoding='utf-8')
+    out_dir = tmp_path / 'out'
+
+    run_analyze(str(csv_path), out_dir)
+
+    df = pd.read_csv(out_dir / 'road_segments.csv')
+    assert (df['iri_multi_equation'] == 'eq4').all()
+    full = df[~df['partial'] & df['speed_valid']]
+    assert len(full) >= 3
+    assert not np.allclose(full['iri_multi_vehicle'], full['iri_multi'])
+
+    meta = json.loads((out_dir / 'recording_meta.json').read_text(encoding='utf-8'))
+    assert meta['vehicle_params']['equation'] == 'eq4'
+    assert meta['vehicle_params']['params'] == {
+        'npeop': 3.0, 'stif': 1.0, 'dampf': 0.8, 'tyres': 1.0}
+    assert meta['vehicle_params']['provenance']['equation'] == 'book'
+
+    report = (out_dir / 'report.md').read_text(encoding='utf-8')
+    assert 'iri_multi_vehicle' in report
+    assert 'Eq.4' in report
+
+
+def test_recording_without_passport_resolves_to_generic_defaults_end_to_end(baseline_run):
+    """A pre-v3 recording must reproduce today's numbers: Eq.6, every factor 'default'."""
+    segments = baseline_run['segments']
+    assert (segments['iri_multi_equation'] == 'eq6').all()
+    full = segments[~segments['partial'] & segments['speed_valid']]
+    np.testing.assert_allclose(full['iri_multi_vehicle'], full['iri_multi'])
+
+    meta = json.loads((baseline_run['out'] / 'recording_meta.json').read_text(encoding='utf-8'))
+    assert meta['vehicle_params']['equation'] == 'eq6'
+    assert set(meta['vehicle_params']['provenance'].values()) == {'default'}

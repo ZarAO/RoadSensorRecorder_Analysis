@@ -300,3 +300,22 @@ def test_geojson_is_valid_featurecollection(tmp_path, track, segments_df):
             assert feature['geometry']['type'] in geometry_types
             assert feature['geometry']['coordinates']
             assert feature['properties']
+
+
+def test_segments_geojson_carries_the_vehicle_resolved_iri_when_present(
+        tmp_path, track, segments_df):
+    """iri_multi_vehicle / iri_multi_equation ride next to iri_multi; NaN becomes null."""
+    t_grid, s_grid, gps_time, gps_lat, gps_lon = track
+    df = segments_df.copy()
+    df['iri_multi_vehicle'] = [2.9, np.nan]
+    df['iri_multi_equation'] = ['eq4', 'eq4']
+    path = tmp_path / 'roughness.geojson'
+
+    export_segments_geojson(df, s_grid, gps_time, gps_lat, gps_lon, t_grid, str(path))
+
+    full, short = (f['properties'] for f in load_strict(path)['features'])
+    assert full['iri_multi_vehicle'] == pytest.approx(2.9)
+    assert full['iri_multi_equation'] == 'eq4'
+    assert short['iri_multi_vehicle'] is None
+    assert short['iri_multi_equation'] == 'eq4'
+    assert 'NaN' not in path.read_text(encoding='utf-8')
