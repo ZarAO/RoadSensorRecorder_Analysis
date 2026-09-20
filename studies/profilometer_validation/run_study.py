@@ -30,7 +30,7 @@ REPO_ROOT = STUDY_DIR.parents[1]
 
 from profilometer_validation.calibrate import (
     bland_altman, effective_n, fit_eq3, fit_linear, influence_on_eq3,
-    loro_bias_correction, loro_linear, validation_stats,
+    loro_bias_correction, loro_linear, ranking_agreement, validation_stats,
 )
 from profilometer_validation.match import (
     REFERENCE_CHANNELS, load_form_10m, load_form_intervals, match_segments,
@@ -203,6 +203,10 @@ def main() -> None:
         pairs, lambda d: validation_stats(d, 'iri_multi_bias_corrected'))
     bias_loro = loro_bias_correction(pairs)
 
+    # --- Ordering and normative-level agreement (what prioritisation and a
+    # comparison with DSTU 3587:2022 respectively need); per road, pooled labeled ---
+    ranking = per_road_and_pooled(pairs, lambda d: ranking_agreement(d))
+
     # --- The same constant correction for the passport-resolved set: does the
     # carrier class of the guidebook explain the offset of this phone-vehicle pair? ---
     vehicle_resolved = {ds['road']: _vehicle_resolved(ds) for ds in DATASETS}
@@ -268,6 +272,7 @@ def main() -> None:
         'iri_multi_pooled_bias': iri_multi_bias,
         'iri_multi_bias_corrected': bias_corrected_stats,
         'bias_correction_loro': bias_loro,
+        'ranking_agreement': ranking,
         'vehicle_resolved': vehicle_resolved,
         'vehicle_block_added': '2026-09-20',
         'bland_altman_iri_multi_vehicle_before': ba_vehicle_before,
@@ -361,6 +366,22 @@ def main() -> None:
         f"{bias_corrected_stats['pooled_CAUTION_between_road_contrast']['mae']:.3f} "
         f"(оптимістична за побудовою); out-of-sample (LORO): М-03 {bias_loro['М-03']['mae']:.3f} м/км "
         f"(проходить гейт 0.5), Т1016 {bias_loro['Т1016']['mae']:.3f} м/км (НЕ проходить).",
+        '',
+        '## Впорядкування і рівні ДСТУ 3587:2022 (Т1016, після корекції зсуву)',
+    ]
+    rk = ranking['Т1016']
+    lines += [
+        f"- Топ-10 найгірших сегментів за еталоном збігається зі смартфоном на "
+        f"{rk['top_k_overlap']['10']['overlap']}/{rk['top_k_overlap']['10']['k']}; топ-20 — "
+        f"{rk['top_k_overlap']['20']['overlap']}/{rk['top_k_overlap']['20']['k']}.",
+        f"- Сегментів з IRI еталона ≥ {rk['rough']['threshold']:g} м/км: {rk['rough']['n']}, пікетаж "
+        f"{rk['rough']['chainage_min_m']/1000:.1f}–{rk['rough']['chainage_max_m']/1000:.1f} км; "
+        f"смартфон дає в середньому {rk['rough']['metric_to_ref_mean_ratio']:.2f} еталона на них. "
+        f"Найгрубший сегмент: {rk['worst']['iri_ref']:.1f} проти {rk['worst']['metric']:.1f} м/км "
+        f"(пікетаж {rk['worst']['chainage_m']/1000:.2f} км).",
+        f"- Збіг рівня вимог ДСТУ: {rk['level_same_share']:.1%} сегментів; у межах сусіднього рівня: "
+        f"{rk['level_within_one_share']:.1%}; у межах ±1 м/км: {rk['share_within']['1']:.1%}, "
+        f"±0,5 м/км: {rk['share_within']['0.5']:.1%}.",
         '',
         '## Паспорт носія: набір Eq.4/5/6 за класом автомобіля (чутливість)',
     ]

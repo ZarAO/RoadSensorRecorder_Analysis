@@ -227,6 +227,64 @@ def effective_n(series: pd.Series) -> dict:
     return {'n': n, 'lag1_autocorr': r1, 'n_eff': float(max(1.0, n_eff))}
 
 
+# DSTU 3587:2022 requirement levels 1-4 for IRI, m/km, "not more than" -> right-closed bins
+DSTU_3587_IRI_LEVELS = (2.7, 3.1, 3.5, 4.1)
+
+
+def ranking_agreement(pairs: pd.DataFrame, metric_col: str = 'iri_multi_bias_corrected',
+                      ref_col: str = REF_COL, top_k=(10, 20), tolerances=(0.5, 1.0),
+                      level_thresholds=DSTU_3587_IRI_LEVELS,
+                      rough_threshold: float = 6.0) -> dict:
+    """
+    Does the smartphone reproduce the reference ORDERING and normative level of
+    each segment? Top-k overlap is what a repair-prioritisation use needs; the
+    level agreement is what a comparison with the standard needs. Also reads the
+    worst segment and the span of rough segments off the reference, so a profile
+    figure can be described by numbers rather than by eye.
+    """
+    df = _clean(pairs, [metric_col, ref_col])
+    metric = df[metric_col].to_numpy(float)
+    ref = df[ref_col].to_numpy(float)
+    n = len(df)
+
+    order_ref = np.argsort(-ref, kind='stable')
+    order_metric = np.argsort(-metric, kind='stable')
+    top = {}
+    for k in top_k:
+        k_eff = min(int(k), n)
+        overlap = len(set(order_ref[:k_eff].tolist()) & set(order_metric[:k_eff].tolist()))
+        top[str(k)] = {'k': k_eff, 'overlap': int(overlap)}
+
+    diff = np.abs(metric - ref)
+    within = {f'{tol:g}': float(np.mean(diff <= tol)) for tol in tolerances}
+
+    levels_metric = np.digitize(metric, level_thresholds, right=True)
+    levels_ref = np.digitize(ref, level_thresholds, right=True)
+
+    out = {
+        'n': n,
+        'top_k_overlap': top,
+        'share_within': within,
+        'level_thresholds': list(level_thresholds),
+        'level_same_share': float(np.mean(levels_metric == levels_ref)),
+        'level_within_one_share': float(np.mean(np.abs(levels_metric - levels_ref) <= 1)),
+    }
+    if n and 'chainage_m' in df.columns:
+        worst = df.loc[df[ref_col].idxmax()]
+        out['worst'] = {'chainage_m': float(worst['chainage_m']),
+                        'iri_ref': float(worst[ref_col]), 'metric': float(worst[metric_col])}
+        rough = df[df[ref_col] >= rough_threshold]
+        out['rough'] = {
+            'threshold': float(rough_threshold),
+            'n': int(len(rough)),
+            'chainage_min_m': float(rough['chainage_m'].min()) if len(rough) else None,
+            'chainage_max_m': float(rough['chainage_m'].max()) if len(rough) else None,
+            'metric_to_ref_mean_ratio': (float((rough[metric_col] / rough[ref_col]).mean())
+                                         if len(rough) else None),
+        }
+    return out
+
+
 def influence_on_eq3(pairs: pd.DataFrame, drop_counts=(1, 5)) -> dict:
     """Sensitivity of the pooled Eq.3 slope to the roughest (leverage) pairs."""
     out = {'full': {k: fit_eq3(pairs)[k] for k in ('A', 'B', 'r2', 'n')}}
