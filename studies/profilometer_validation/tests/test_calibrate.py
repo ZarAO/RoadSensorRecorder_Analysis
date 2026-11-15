@@ -116,6 +116,32 @@ def test_loro_bias_correction_out_of_sample():
         assert out[road]['mae'] == pytest.approx(0.0, abs=1e-9)
 
 
+def test_cross_vehicle_bias_transfer_same_road_and_pooled():
+    from profilometer_validation.calibrate import cross_vehicle_bias_transfer
+    # source carrier: offset -1 on road A, -2 on road B (pooled k = -1.5)
+    src_a = _pairs(road='A', noise=0.0)
+    src_b = _pairs(road='B', noise=0.0)
+    src_b['iri_multi'] = src_b['iri_ref'] - 2.0
+    src_a['iri_multi'] = src_a['iri_ref'] - 1.0
+    source = pd.concat([src_a, src_b], ignore_index=True)
+    # target carrier shares the road-A offset; road C is unseen by the source
+    tgt_a = _pairs(road='A', noise=0.0)
+    tgt_a['iri_multi'] = tgt_a['iri_ref'] - 1.0
+    tgt_c = _pairs(road='C', noise=0.0)
+    tgt_c['iri_multi'] = tgt_c['iri_ref'] - 1.0
+    tgt_c.loc[0, 'iri_multi'] = np.nan          # dropped, not propagated
+    out = cross_vehicle_bias_transfer(source, pd.concat([tgt_a, tgt_c], ignore_index=True))
+
+    assert set(out) == {'A', 'C'}
+    assert out['A']['same_road']['k_source'] == pytest.approx(-1.0, abs=1e-9)
+    assert out['A']['same_road']['bias_residual'] == pytest.approx(0.0, abs=1e-9)
+    assert out['A']['same_road']['mae'] == pytest.approx(0.0, abs=1e-9)
+    assert out['A']['pooled_source']['k_source'] == pytest.approx(-1.5, abs=1e-9)
+    assert out['A']['pooled_source']['bias_residual'] == pytest.approx(0.5, abs=1e-9)
+    assert out['C']['same_road'] is None
+    assert out['C']['pooled_source']['n_test'] == 119
+
+
 def test_effective_n_white_noise_and_persistent():
     from profilometer_validation.calibrate import effective_n
     rng = np.random.default_rng(SEED)

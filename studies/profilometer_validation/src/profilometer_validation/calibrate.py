@@ -210,6 +210,38 @@ def loro_bias_correction(pairs: pd.DataFrame, metric_col: str = 'iri_multi',
     return result
 
 
+def cross_vehicle_bias_transfer(source: pd.DataFrame, target: pd.DataFrame,
+                                metric_col: str = 'iri_multi',
+                                road_col: str = 'road') -> dict:
+    """
+    Out-of-vehicle check of the constant bias correction: the offset fitted on
+    the source carrier (same road, and pooled over the source roads) is applied
+    to the target carrier's pairs. A small residual bias means the offset
+    belongs to the phone/method, not to the source vehicle.
+    """
+    def _apply(test: pd.DataFrame, k: float) -> dict:
+        err = (test[metric_col] - k) - test[REF_COL]
+        return {
+            'k_source': k,
+            'bias_residual': float(err.mean()),
+            'mae': float(err.abs().mean()),
+            'rmse': float(np.sqrt((err ** 2).mean())),
+            'n_test': int(len(test)),
+        }
+
+    k_pooled = float((source[metric_col] - source[REF_COL]).mean())
+    result = {}
+    for road in sorted(target[road_col].unique()):
+        test = _clean(target[target[road_col] == road], [metric_col, REF_COL])
+        same = source[source[road_col] == road]
+        result[road] = {
+            'same_road': (_apply(test, float((same[metric_col] - same[REF_COL]).mean()))
+                          if len(same) else None),
+            'pooled_source': _apply(test, k_pooled),
+        }
+    return result
+
+
 def effective_n(series: pd.Series) -> dict:
     """
     Bartlett-style effective sample size under lag-1 autocorrelation:

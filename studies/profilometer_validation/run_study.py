@@ -29,8 +29,9 @@ STUDY_DIR = Path(__file__).resolve().parent
 REPO_ROOT = STUDY_DIR.parents[1]
 
 from profilometer_validation.calibrate import (
-    bland_altman, effective_n, fit_eq3, fit_linear, influence_on_eq3,
-    loro_bias_correction, loro_linear, ranking_agreement, validation_stats,
+    bland_altman, cross_vehicle_bias_transfer, effective_n, fit_eq3, fit_linear,
+    influence_on_eq3, loro_bias_correction, loro_linear, ranking_agreement,
+    validation_stats,
 )
 from profilometer_validation.match import (
     REFERENCE_CHANNELS, load_form_10m, load_form_intervals, match_segments,
@@ -50,6 +51,22 @@ DATASETS = [
         'form_csv': 'storage/field_measurements/derived/Т1016_км17-км0+200зворотній_100.csv',
         'form_10m_csv': 'storage/field_measurements/derived/Т1016_км17-км0+200зворотній_10.csv',
         'segments_csv': 'storage/results/field_new_sensor_data_20260820_102552_v31/road_segments.csv',
+    },
+]
+
+# Second carrier (block added 2026-11-15): the same phone in a crossover, one
+# pass per road a month after the profilometer run; inputs are the analyzer
+# CLI output for the tracked recordings storage/data/sensor_data_20260920_*.csv
+CROSS_VEHICLE_DATASETS = [
+    {
+        'road': 'М-03',
+        'form_10m_csv': DATASETS[0]['form_10m_csv'],
+        'segments_csv': 'storage/results/field_cupra_sensor_data_20260920_112021/road_segments.csv',
+    },
+    {
+        'road': 'Т1016',
+        'form_10m_csv': DATASETS[1]['form_10m_csv'],
+        'segments_csv': 'storage/results/field_cupra_sensor_data_20260920_120302/road_segments.csv',
     },
 ]
 
@@ -89,9 +106,9 @@ def _segment_geometry(ds) -> pd.DataFrame:
     return segment_midpoints_from_geojson(segments, str(geojson))
 
 
-def build_pairs() -> pd.DataFrame:
+def build_pairs(datasets=DATASETS) -> pd.DataFrame:
     frames = []
-    for ds in DATASETS:
+    for ds in datasets:
         form10 = load_form_10m(str(REPO_ROOT / ds['form_10m_csv']))
         matched = windowed_reference(
             _segment_geometry(ds), form10,
@@ -229,6 +246,35 @@ def main() -> None:
     pairs['iri_calibrated'] = eq3_pooled['A'] * pairs['psd_sqrt_scalar'] + eq3_pooled['B']
     ba_after = per_road_and_pooled(pairs, lambda d: bland_altman(d, 'iri_calibrated'))
 
+    # --- Second carrier: same matcher, nothing refitted on its pairs; the van's
+    # offsets (same road / pooled) are applied as they are ---
+    pairs_cv = build_pairs(CROSS_VEHICLE_DATASETS)
+    pairs_cv['iri_multi_bias_corrected'] = pairs_cv['iri_multi'] - iri_multi_bias
+
+    def _per_road(frame, fn):
+        return {road: fn(group) for road, group in frame.groupby('road')}
+
+    cross_vehicle = {
+        'block_added': '2026-11-15',
+        'target_vehicle_resolved': {ds['road']: _vehicle_resolved(ds)
+                                    for ds in CROSS_VEHICLE_DATASETS},
+        'n_pairs': _per_road(pairs_cv, len),
+        'validation_iri_multi': _per_road(pairs_cv, lambda d: validation_stats(d, 'iri_multi')),
+        'bland_altman_iri_multi': _per_road(pairs_cv, lambda d: bland_altman(d, 'iri_multi')),
+        'effective_n': _per_road(pairs_cv, lambda d: {
+            'iri_ref': effective_n(d.sort_values('chainage_m')['iri_ref']),
+            'iri_multi': effective_n(d.sort_values('chainage_m')['iri_multi'])}),
+        'iri_multi_zero_share': {
+            'source': _per_road(pairs, lambda d: float((d['iri_multi'] == 0).mean())),
+            'target': _per_road(pairs_cv, lambda d: float((d['iri_multi'] == 0).mean()))},
+        'mean_speed_kmh': {
+            'source': _per_road(pairs, lambda d: float(d['mean_speed_kmh'].mean())),
+            'target': _per_road(pairs_cv, lambda d: float(d['mean_speed_kmh'].mean()))},
+        'bias_transfer_from_source': cross_vehicle_bias_transfer(pairs, pairs_cv),
+        'ranking_agreement_pooled_source_offset': _per_road(
+            pairs_cv, lambda d: ranking_agreement(d)),
+    }
+
     sensitivity_nearest = {}
     for tol in NEAREST100_TOLERANCES_M:
         alt_fit = fit_eq3(build_pairs_nearest_100(tol))
@@ -279,6 +325,7 @@ def main() -> None:
         'iri_multi_vehicle_pooled_bias': iri_multi_vehicle_bias,
         'iri_multi_vehicle_bias_corrected': vehicle_bias_corrected_stats,
         'bias_correction_loro_vehicle': bias_loro_vehicle,
+        'cross_vehicle': cross_vehicle,
         'profilometer_noise_floor': profilometer_noise_floor(),
         'autocorrelation_effective_n': autocorrelation,
         'eq3_influence_analysis': influence,
@@ -291,6 +338,9 @@ def main() -> None:
     pairs_out = pairs.sort_values(['road', 'seg_id']).reset_index(drop=True)
     pairs_out.to_csv(out_dir / 'matched_pairs.csv', index=False,
                      encoding='utf-8', lineterminator='\n', float_format='%.10g')
+    pairs_cv.sort_values(['road', 'seg_id']).reset_index(drop=True).to_csv(
+        out_dir / 'matched_pairs_cross_vehicle.csv', index=False,
+        encoding='utf-8', lineterminator='\n', float_format='%.10g')
     (out_dir / 'stats.json').write_text(
         json.dumps(stats, ensure_ascii=False, indent=1, sort_keys=True),
         encoding='utf-8')
@@ -406,6 +456,30 @@ def main() -> None:
          'книжковий набір класу не заміняє польового калібрування з провенансом.'
          if bias_grows else
          '- Висновок: частина зсуву пояснюється класом носія; решта лишається за польовим калібруванням.'),
+        '',
+        '## Другий носій: той самий телефон у кросовері (по одному проїзду)',
+    ]
+    cv_val = cross_vehicle['validation_iri_multi']
+    cv_tr = cross_vehicle['bias_transfer_from_source']
+    cv_zero = cross_vehicle['iri_multi_zero_share']
+    cv_speed = cross_vehicle['mean_speed_kmh']
+    cv_rank = cross_vehicle['ranking_agreement_pooled_source_offset']['Т1016']
+    lines += [
+        f"- Т1016: ρ = {cv_val['Т1016']['spearman_rho']:.3f} (n = {cv_val['Т1016']['n']}, ефективний n ≈ "
+        f"{cross_vehicle['effective_n']['Т1016']['iri_ref']['n_eff']:.0f}) проти "
+        f"{v_multi['Т1016']['spearman_rho']:.3f} у фургона; зсув {cv_val['Т1016']['bias']:+.3f} проти "
+        f"{v_multi['Т1016']['bias']:+.3f} м/км; середня швидкість {cv_speed['target']['Т1016']:.0f} "
+        f"проти {cv_speed['source']['Т1016']:.0f} км/год.",
+        f"- Зсув фургона на тій самій дорозі ({cv_tr['Т1016']['same_road']['k_source']:+.3f}), застосований до "
+        f"кросовера без переналаштування: залишковий зсув {cv_tr['Т1016']['same_road']['bias_residual']:+.3f}, "
+        f"MAE {cv_tr['Т1016']['same_road']['mae']:.3f} м/км (гейт {GATES['mae_max']} не проходить).",
+        f"- Після об'єднаної поправки фургона: топ-10 {cv_rank['top_k_overlap']['10']['overlap']}/"
+        f"{cv_rank['top_k_overlap']['10']['k']}, топ-20 {cv_rank['top_k_overlap']['20']['overlap']}/"
+        f"{cv_rank['top_k_overlap']['20']['k']}; збіг рівня ДСТУ {cv_rank['level_same_share']:.1%}.",
+        f"- М-03: iri_multi обрізано до нуля у {cv_zero['target']['М-03']:.0%} пар кросовера "
+        f"(у фургона {cv_zero['source']['М-03']:.0%}) — та сама межа чутливості на рівній дорозі; "
+        f"ρ = {cv_val['М-03']['spearman_rho']:.3f} тут не є мірою валідності.",
+        '- Обмеження: по одному проїзду кожним носієм, проїзд кросовера на місяць пізніший за еталон.',
         '',
         '## LORO всіх моделей (out-of-sample MAE, м/км)',
     ]
