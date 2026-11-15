@@ -244,15 +244,31 @@ def compute_iri_multi(
     Returns:
         IRI: International Roughness Index (m/km)
     """
-    coeffs = IRI_MULTI_COEFFICIENTS[vehicle_type]
-
-    IRI = (coeffs['grms'] * grms
-           + coeffs['speed_kmh'] * speed_kmh
-           + coeffs['npeop'] * npeop
-           + coeffs['stif'] * stif
-           + coeffs['dampf'] * dampf
-           + coeffs['tyres'] * tyres
-           + coeffs['const'])
-
     # IRI cannot be negative
-    return max(0.0, IRI)
+    return max(0.0, compute_iri_multi_raw(grms, speed_kmh, npeop, stif, dampf, tyres,
+                                          vehicle_type))
+
+
+def compute_iri_multi_raw(
+    grms: float,
+    speed_kmh: float,
+    npeop: float = 1.0,
+    stif: float = 1.0,
+    dampf: float = 1.0,
+    tyres: float = 1.0,
+    vehicle_type: VehicleType = VehicleType.GENERIC
+) -> float:
+    """
+    The UNCLIPPED linear predictor of Eq.4/5/6 (same coefficients as
+    compute_iri_multi, which is max(0, this)). Below zero it is not a road
+    property but it still orders segments, so a calibration layer must act on
+    this value and clip afterwards (spec 2026-11-15-calibration-model-and-ablation).
+    """
+    coeffs = IRI_MULTI_COEFFICIENTS[vehicle_type]
+    return float(coeffs['grms'] * grms
+                 + coeffs['speed_kmh'] * speed_kmh
+                 + coeffs['npeop'] * npeop
+                 + coeffs['stif'] * stif
+                 + coeffs['dampf'] * dampf
+                 + coeffs['tyres'] * tyres
+                 + coeffs['const'])

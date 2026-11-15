@@ -328,6 +328,7 @@ seg_id,s_start,s_end,length_m,partial,n_samples,mean_speed_mps,mean_speed_kmh,sp
 | `iri_multi` | m/km | Eq.6 (GENERIC vehicle); `NaN`, якщо `speed_valid = False` |
 | `iri_multi_vehicle` | m/km | Eq.4/5/6 з набором і параметрами, резолвленими з паспорта `# vehicle_*` (`metrics/vehicle_params.py`); дорівнює `iri_multi`, якщо паспорта немає; `NaN`, якщо `speed_valid = False` |
 | `iri_multi_equation` | — | токен набору для `iri_multi_vehicle`: `eq4` / `eq5` / `eq6`; сталий для запису |
+| `iri_multi_raw` | m/km | необрізаний предиктор Eq.6 (номінали): `iri_multi = max(0, iri_multi_raw)`; може бути від'ємним; вхід калібрувальної моделі (`profilometer_validation.calibration_model`); `NaN`, якщо `speed_valid = False` |
 | `anomaly_count` | — | кількість семплів із \|a_vertical\| > 10 м/с² |
 | `events_per_km` | 1/km | `anomaly_count` / довжину сегмента в км; `NaN` при нульовій довжині |
 

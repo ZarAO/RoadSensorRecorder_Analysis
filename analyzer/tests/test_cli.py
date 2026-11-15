@@ -505,6 +505,16 @@ def test_vehicle_passport_selects_the_equation_set_end_to_end(tmp_path):
     assert 'Eq.4' in report
 
 
+def test_iri_multi_raw_column_is_the_unclipped_published_value(baseline_run):
+    """Calibration input: iri_multi == max(0, iri_multi_raw); same speed gate (NaN)."""
+    segments = baseline_run['segments']
+    assert 'iri_multi_raw' in segments.columns
+    valid = segments['speed_valid']
+    np.testing.assert_allclose(segments.loc[valid, 'iri_multi'],
+                               np.maximum(0.0, segments.loc[valid, 'iri_multi_raw']))
+    assert segments.loc[~valid, 'iri_multi_raw'].isna().all()
+
+
 def test_recording_without_passport_resolves_to_generic_defaults_end_to_end(baseline_run):
     """A pre-v3 recording must reproduce today's numbers: Eq.6, every factor 'default'."""
     segments = baseline_run['segments']

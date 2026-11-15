@@ -79,6 +79,45 @@ def create_segments(
     return segments
 
 
+def create_time_segments(
+    s_grid: np.ndarray,
+    window_samples: int
+) -> Dict[int, np.ndarray]:
+    """
+    ABLATION ONLY (--ablate-segmentation-time): fixed time windows
+
+    Deliberately breaks B7: a window of fixed duration covers v*T metres, so its
+    spatial length depends on the speed - the flaw the ablation demonstrates.
+    seg_id = floor(i / window_samples) over the uniform-grid samples; s_grid is
+    only checked here, the window extent in metres comes from it downstream.
+    Never used by the default pipeline.
+
+    Args:
+        s_grid: cumulative distance (meters) for each sample
+        window_samples: samples per window (>= 1)
+
+    Returns:
+        segments: dict {seg_id: indices array}
+
+    Raises:
+        ValueError: if window_samples < 1 or s_grid holds non-finite samples
+    """
+    if window_samples < 1:
+        raise ValueError(f"window_samples must be >= 1, got {window_samples}")
+    if not np.all(np.isfinite(s_grid)):
+        raise ValueError(
+            f"s_grid contains {int(np.sum(~np.isfinite(s_grid)))} non-finite samples: "
+            "distance is undefined outside GPS coverage, so those samples must be "
+            "dropped before segmentation."
+        )
+
+    # Windows are contiguous index ranges: slice them instead of scanning every
+    # sample once per window (same keys and index arrays as np.where per id)
+    n = len(s_grid)
+    return {seg_id: np.arange(seg_id * window_samples, min((seg_id + 1) * window_samples, n))
+            for seg_id in np.unique(np.arange(n) // window_samples)}
+
+
 def longest_finite_run(signal: np.ndarray) -> np.ndarray:
     """
     Longest contiguous run of finite samples
@@ -132,6 +171,7 @@ def aggregate_segment_metrics(
     iri_psd_A: float = None,
     iri_psd_B: float = None,
     vehicle_params=None,
+    speed_gate: bool = True,
     **kwargs
 ) -> Dict:
     """
@@ -152,6 +192,10 @@ def aggregate_segment_metrics(
             LOW_SPEED_MAX_KMH (see LOW_SPEED_CLASS_BY_POLICY)
         vehicle_params: ResolvedVehicleParams from the recording's vehicle
             passport; None resolves to the generic Eq.6 with book defaults
+        speed_gate: True (default) leaves iri_multi/iri_multi_vehicle/
+            iri_multi_raw NaN outside the 20-100 km/h survey range; False is the
+            --ablate-speed-gate ablation and evaluates them for every segment
+            (speed_valid and the low-speed labels keep their true values)
         **kwargs: additional metrics to store
 
     Returns:
@@ -162,7 +206,8 @@ def aggregate_segment_metrics(
     """
     from road_quality_analyzer.metrics.grms import compute_grms
     from road_quality_analyzer.metrics.iri import (
-        compute_iri_psd, compute_iri_multi, VehicleType, IRI_MULTI_DEFAULT_PARAMS
+        compute_iri_psd, compute_iri_multi, compute_iri_multi_raw, VehicleType,
+        IRI_MULTI_DEFAULT_PARAMS
     )
     from road_quality_analyzer.metrics.vehicle_params import resolve_vehicle_params
 
@@ -237,15 +282,18 @@ def aggregate_segment_metrics(
     # Eq.4/5/6 carry a speed term and are calibrated for 20-100 km/h only - outside
     # that range NaN, not 0. Eq.3 has no speed term, so iri_psd is not gated here
     # and keeps its contract iri_psd == max(0, iri_psd_raw).
+    # speed_gate=False (ablation only) evaluates the formulas outside their
+    # calibrated range as well.
     if vehicle_params is None:
         vehicle_params = resolve_vehicle_params({})
-    if metrics['speed_valid']:
-        metrics['iri_multi'] = compute_iri_multi(
-            metrics['grms'],
-            mean_speed_kmh,
-            vehicle_type=VehicleType.GENERIC,
-            **IRI_MULTI_DEFAULT_PARAMS
-        )
+    iri_multi_defined = metrics['speed_valid'] or not speed_gate
+    if iri_multi_defined:
+        # Unclipped Eq.6 (nominal) predictor, computed once: iri_multi ==
+        # max(0, iri_multi_raw) by construction (calibration model input)
+        iri_multi_raw = compute_iri_multi_raw(
+            metrics['grms'], mean_speed_kmh, vehicle_type=VehicleType.GENERIC,
+            **IRI_MULTI_DEFAULT_PARAMS)
+        metrics['iri_multi'] = max(0.0, iri_multi_raw)
         metrics['iri_multi_vehicle'] = compute_iri_multi(
             metrics['grms'],
             mean_speed_kmh,
@@ -253,9 +301,12 @@ def aggregate_segment_metrics(
             **vehicle_params.params
         )
     else:
+        iri_multi_raw = np.nan
         metrics['iri_multi'] = np.nan
         metrics['iri_multi_vehicle'] = np.nan
     metrics['iri_multi_equation'] = vehicle_params.equation
+    # Same speed gate as iri_multi (NaN outside 20-100 km/h unless ablated)
+    metrics['iri_multi_raw'] = iri_multi_raw
 
     # Anomaly count
     if anomaly_mask is not None:
@@ -295,7 +346,9 @@ def create_segments_dataframe(
     low_speed_policy: str = DEFAULT_LOW_SPEED_POLICY,
     iri_psd_A: float = None,
     iri_psd_B: float = None,
-    vehicle_params=None
+    vehicle_params=None,
+    time_window_samples: int = None,
+    speed_gate: bool = True
 ) -> pd.DataFrame:
     """
     Create a DataFrame with metrics per 100 m segment
@@ -312,11 +365,18 @@ def create_segments_dataframe(
         f_low, f_high: Welch band for Eq.3 (must match the band-pass the caller applied)
         low_speed_policy: label for segments below LOW_SPEED_MAX_KMH
         vehicle_params: ResolvedVehicleParams of the recording (None = generic Eq.6)
+        time_window_samples: None (default) segments by distance (B7); an int is
+            the --ablate-segmentation-time ablation: fixed windows of that many
+            samples (create_time_segments), segment_length_m is then unused
+        speed_gate: see aggregate_segment_metrics (False = --ablate-speed-gate)
 
     Returns:
         df: DataFrame with segment metrics
     """
-    segments = create_segments(s_grid, segment_length_m)
+    if time_window_samples is None:
+        segments = create_segments(s_grid, segment_length_m)
+    else:
+        segments = create_time_segments(s_grid, time_window_samples)
 
     metrics_list = []
     for seg_id, indices in segments.items():
@@ -324,10 +384,18 @@ def create_segments_dataframe(
             seg_id, indices, a_vertical_g, a_vertical_g_psd, v_grid, s_grid,
             fs, anomaly_mask, scalar_mode=scalar_mode, f_low=f_low, f_high=f_high,
             low_speed_policy=low_speed_policy, iri_psd_A=iri_psd_A, iri_psd_B=iri_psd_B,
-            vehicle_params=vehicle_params
+            vehicle_params=vehicle_params, speed_gate=speed_gate
         )
         if metrics is not None:
             metrics_list.append(metrics)
 
     df = pd.DataFrame(metrics_list)
+
+    # A time window is partial only when the recording ends inside it. Judging it
+    # by length_m < MIN_FULL_SEGMENT_M instead would flag every window driven
+    # slower than the median speed and drop from every downstream match exactly
+    # the windows whose speed-dependent length the ablation is meant to expose.
+    if time_window_samples is not None and len(df) > 0:
+        df['partial'] = df['n_samples'] < time_window_samples
+
     return df

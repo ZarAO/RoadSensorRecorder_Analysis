@@ -50,12 +50,32 @@ def main():
             f'(у звіті вони все одно враховані). За замовчуванням: {DEFAULT_LOW_SPEED_POLICY}'
         )
     )
+    # Experimental ablations (base vs improved method on the same data): opt-in,
+    # recorded in recording_meta.json and report.md; the output is not a measurement
+    analyze_parser.add_argument(
+        '--ablate-orientation', action='store_true',
+        help='АБЛЯЦІЯ (лише для дослідження): без gravity alignment — вертикаль = вісь '
+             'пристрою з найбільшим |середнім| мінус це середнє.'
+    )
+    analyze_parser.add_argument(
+        '--ablate-segmentation-time', action='store_true',
+        help='АБЛЯЦІЯ: замість 100 м сегментів — фіксовані часові вікна тривалістю '
+             '100 м / медіанна швидкість руху (v > 1 м/с).'
+    )
+    analyze_parser.add_argument(
+        '--ablate-speed-gate', action='store_true',
+        help='АБЛЯЦІЯ: iri_multi рахується для всіх сегментів, також поза 20–100 км/год '
+             '(speed_valid зберігає справжнє значення).'
+    )
 
     args = parser.parse_args()
 
     if args.command == 'analyze':
         analyze(args.input, args.out, low_speed_policy=args.low_speed_policy,
-                iri_psd_A=getattr(args, 'iri_psd_A'), iri_psd_B=getattr(args, 'iri_psd_B'))
+                iri_psd_A=getattr(args, 'iri_psd_A'), iri_psd_B=getattr(args, 'iri_psd_B'),
+                ablate_orientation=args.ablate_orientation,
+                ablate_segmentation_time=args.ablate_segmentation_time,
+                ablate_speed_gate=args.ablate_speed_gate)
     else:
         parser.print_help()
         sys.exit(1)
@@ -63,7 +83,10 @@ def main():
 
 def analyze(input_path: str, output_dir: str,
             low_speed_policy: str = DEFAULT_LOW_SPEED_POLICY,
-            iri_psd_A: float = None, iri_psd_B: float = None):
+            iri_psd_A: float = None, iri_psd_B: float = None,
+            ablate_orientation: bool = False,
+            ablate_segmentation_time: bool = False,
+            ablate_speed_gate: bool = False):
     """
     Full analysis of sensor data
 
@@ -75,6 +98,13 @@ def analyze(input_path: str, output_dir: str,
             from the CSV/GeoJSON/map (the report still counts them)
         iri_psd_A, iri_psd_B: optional calibrated Eq.3 coefficients (a named,
             provenance-documented set); None -> the book values, unchanged
+        ablate_orientation, ablate_segmentation_time, ablate_speed_gate:
+            EXPERIMENTAL ablations for the base-vs-improved study, default off
+            (output then byte-identical to a run without them). Each one
+            switches a step of the method off - naive device-axis vertical,
+            fixed time windows instead of 100 m segments, iri_multi outside the
+            20-100 km/h range - and is recorded under 'ablations' in
+            recording_meta.json and at the top of report.md
     """
     import numpy as np
     from pathlib import Path
@@ -84,7 +114,7 @@ def analyze(input_path: str, output_dir: str,
     from road_quality_analyzer.filtering import apply_bandpass
     from road_quality_analyzer.orientation import (
         estimate_gravity, compute_rotation_matrix, transform_to_world,
-        compute_gps_heading
+        compute_gps_heading, naive_device_vertical
     )
     from road_quality_analyzer.anomaly import detect_threshold_anomalies, remove_distress_windows
     from road_quality_analyzer.segmentation import create_segments_dataframe
@@ -111,10 +141,27 @@ def analyze(input_path: str, output_dir: str,
     DISTRESS_WINDOW_SEC = 0.5
     SEGMENT_LENGTH_M = 100.0
     DEFAULT_SCALAR_MODE = 'mean_psd_sqrt'
+    # --ablate-segmentation-time: the median speed that sizes the windows is
+    # taken over moving samples only
+    TIME_WINDOW_MOVING_MIN_MPS = 1.0
+
+    # Applied ablations: name -> details, filled as each switched-off step runs;
+    # stays empty on a default run, so no artifact changes
+    if ablate_speed_gate and low_speed_policy == 'ignore':
+        # 'ignore' deletes exactly the low-speed segments the gate ablation gives
+        # numbers to, while the report would claim they were computed
+        raise ValueError("--ablate-speed-gate cannot be combined with "
+                         "--low-speed-policy ignore")
+    ablations = {}
 
     print("="*60)
     print("Road Quality Analyzer - Повний пайплайн")
     print("="*60)
+    for flag, on in (('--ablate-orientation', ablate_orientation),
+                     ('--ablate-segmentation-time', ablate_segmentation_time),
+                     ('--ablate-speed-gate', ablate_speed_gate)):
+        if on:
+            print(f"⚠ ABLATION {flag}: експериментальний запуск, не вимірювання")
 
     # 1. Loading
     print(f"\n[1/9] Завантаження даних з {input_path}...")
@@ -220,16 +267,34 @@ def analyze(input_path: str, output_dir: str,
         )
     print(f"  Gravity estimated (mean magnitude: {g_mean:.2f} m/s^2)")
 
-    R_matrices = compute_rotation_matrix(g_hat_x, g_hat_y, g_hat_z)
-    print(f"  Rotation matrices computed")
+    if ablate_orientation:
+        # ABLATION: no rotation; the gravity estimate above still guards the
+        # units/fs contract but does not shape the signal
+        a_vertical, naive_axis, naive_axis_mean = naive_device_vertical(
+            ax_grid, ay_grid, az_grid
+        )
+        # tilt of the mount against that axis, over the SAME window the ablation
+        # used: the part of the vertical the naive axis cannot see is 1 - cos(tilt)
+        axis_means = np.array([np.mean(ax_grid), np.mean(ay_grid), np.mean(az_grid)])
+        ablations['orientation'] = {
+            'vertical_axis': naive_axis,
+            'axis_mean_ms2': naive_axis_mean,
+            'tilt_deg': float(np.degrees(np.arccos(
+                min(1.0, abs(naive_axis_mean) / float(np.linalg.norm(axis_means)))))),
+        }
+        print(f"  ⚠ ABLATION: device axis {naive_axis} as vertical "
+              f"(axis mean {naive_axis_mean:.3f} m/s^2 removed), no rotation")
+    else:
+        R_matrices = compute_rotation_matrix(g_hat_x, g_hat_y, g_hat_z)
+        print(f"  Rotation matrices computed")
 
-    # Only the world-frame vertical feeds the metrics; the horizontal components
-    # are not exported
-    *_, a_vertical = transform_to_world(
-        ax_grid, ay_grid, az_grid,
-        g_hat_x, g_hat_y, g_hat_z,
-        R_matrices
-    )
+        # Only the world-frame vertical feeds the metrics; the horizontal components
+        # are not exported
+        *_, a_vertical = transform_to_world(
+            ax_grid, ay_grid, az_grid,
+            g_hat_x, g_hat_y, g_hat_z,
+            R_matrices
+        )
     print(f"  Vertical acceleration: mean={np.mean(a_vertical):.3f} m/s^2, std={np.std(a_vertical):.3f} m/s^2)")
 
     # 5. Band-pass filtering (0.5-6 Hz) before metrics
@@ -276,7 +341,30 @@ def analyze(input_path: str, output_dir: str,
     print(f"  Distress removal: {n_masked} samples masked for PSD (±{DISTRESS_WINDOW_SEC} s)")
 
     # 8. Segmentation 100m
-    print("\n[8/9] Сегментація по 100 м...")
+    time_window_samples = None
+    if ablate_segmentation_time:
+        # ABLATION: fixed time windows sized to 100 m at the recording's median
+        # moving speed, so their spatial length varies with the speed
+        moving = v_grid > TIME_WINDOW_MOVING_MIN_MPS
+        if not np.any(moving):
+            raise ValueError(
+                f"--ablate-segmentation-time needs moving samples (v > "
+                f"{TIME_WINDOW_MOVING_MIN_MPS} m/s) to size the time windows; "
+                f"{input_path} has none in the analysis window."
+            )
+        median_moving_speed_mps = float(np.median(v_grid[moving]))
+        time_window_samples = max(1, int(round(SEGMENT_LENGTH_M / median_moving_speed_mps * fs)))
+        ablations['segmentation_time'] = {
+            'window_s': time_window_samples / fs,
+            'window_samples': time_window_samples,
+            'median_moving_speed_mps': median_moving_speed_mps,
+            'moving_min_speed_mps': TIME_WINDOW_MOVING_MIN_MPS,
+        }
+        print(f"\n[8/9] ⚠ ABLATION: часові вікна {time_window_samples / fs:.2f} с "
+              f"({time_window_samples} samples) = {SEGMENT_LENGTH_M:.0f} м / "
+              f"{median_moving_speed_mps:.2f} м/с...")
+    else:
+        print("\n[8/9] Сегментація по 100 м...")
 
     # Try different scalar modes for diagnostics
     scalar_modes = ['mean_psd_sqrt', 'band_power_sqrt', 'median_psd_sqrt', 'peak_psd_sqrt']
@@ -289,12 +377,19 @@ def analyze(input_path: str, output_dir: str,
             f_low=BAND_LOW_HZ, f_high=BAND_HIGH_HZ,
             low_speed_policy=low_speed_policy,
             iri_psd_A=iri_psd_A, iri_psd_B=iri_psd_B,
-            vehicle_params=vehicle_params
+            vehicle_params=vehicle_params,
+            time_window_samples=time_window_samples,
+            speed_gate=not ablate_speed_gate
         )
 
     # Low-speed segments are captured before any exclusion: under the 'ignore'
     # policy their rows leave the artifacts, but the report still accounts for them
     all_segments_df = segments_by_mode[DEFAULT_SCALAR_MODE]
+    if ablate_speed_gate:
+        ablations['speed_gate'] = {
+            'n_segments_outside_speed_valid': int((~all_segments_df['speed_valid']).sum())
+            if len(all_segments_df) > 0 else 0,
+        }
     low_speed_df = all_segments_df[all_segments_df['needs_class12_survey']]
     n_low_speed = len(low_speed_df)
     n_low_speed_excluded = n_low_speed if low_speed_policy == 'ignore' else 0
@@ -343,6 +438,8 @@ def analyze(input_path: str, output_dir: str,
     meta_payload.update(source_file=str(input_path),
                         clean_stop=recording_meta.clean_stop,
                         vehicle_params=vehicle_params_payload)
+    if ablations:
+        meta_payload['ablations'] = ablations
     with open(meta_json, 'w', encoding='utf-8') as jf:
         json.dump(meta_payload, jf, ensure_ascii=False, indent=2)
     print(f"  ✓ {meta_json}")
@@ -392,9 +489,43 @@ def analyze(input_path: str, output_dir: str,
         f.write(f"**Input:** {input_path}\n\n")
         f.write(f"**Date:** {Path(input_path).name}\n\n")
 
+        # Ablations come first, so an ablated output cannot pass for a real one
+        if ablations:
+            f.write("## ⚠ ABLATION RUN — експериментальний запуск, не вимірювання\n\n")
+            f.write("Крок(и) методу навмисно вимкнено для порівняння «базовий vs "
+                    "покращений метод» на тих самих даних (`ablations` у "
+                    "`recording_meta.json`). Числа цього запуску не є результатом "
+                    "обстеження; описи вимкненого кроку нижче замінено.\n\n")
+            if 'orientation' in ablations:
+                orient = ablations['orientation']
+                f.write(f"- `--ablate-orientation`: gravity alignment вимкнено — вертикаль = "
+                        f"вісь пристрою `{orient['vertical_axis']}` (найбільше |середнє|, "
+                        f"{orient['axis_mean_ms2']:.3f} m/s^2, віднято), без повороту у "
+                        "світову систему координат\n")
+            if 'segmentation_time' in ablations:
+                seg_time = ablations['segmentation_time']
+                f.write(f"- `--ablate-segmentation-time`: замість 100 м сегментів — часові "
+                        f"вікна {seg_time['window_s']:.3f} s ({seg_time['window_samples']} "
+                        f"samples) = {SEGMENT_LENGTH_M:.0f} m / медіанна швидкість руху "
+                        f"{seg_time['median_moving_speed_mps']:.3f} m/s (v > "
+                        f"{seg_time['moving_min_speed_mps']} m/s); просторова довжина вікна "
+                        "(`length_m`) залежить від швидкості; `partial` = неповне "
+                        "хвостове вікно\n")
+            if 'speed_gate' in ablations:
+                f.write("- `--ablate-speed-gate`: `iri_multi`, `iri_multi_vehicle`, "
+                        "`iri_multi_raw` обчислено для всіх сегментів, також поза "
+                        "20–100 km/h "
+                        f"({ablations['speed_gate']['n_segments_outside_speed_valid']} "
+                        "сегм.); `speed_valid`, `low_speed_class`, `needs_class12_survey` "
+                        "мають справжні значення\n")
+            f.write("\n")
+
         # Artifacts
         f.write("## Generated Artifacts\n\n")
-        f.write("- `road_segments.csv` - метрики 100м сегментів (CSV)\n")
+        if ablate_segmentation_time:
+            f.write("- `road_segments.csv` - метрики часових вікон (ABLATION) (CSV)\n")
+        else:
+            f.write("- `road_segments.csv` - метрики 100м сегментів (CSV)\n")
         f.write("- `recording_meta.json` - метадані запису: преамбула, профіль авто, "
                 "події, футер (JSON)\n")
         f.write("- `roughness.geojson` - сегменти з геометрією та метриками (GeoJSON)\n")
@@ -410,7 +541,11 @@ def analyze(input_path: str, output_dir: str,
         f.write(f"- Total distance: {s_grid[-1] - s_grid[0]:.1f} m\n")
         f.write(f"- Mean speed: {v_grid.mean()*3.6:.1f} km/h\n")
         f.write(f"- Sampling rate: {fs:.1f} Hz\n")
-        f.write(f"- Segments (100m): {len(segments_df)} ({n_partial} partial, excluded from means)\n")
+        if ablate_segmentation_time:
+            f.write(f"- Segments (ABLATION, {time_window_samples / fs:.3f} s time windows): "
+                    f"{len(segments_df)} ({n_partial} partial, excluded from means)\n")
+        else:
+            f.write(f"- Segments (100m): {len(segments_df)} ({n_partial} partial, excluded from means)\n")
         f.write(f"- Anomalies: {n_anomalies}\n\n")
 
         # Recording metadata (Stage C): the CSV comment layer, v2.1/v3 contract
@@ -514,20 +649,38 @@ def analyze(input_path: str, output_dir: str,
         f.write("## Configuration\n\n")
         f.write("Параметри аналізу:\n\n")
         f.write("**Segmentation:**\n")
-        f.write(f"- Segment length: {SEGMENT_LENGTH_M:.0f} m\n")
-        f.write("- Method: cumulative distance grid (B7)\n")
-        f.write("- Partial segments (< 90 m) flagged `partial=True` and excluded from means\n")
-        f.write("- Speed validity: 20-100 km/h (`speed_valid`); `iri_multi` is NaN "
-                "outside it.\n")
+        if ablate_segmentation_time:
+            f.write(f"- ABLATION: fixed time windows of {time_window_samples} samples "
+                    f"({time_window_samples / fs:.3f} s), NOT {SEGMENT_LENGTH_M:.0f} m "
+                    "distance segments (B7)\n")
+            f.write("- Window extent in metres (`s_start`/`s_end`/`length_m`) from the "
+                    "cumulative distance grid\n")
+            f.write("- Partial = the recording tail window (fewer samples than a full "
+                    "window), flagged `partial=True` and excluded from means\n")
+        else:
+            f.write(f"- Segment length: {SEGMENT_LENGTH_M:.0f} m\n")
+            f.write("- Method: cumulative distance grid (B7)\n")
+            f.write("- Partial segments (< 90 m) flagged `partial=True` and excluded from means\n")
+        if ablate_speed_gate:
+            f.write("- Speed validity: 20-100 km/h (`speed_valid`); ABLATION: `iri_multi` "
+                    "is computed outside it too.\n")
+        else:
+            f.write("- Speed validity: 20-100 km/h (`speed_valid`); `iri_multi` is NaN "
+                    "outside it.\n")
         f.write("  Eq.3 has no speed term, so `iri_psd` is kept for every segment "
                 "where Welch could run\n")
         f.write(f"- Low-speed policy (`--low-speed-policy`): `{low_speed_policy}` "
                 f"— сегменти < {LOW_SPEED_MAX_KMH:.0f} км/год дістають "
-                "`low_speed_class` і `needs_class12_survey`; `iri_multi` для них "
-                "лишається NaN за будь-якої політики\n\n")
+                "`low_speed_class` і `needs_class12_survey`; "
+                + ("ABLATION: `iri_multi` для них обчислено попри це\n\n" if ablate_speed_gate
+                   else "`iri_multi` для них лишається NaN за будь-якої політики\n\n"))
         f.write("**Filtering:**\n")
         f.write(f"- Zero-phase Butterworth band-pass {BAND_LOW_HZ}-{BAND_HIGH_HZ} Hz (filtfilt)\n")
-        f.write("- Applied to the gravity-removed world-frame vertical before Grms/PSD\n\n")
+        if ablate_orientation:
+            f.write("- Applied to the ABLATION vertical (device axis, mean removed, no "
+                    "rotation) before Grms/PSD\n\n")
+        else:
+            f.write("- Applied to the gravity-removed world-frame vertical before Grms/PSD\n\n")
         f.write("**IRI_psd (Eq.3):**\n")
         f.write("- PSD method: Welch (scipy.signal.welch), only when n >= fs*2\n")
         f.write(f"- Frequency band: [{BAND_LOW_HZ}, {BAND_HIGH_HZ}] Hz (B4)\n")
@@ -552,13 +705,21 @@ def analyze(input_path: str, output_dir: str,
                 f"{IRI_MULTI_DEFAULT_PARAMS}\n\n")
         f.write("**Anomaly Detection:**\n")
         f.write("- Method: threshold on |a_vertical| (B8)\n")
-        f.write("- Signal: gravity-removed world-frame vertical acceleration "
-                "(NOT the raw accelerometer reading the guidebook thresholds)\n")
+        if ablate_orientation:
+            f.write("- Signal: ABLATION vertical (device axis, mean removed, no rotation)\n")
+        else:
+            f.write("- Signal: gravity-removed world-frame vertical acceleration "
+                    "(NOT the raw accelerometer reading the guidebook thresholds)\n")
         f.write(f"- Threshold: {ANOMALY_THRESHOLD_MS2:.0f} m/s^2 "
                 "(guidebook baseline, applied uncalibrated to this signal)\n")
         f.write(f"- Distress removal for PSD: ±{DISTRESS_WINDOW_SEC} s around each anomaly\n\n")
         f.write("**Orientation Correction:**\n")
-        f.write(f"- Gravity alignment: lowpass filter {GRAVITY_CUTOFF_HZ} Hz (A3)\n")
+        if ablate_orientation:
+            f.write(f"- Gravity alignment: OFF (ABLATION) — device axis "
+                    f"`{ablations['orientation']['vertical_axis']}`; the {GRAVITY_CUTOFF_HZ} Hz "
+                    "gravity estimate only checks the units/fs contract\n")
+        else:
+            f.write(f"- Gravity alignment: lowpass filter {GRAVITY_CUTOFF_HZ} Hz (A3)\n")
         f.write(f"- GPS heading: minimum speed {HEADING_MIN_SPEED_MPS} m/s (A4)\n\n")
 
         # Sampling compliance (F)
@@ -582,8 +743,13 @@ def analyze(input_path: str, output_dir: str,
             f.write(f"- Mean IRI_psd_raw: {full_df['iri_psd_raw'].mean():.2f} m/km\n")
             f.write(f"- Mean IRI_psd (clipped): {full_df['iri_psd'].mean():.2f} m/km\n")
             f.write(f"- Mean IRI_multi: {full_df['iri_multi'].mean():.2f} m/km\n")
-            f.write(f"- Segments with invalid survey speed (IRI_multi = NaN): "
-                    f"{int((~full_df['speed_valid']).sum())} / {len(full_df)}\n")
+            if ablate_speed_gate:
+                f.write(f"- Segments with invalid survey speed (ABLATION: IRI_multi "
+                        f"computed anyway): {int((~full_df['speed_valid']).sum())} / "
+                        f"{len(full_df)}\n")
+            else:
+                f.write(f"- Segments with invalid survey speed (IRI_multi = NaN): "
+                        f"{int((~full_df['speed_valid']).sum())} / {len(full_df)}\n")
             share_negative = float((full_df['iri_psd_raw'] < 0).mean()) * 100
             f.write(f"- Full segments with negative IRI_psd_raw: {share_negative:.1f}% "
                     "— негативний raw означає, що виміряна густина PSD нижча за поріг\n"
@@ -647,6 +813,10 @@ def analyze(input_path: str, output_dir: str,
                     "діапазону зйомки 20–100 км/год (опорні швидкості 30/50/80 км/год); "
                     "поза ним формула не визначена, тому `iri_multi` = NaN за будь-якої "
                     "політики — ставимо мітку, а не вигадуємо число\n")
+            if ablate_speed_gate:
+                f.write("- ⚠ ABLATION `--ablate-speed-gate`: у цьому запуску числовий "
+                        "`iri_multi` для цих сегментів обчислено попри сказане вище — "
+                        "лише для порівняння методів, не як оцінку стану\n")
             f.write("- Guidebook: запис зі швидкістю < 20 км/год вважається неповним "
                     "набором даних (incomplete dataset), робочий діапазон зйомки — "
                     "20–100 км/год\n\n")

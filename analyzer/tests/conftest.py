@@ -50,13 +50,17 @@ def write_drive_csv(
     lat0: float = 50.4,
     lon0: float = 30.5,
     preamble: bool = True,
+    distance_m=None,
+    roll_deg: float = None,
 ) -> str:
     """
     Write a small contract-v2 CSV for a phone lying flat in a car driving due north.
 
     The phone is flat, so the body-frame accelerometer reads (0, 0, g0 + a_vert):
     the world-frame vertical excitation is recoverable in closed form and pipeline
-    metrics can be pinned to hand-computed values.
+    metrics can be pinned to hand-computed values. roll_deg tilts the phone about
+    its x axis instead, so the same vertical splits into y and z:
+    (0, -sin(roll), cos(roll)) * (g0 + a_vert).
 
     Args:
         path: destination file
@@ -68,6 +72,9 @@ def write_drive_csv(
         gps_rate_hz: Location row rate
         lat0, lon0: start coordinate (deg WGS84)
         preamble: emit the optional '#' metadata preamble
+        distance_m: callable(t) -> metres driven north (overrides speed_mps, so
+            the speed may vary along the drive)
+        roll_deg: phone tilt about its x axis (None = flat)
 
     Returns:
         path as str
@@ -75,25 +82,35 @@ def write_drive_csv(
     accel_t = np.arange(0.0, duration_s, 1.0 / fs)
     excitation = np.zeros_like(accel_t) if a_vert is None else np.asarray(a_vert(accel_t), float)
 
+    # The flat branch writes exactly what it always did (a tilt of 0 would turn
+    # Y into -0.0 and change the file bytes other tests rely on)
+    if roll_deg is None:
+        accel_y, accel_z = 0.0, G0 + excitation
+    else:
+        roll = np.deg2rad(roll_deg)
+        accel_y = -np.sin(roll) * (G0 + excitation)
+        accel_z = np.cos(roll) * (G0 + excitation)
+
     frames = [pd.DataFrame({
         'Time': ANCHOR_MS + np.round(accel_t * 1000.0).astype(np.int64),
         'Type': 'Accelerometer',
         'X': 0.0,
-        'Y': 0.0,
-        'Z': G0 + excitation,
+        'Y': accel_y,
+        'Z': accel_z,
         'Latitude': np.nan,
         'Longitude': np.nan,
     })]
 
     if gps:
         gps_t = np.arange(0.0, duration_s + 1e-9, 1.0 / gps_rate_hz)
+        north_m = speed_mps * gps_t if distance_m is None else np.asarray(distance_m(gps_t), float)
         frames.append(pd.DataFrame({
             'Time': ANCHOR_MS + np.round(gps_t * 1000.0).astype(np.int64),
             'Type': 'Location',
             'X': np.nan,
             'Y': np.nan,
             'Z': np.nan,
-            'Latitude': lat0 + speed_mps * gps_t / METERS_PER_DEG_LAT,
+            'Latitude': lat0 + north_m / METERS_PER_DEG_LAT,
             'Longitude': lon0,
         }))
 

@@ -13,9 +13,21 @@ from road_quality_analyzer.metrics.iri import (
     IRI_PSD_COEFFICIENTS,
     VehicleType,
     compute_iri_multi,
+    compute_iri_multi_raw,
     compute_iri_psd,
     compute_psd_band_power,
 )
+
+
+def test_iri_multi_raw_is_the_unclipped_predictor_of_iri_multi():
+    # smooth road at highway speed: Eq.6 goes below zero, the published value clips
+    raw = compute_iri_multi_raw(0.014, 75.0)
+    assert raw == pytest.approx(50.32 * 0.014 - 0.06 * 75.0 + 0.17 - 1.86 - 0.90 - 0.78 + 6.68)
+    assert raw < 0 and compute_iri_multi(0.014, 75.0) == 0.0
+    # a rough segment: both agree
+    for vehicle in VehicleType:
+        assert compute_iri_multi(0.06, 50.0, vehicle_type=vehicle) == pytest.approx(
+            compute_iri_multi_raw(0.06, 50.0, vehicle_type=vehicle))
 
 FS = 100.0
 G0 = 9.80665

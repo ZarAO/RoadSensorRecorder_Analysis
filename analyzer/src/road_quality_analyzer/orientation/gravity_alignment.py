@@ -156,3 +156,36 @@ def transform_to_world(
     a_vertical = a_lin_world[:, 2]  # z component
 
     return a_lin_world[:, 0], a_lin_world[:, 1], a_lin_world[:, 2], a_vertical
+
+
+def naive_device_vertical(
+    accel_x: np.ndarray,
+    accel_y: np.ndarray,
+    accel_z: np.ndarray
+) -> Tuple[np.ndarray, str, float]:
+    """
+    ABLATION ONLY (--ablate-orientation): the "phone z-axis" baseline
+
+    No gravity alignment and no rotation into the world frame: the device axis
+    whose mean has the largest absolute value is taken as the one carrying
+    gravity, its constant mean is subtracted, and the rest is treated as the
+    vertical. On a tilted phone that axis sees only cos(tilt) of the vertical
+    excitation plus a share of the horizontal accelerations - the error the
+    ablation is meant to measure. Never used by the default pipeline.
+
+    The sign follows transform_to_world (z_phone = -normalize(g_hat) is mapped
+    onto world up), so a phone lying flat gives the same vertical as the full
+    chain.
+
+    Args:
+        accel_x, accel_y, accel_z: raw accelerometer components (m/s²)
+
+    Returns:
+        (a_vertical, axis, axis_mean) - the vertical in m/s² with the axis mean
+        removed, the chosen axis ('x'/'y'/'z') and its signed mean (m/s²)
+    """
+    axes = np.stack([accel_x, accel_y, accel_z])
+    means = axes.mean(axis=1)
+    k = int(np.argmax(np.abs(means)))
+    a_vertical = -np.sign(means[k]) * (axes[k] - means[k])
+    return a_vertical, 'xyz'[k], float(means[k])

@@ -53,6 +53,12 @@ research-toolkit skills (`research-accelerometer-iri-pipeline`, `research-signal
 - Divide Sentinel-2 SR pixels by 10000 (DN → reflectance) before thresholds/visuals. Apply
   the cloud mask BEFORE the temporal median composite, never after.
 
+## Ablation exception
+- The analyzer's opt-in `--ablate-*` switches deliberately reproduce forbidden base-method
+  steps (time windows, no orientation correction, no speed gate) for the base-vs-improved
+  study only. They stay default-off, are recorded in `recording_meta.json: ablations` and the
+  report, and their outputs never feed published results.
+
 ## Reproducibility
 - Pin the data path, units, and random seed at the top of a script; keep data loading
   separate from analysis. Iterate segments by `np.unique(seg_id)` and sort each stream by
