@@ -167,6 +167,12 @@ def test_segment_midpoints_from_geojson_positional(tmp_path):
     assert mids['lat_mid'].iloc[0] == pytest.approx(50.4005)  # middle vertex
     assert mids['lon_mid'].iloc[0] == 30.5
 
+    # low-speed rows: dropped by default, kept for the speed-gate ablation
+    segments.loc[2, 'needs_class12_survey'] = True
+    assert list(segment_midpoints_from_geojson(segments, str(p))['seg_id']) == [0]
+    assert list(segment_midpoints_from_geojson(
+        segments, str(p), drop_low_speed=False)['seg_id']) == [0, 2]
+
 
 def test_segment_midpoints_from_geojson_accepts_point_geometry(tmp_path):
     """A segment with fewer than 2 grid points is written as Point geometry

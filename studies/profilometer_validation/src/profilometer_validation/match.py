@@ -65,7 +65,8 @@ def build_gps_track(csv_path: str) -> pd.DataFrame:
 
 
 def segment_midpoints_from_geojson(segments_df: pd.DataFrame,
-                                   geojson_path: str) -> pd.DataFrame:
+                                   geojson_path: str,
+                                   drop_low_speed: bool = True) -> pd.DataFrame:
     """
     Segment midpoints from the run's own roughness.geojson: its LineStrings are
     built on the exact s-grid the metrics used, so no re-derived distance drift
@@ -112,9 +113,14 @@ def segment_midpoints_from_geojson(segments_df: pd.DataFrame,
     segments['lat_b'] = [e[0] for e in ends]
     segments['lon_b'] = [e[1] for e in ends]
 
+    # Low-speed segments carry no IRI in the published method; the speed-gate
+    # ablation (analyzer --ablate-speed-gate) gives them numbers, and must keep
+    # them here to be compared with the reference (drop_low_speed=False).
+    low_speed = (segments['needs_class12_survey'].astype(bool) if drop_low_speed
+                 else pd.Series(False, index=segments.index))
     usable = segments[
         (~segments['partial'].astype(bool))
-        & (~segments['needs_class12_survey'].astype(bool))
+        & (~low_speed)
         & segments['lat_mid'].notna()
     ]
     return usable.sort_values('seg_id', kind='mergesort').reset_index(drop=True)

@@ -70,6 +70,11 @@ CROSS_VEHICLE_DATASETS = [
     },
 ]
 
+# Base-vs-improved (block added 2026-11-15): the same four recordings re-run with
+# one method step switched off (make_ablation_inputs.py writes these directories)
+ABLATION_ROOT = 'storage/results/ablation'
+ABLATION_VARIANTS = ('no_orientation', 'time_segments', 'no_speed_gate')
+
 # Primary matcher parameters (windowed 10 m reference, spec Amendment A1)
 MATCHING = {
     'method': 'windowed_10m_reference',
@@ -83,7 +88,7 @@ GATES = {'r2_min': 0.85, 'mae_max': 0.5}
 
 PAIR_COLUMNS = (['road', 'seg_id', 'chainage_m', 'match_dist_m', 'n_ref_rows',
                  'iri_ref', 'psd_sqrt_scalar', 'grms', 'mean_speed_kmh',
-                 'iri_psd_raw', 'iri_multi', 'iri_multi_vehicle']
+                 'iri_psd_raw', 'iri_multi', 'iri_multi_vehicle', 'iri_multi_raw']
                 + [f'iri_ref_{c[4:]}' for c in REFERENCE_CHANNELS])
 
 MODELS = {
@@ -100,18 +105,18 @@ def _vehicle_resolved(ds) -> dict:
     return json.loads(meta_path.read_text(encoding='utf-8'))['vehicle_params']
 
 
-def _segment_geometry(ds) -> pd.DataFrame:
+def _segment_geometry(ds, drop_low_speed: bool = True) -> pd.DataFrame:
     segments = pd.read_csv(REPO_ROOT / ds['segments_csv'])
     geojson = Path(REPO_ROOT / ds['segments_csv']).parent / 'roughness.geojson'
-    return segment_midpoints_from_geojson(segments, str(geojson))
+    return segment_midpoints_from_geojson(segments, str(geojson), drop_low_speed)
 
 
-def build_pairs(datasets=DATASETS) -> pd.DataFrame:
+def build_pairs(datasets=DATASETS, drop_low_speed: bool = True) -> pd.DataFrame:
     frames = []
     for ds in datasets:
         form10 = load_form_10m(str(REPO_ROOT / ds['form_10m_csv']))
         matched = windowed_reference(
-            _segment_geometry(ds), form10,
+            _segment_geometry(ds, drop_low_speed), form10,
             endpoint_tolerance_m=MATCHING['endpoint_tolerance_m'],
             min_rows_in_window=MATCHING['min_ref_rows'],
             max_window_m=MATCHING['max_window_m'])
@@ -130,6 +135,61 @@ def build_pairs_nearest_100(tolerance_m: float) -> pd.DataFrame:
         matched['road'] = ds['road']
         frames.append(matched[[c for c in PAIR_COLUMNS if c in matched.columns]])
     return pd.concat(frames, ignore_index=True)
+
+
+def analyzer_source_hash() -> str:
+    """sha256 over the analyzer package sources (path + bytes, sorted): ties the
+    ablation inputs to the analyzer code that produced them."""
+    import hashlib
+    digest = hashlib.sha256()
+    package = REPO_ROOT / 'analyzer' / 'src' / 'road_quality_analyzer'
+    for path in sorted(package.rglob('*.py')):
+        digest.update(path.relative_to(package).as_posix().encode('utf-8'))
+        digest.update(path.read_bytes().replace(b'\r\n', b'\n'))
+    return digest.hexdigest()
+
+
+def check_ablation_inputs() -> None:
+    manifest_path = REPO_ROOT / ABLATION_ROOT / 'manifest.json'
+    if not manifest_path.is_file():
+        raise FileNotFoundError(f'{manifest_path} missing: run studies/profilometer_validation/'
+                                'make_ablation_inputs.py first')
+    manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+    if manifest['analyzer_source_sha256'] != analyzer_source_hash():
+        raise RuntimeError('ablation inputs were produced by a different analyzer version: '
+                           'rerun make_ablation_inputs.py (and the study inputs if they differ)')
+
+
+def study_recordings() -> list:
+    """(vehicle, dataset) of every recording the ablation block covers."""
+    return ([('van', ds) for ds in DATASETS]
+            + [('crossover', ds) for ds in CROSS_VEHICLE_DATASETS])
+
+
+def ablation_pairs(variant: str) -> pd.DataFrame:
+    """
+    Matched pairs of one method variant ('full' = the method itself, regenerated
+    by make_ablation_inputs.py together with the ablated variants so base and
+    variants come from the same analyzer code). The speed-gate variant keeps the
+    low-speed segments, which the published method leaves without a number.
+    """
+    frames = []
+    for vehicle, ds in study_recordings():
+        folder = Path(ds['segments_csv']).parent.name
+        segments_csv = f'{ABLATION_ROOT}/{variant}/{folder}/road_segments.csv'
+        if not (REPO_ROOT / segments_csv).is_file():
+            raise FileNotFoundError(f'{segments_csv} missing: run studies/profilometer_validation/'
+                                    'make_ablation_inputs.py first')
+        if variant == 'full' and (REPO_ROOT / segments_csv).read_bytes() != \
+                (REPO_ROOT / ds['segments_csv']).read_bytes():
+            raise RuntimeError(f'{segments_csv} (current analyzer) differs from the study input '
+                               f'{ds["segments_csv"]}: regenerate the study input with the analyzer CLI')
+        pairs_v = build_pairs([{**ds, 'segments_csv': segments_csv}],
+                              drop_low_speed=(variant != 'no_speed_gate'))
+        extra = pd.read_csv(REPO_ROOT / segments_csv)[['seg_id', 'speed_valid', 'length_m']]
+        frames.append(pairs_v.merge(extra, on='seg_id', how='left', validate='one_to_one')
+                      .assign(vehicle=vehicle))
+    return pd.concat(frames, ignore_index=True).dropna(subset=['iri_multi', 'iri_ref'])
 
 
 def profilometer_noise_floor() -> dict:
@@ -275,6 +335,72 @@ def main() -> None:
             pairs_cv, lambda d: ranking_agreement(d)),
     }
 
+    # --- Calibration model pilot (block added 2026-11-15; spec 2026-11-15-
+    # calibration-model-and-ablation-design.md): IRI_cal = max(0, γ[R − β(v − v0)] + δ)
+    # on the unclipped predictor. Single passes per road and vehicle -> β is NOT
+    # identified here (declared, β = 0); γ, δ fitted on the van, Т1016 ---
+    from profilometer_validation import calibration_model as cmod
+    model_pairs = pd.concat([pairs.assign(vehicle='van'), pairs_cv.assign(vehicle='crossover')],
+                            ignore_index=True)
+    train_mask = ((model_pairs['vehicle'] == 'van') & (model_pairs['road'] == 'Т1016')).to_numpy()
+    transfer = {}
+    for vehicle, road in (('crossover', 'Т1016'), ('van', 'М-03'), ('crossover', 'М-03')):
+        test_mask = ((model_pairs['vehicle'] == vehicle) & (model_pairs['road'] == road)).to_numpy()
+        subset = model_pairs[train_mask | test_mask]
+        transfer[f'{vehicle}|{road}'] = cmod.holdout(subset, train_mask[train_mask | test_mask])
+    van_t1016 = model_pairs[train_mask]
+    # β is estimated per vehicle (passes of one vehicle over the same section at
+    # different speeds); pooling vehicles would confound speed with the carrier
+    beta_by_vehicle = {
+        vehicle: cmod.estimate_beta(group.assign(run_id=group['vehicle'] + '|' + group['road'],
+                                                 section=group['road']))
+        for vehicle, group in model_pairs.groupby('vehicle')}
+    beta_identified = {v: b for v, b in beta_by_vehicle.items() if b is not None}
+    calibration_model_pilot = {
+        'block_added': '2026-11-15',
+        'model': 'IRI_cal = max(0, gamma * [R - beta * (v - v0)] + delta), R = iri_multi_raw',
+        'beta_by_vehicle': beta_by_vehicle,
+        'beta_status': ('identified for: ' + ', '.join(sorted(beta_identified)) if beta_identified
+                        else 'not identified: no section was driven by one vehicle at different '
+                             'speeds; beta = 0 used in this block'),
+        'v0_kmh': cmod.V0_KMH,
+        'fit_van_T1016': cmod.bootstrap_params(van_t1016, n_boot=1000),
+        'fit_van_T1016_m2': cmod.fit_m2(van_t1016).to_dict(),
+        'in_sample_van_T1016': {
+            model: cmod.evaluate(cmod.fit_and_predict(van_t1016, van_t1016, model)[1],
+                                 cmod.clean_pairs(van_t1016)['iri_ref'].to_numpy(float))
+            for model in cmod.MODELS},
+        'transfer_from_van_T1016': transfer,
+        'leave_one_road_out': cmod.leave_one_group_out(model_pairs, 'road'),
+        'leave_one_vehicle_out_CAUTION_pooled_roads': cmod.leave_one_group_out(model_pairs, 'vehicle'),
+        'block_cv_van_T1016_200m': cmod.block_cv(van_t1016, n_folds=5),
+        'raw_below_zero_share': {
+            f'{v}|{r}': float((g['iri_multi_raw'].dropna() < 0).mean())
+            for (v, r), g in model_pairs.groupby(['vehicle', 'road'])},
+    }
+
+    from profilometer_validation import ablation as abl_mod
+    check_ablation_inputs()
+    variant_pairs = {v: ablation_pairs(v) for v in ('full', *ABLATION_VARIANTS)}
+    # Fixed-duration windows survive matching only inside a speed band (too short
+    # when slow, longer than the matcher's cap when fast): compare with the full
+    # method on the same band, otherwise the lost bins flatter the error
+    regime = abl_mod.speed_range_by_group(variant_pairs['time_segments'])
+
+    def _tilt(ds) -> float:
+        meta = REPO_ROOT / ABLATION_ROOT / 'no_orientation' / Path(ds['segments_csv']).parent.name \
+            / 'recording_meta.json'
+        return json.loads(meta.read_text(encoding='utf-8'))['ablations']['orientation']['tilt_deg']
+
+    ablation = {
+        'block_added': '2026-11-15',
+        'mount_tilt_deg': {f"{vehicle}|{ds['road']}": _tilt(ds) for vehicle, ds in study_recordings()},
+        'variants': {v: abl_mod.variant_metrics(p) for v, p in variant_pairs.items()},
+        'full_in_time_segments_speed_regime': abl_mod.variant_metrics(
+            abl_mod.restrict_to_regime(variant_pairs['full'], regime)),
+        'time_segments_speed_range_kmh': {f'{v}|{r}': list(s) for (v, r), s in regime.items()},
+    }
+
     sensitivity_nearest = {}
     for tol in NEAREST100_TOLERANCES_M:
         alt_fit = fit_eq3(build_pairs_nearest_100(tol))
@@ -326,6 +452,8 @@ def main() -> None:
         'iri_multi_vehicle_bias_corrected': vehicle_bias_corrected_stats,
         'bias_correction_loro_vehicle': bias_loro_vehicle,
         'cross_vehicle': cross_vehicle,
+        'calibration_model_pilot': calibration_model_pilot,
+        'ablation_base_vs_improved': ablation,
         'profilometer_noise_floor': profilometer_noise_floor(),
         'autocorrelation_effective_n': autocorrelation,
         'eq3_influence_analysis': influence,
@@ -480,6 +608,70 @@ def main() -> None:
         f"(у фургона {cv_zero['source']['М-03']:.0%}) — та сама межа чутливості на рівній дорозі; "
         f"ρ = {cv_val['М-03']['spearman_rho']:.3f} тут не є мірою валідності.",
         '- Обмеження: по одному проїзду кожним носієм, проїзд кросовера на місяць пізніший за еталон.',
+        '',
+        '## Калібрувальна модель (пілот): IRI_cal = max(0, γ·[R − β(v − v0)] + δ)',
+    ]
+    cmp_ = calibration_model_pilot
+    fit_ = cmp_['fit_van_T1016']
+    tr_ = cmp_['transfer_from_van_T1016']
+
+    def _f(value, digits=3):
+        return '—' if value is None else f'{value:.{digits}f}'
+
+    lines += [
+        f"- R — необрізана оцінка Eq.6 (`iri_multi_raw`). β: {cmp_['beta_status']}. "
+        f"Підгонка на фургоні, Т1016: γ = {fit_['gamma']:.3f} "
+        f"[{fit_['gamma_ci'][0]:.3f}; {fit_['gamma_ci'][1]:.3f}], δ = {fit_['delta']:.3f} "
+        f"[{fit_['delta_ci'][0]:.3f}; {fit_['delta_ci'][1]:.3f}] (бутстреп блоків 200 м).",
+    ]
+    for key, label in (('crossover|Т1016', 'кросовер, Т1016'), ('van|М-03', 'фургон, М-03'),
+                       ('crossover|М-03', 'кросовер, М-03')):
+        res = tr_.get(key)
+        if res is None:
+            continue
+        verdict = 'краще' if res['M1']['mae'] < res['bias_only']['mae'] else 'гірше'
+        lines.append(f"- Перенесення на {label}: MAE M1 {res['M1']['mae']:.3f} проти "
+                     f"{res['bias_only']['mae']:.3f} (лише зсув, модель {verdict}) і "
+                     f"{res['book']['mae']:.3f} (книжкова).")
+    lines += [
+        f"- Частка від'ємних R: " + ', '.join(f"{k} {v:.0%}" for k, v in sorted(cmp_['raw_below_zero_share'].items())),
+        '',
+        '## Базовий метод проти удосконаленого (ті самі записи, той самий еталон)',
+        '- Похибка — після корекції зсуву, оціненого на іншій дорозі того самого автомобіля.',
+    ]
+    abl = ablation['variants']
+    for key in sorted(abl['full']):
+        full_ = abl['full'][key]
+        parts = [f"- {key}: повний метод n = {full_['n_pairs']}, ρ = {full_['spearman_rho']:.3f}, "
+                 f"MAE = {_f(full_['loro_bias_corrected_mae'])}; нахил телефона "
+                 f"{_f(ablation['mount_tilt_deg'].get(key), 1)}°"]
+        orient_ = abl['no_orientation'].get(key)
+        if orient_:
+            parts.append(f"без корекції орієнтації ρ = {orient_['spearman_rho']:.3f}, "
+                         f"MAE = {_f(orient_['loro_bias_corrected_mae'])}")
+        time_ = abl['time_segments'].get(key)
+        regime_ = ablation['full_in_time_segments_speed_regime'].get(key)
+        if time_ and regime_:
+            lo, hi = ablation['time_segments_speed_range_kmh'][key]
+            parts.append(f"вікна за часом n = {time_['n_pairs']}, ρ = {time_['spearman_rho']:.3f}, "
+                         f"MAE = {_f(time_['loro_bias_corrected_mae'])} (повний метод у тому ж "
+                         f"діапазоні {lo:.0f}–{hi:.0f} км/год: n = {regime_['n_pairs']}, ρ = "
+                         f"{regime_['spearman_rho']:.3f}, MAE = {_f(regime_['loro_bias_corrected_mae'])})")
+        else:
+            parts.append('вікна за часом: жодне не зіставлено')
+        lines.append('; '.join(parts) + '.')
+    gate = abl['no_speed_gate']
+    outside_keys = [k for k in sorted(gate) if gate[k]['outside_20_100_kmh']['n']]
+    if outside_keys:
+        lines.append('- Без швидкісного коридору: ' + '; '.join(
+            f"{k} — {gate[k]['outside_20_100_kmh']['n']} сегм. поза 20–100 км/год, MAE на них "
+            f"{_f(gate[k]['outside_20_100_kmh']['mae'])} проти {_f(gate[k]['outside_20_100_kmh']['mae_inside'])} "
+            f"в коридорі; загальна MAE {_f(abl['full'].get(k, {}).get('loro_bias_corrected_mae'))} → "
+            f"{_f(gate[k]['loro_bias_corrected_mae'])}" for k in outside_keys) + '.')
+    else:
+        lines.append('- Швидкісний коридор: зіставлених сегментів поза 20–100 км/год немає — '
+                     'на цих даних його ефект не перевіряється.')
+    lines += [
         '',
         '## LORO всіх моделей (out-of-sample MAE, м/км)',
     ]

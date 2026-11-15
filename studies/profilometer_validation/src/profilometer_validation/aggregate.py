@@ -67,9 +67,9 @@ def bin_pairs(pairs: pd.DataFrame, bin_width_m: float = BIN_WIDTH_M) -> pd.DataF
     return out
 
 
-def _collapse_duplicate_passes(binned: pd.DataFrame) -> pd.DataFrame:
+def _collapse_duplicate_passes(binned: pd.DataFrame, extra_cols=()) -> pd.DataFrame:
     """Average >1 row per (run_id, bin_center) down to one row per pass/bin."""
-    value_cols = ['iri_multi', 'iri_ref', 'mean_speed_kmh']
+    value_cols = ['iri_multi', 'iri_ref', 'mean_speed_kmh', *extra_cols]
     return binned.groupby(['run_id', 'bin_center'], as_index=False)[value_cols].mean()
 
 
@@ -164,7 +164,8 @@ def bias_with_ci(bins: pd.DataFrame, confidence: float = 0.95) -> dict:
     }
 
 
-def speed_effect(binned: pd.DataFrame, min_speed_spread_kmh: float = 3.0) -> dict | None:
+def speed_effect(binned: pd.DataFrame, min_speed_spread_kmh: float = 3.0,
+                 metric_col: str = 'iri_multi') -> dict | None:
     """
     Demeaned (within-bin fixed-effects) slope of diff on speed, using only
     bins driven by >=2 passes.
@@ -193,7 +194,8 @@ def speed_effect(binned: pd.DataFrame, min_speed_spread_kmh: float = 3.0) -> dic
     consumes; `n_rows - 1` alone over-counts the residual dof and
     understates stderr.
     """
-    collapsed = _collapse_duplicate_passes(binned)
+    collapsed = _collapse_duplicate_passes(
+        binned, () if metric_col == 'iri_multi' else (metric_col,))
     pass_speeds = collapsed.groupby('run_id')['mean_speed_kmh'].mean()
     speed_spread = float(pass_speeds.std(ddof=1)) if len(pass_speeds) >= 2 else 0.0
     if speed_spread < min_speed_spread_kmh:
@@ -205,7 +207,8 @@ def speed_effect(binned: pd.DataFrame, min_speed_spread_kmh: float = 3.0) -> dic
 
     x_parts, y_parts = [], []
     for _, group in multi_pass_bins.groupby('bin_center'):
-        diff_ib = group['iri_multi'].to_numpy(float) - group['iri_ref'].to_numpy(float)
+        # metric_col='iri_multi_raw' gives β of the calibration model (unclipped R)
+        diff_ib = group[metric_col].to_numpy(float) - group['iri_ref'].to_numpy(float)
         speed_ib = group['mean_speed_kmh'].to_numpy(float)
         x_parts.append(speed_ib - speed_ib.mean())
         y_parts.append(diff_ib - diff_ib.mean())
