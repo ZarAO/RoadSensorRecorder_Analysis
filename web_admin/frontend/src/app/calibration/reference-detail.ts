@@ -3,7 +3,7 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
 import { ApiService } from '../api/api.service';
-import { GeoJsonFeatureCollection, ReferenceIntervalRow, ReferenceOut } from '../api/dto';
+import { G3Channel, GeoJsonFeatureCollection, ReferenceIntervalRow, ReferenceOut } from '../api/dto';
 import { LineSeries, MultiLineChart } from '../shared/charts/multi-line-chart';
 import { SegmentMap } from '../shared/segment-map';
 
@@ -93,6 +93,10 @@ export class ReferenceDetail {
 
   fmt(value: number | null | undefined, digits = 2): string {
     return value == null ? '—' : value.toFixed(digits);
+  }
+
+  alignmentLabel(alignment: G3Channel['alignment']): string {
+    return { master: 'основний', profile: 'за профілем', gnss: 'за GNSS' }[alignment];
   }
 
   /** Chainage midpoint in meters — the same convention build_reference_geojson

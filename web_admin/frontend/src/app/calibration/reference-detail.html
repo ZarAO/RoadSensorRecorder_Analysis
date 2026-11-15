@@ -44,6 +44,44 @@
     }
   </section>
 
+  @if (ref.channels?.length) {
+    <section class="card rise-in" id="g3-channels">
+      <h3>Проходи Walking Profiler G3 (канали еталона)</h3>
+      <div class="table-wrap">
+        <table class="data">
+          <thead>
+            <tr>
+              <th>Канал</th>
+              <th>Прохід</th>
+              <th>Режим</th>
+              <th>Напрямок</th>
+              <th>Прив'язка</th>
+              <th>r профілю</th>
+              <th>Зсув, м</th>
+              <th>Довжина, м</th>
+              <th>Різниця з каналом 1, м/км</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (channel of ref.channels; track channel.channel) {
+              <tr>
+                <td>{{ channel.channel }}</td>
+                <td>{{ channel.survey }}<small>{{ channel.date_time ?? '' }}</small></td>
+                <td>{{ channel.quality ?? '—' }}</td>
+                <td>{{ channel.direction === 'reverse' ? 'зворотний' : 'прямий' }}</td>
+                <td>{{ alignmentLabel(channel.alignment) }}</td>
+                <td>{{ fmt(channel.r) }}</td>
+                <td>{{ fmt(channel.lag_m, 1) }}</td>
+                <td>{{ fmt(channel.length_m, 1) }}</td>
+                <td>{{ fmt(channel.mean_abs_diff_vs_ch1) }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </section>
+  }
+
   <section class="card rise-in">
     <h3>Мапа інтервалів</h3>
     @if (geo(); as fc) {
@@ -54,7 +92,7 @@
   </section>
 
   <section class="card rise-in">
-    <h3>Профіль IRI профілометра</h3>
+    <h3>Профіль IRI {{ ref.kind === 'walking_profiler_g3' ? 'Walking Profiler G3' : 'профілометра' }}</h3>
     <app-multi-line-chart [series]="profileSeries()"
                           xLabel="Пікетаж, км" yLabel="IRI, м/км" />
   </section>

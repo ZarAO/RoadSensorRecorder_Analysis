@@ -18,6 +18,9 @@
   artifacts dir. Auth deliberately absent for now — add as middleware/Depends seam.
 - Tests: httpx TestClient + `RQA_QUEUE_INLINE=1`; stub `src.services.analysis.analyze`
   via monkeypatch; the real analyzer runs only in `@pytest.mark.slow` smoke tests.
+- Walking Profiler G3 section references (`kind='walking_profiler_g3'`, passes =
+  channels) are built ONLY by `profilometer_validation.g3.build_section_reference`;
+  the API only groups the uploaded files and stores the result.
 - Reference intervals are stored as a derived CSV consumed by
   `profilometer_validation.match.load_form_10m` — never re-derive them from the
   xlsx elsewhere. Comparison artifacts (`matched_pairs.csv`, `stats.json`,

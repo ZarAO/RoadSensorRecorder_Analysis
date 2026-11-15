@@ -15,6 +15,19 @@ const REFERENCE: ReferenceOut = {
   chainage_span_m: 30, bbox: [50.0, 30.0, 50.1, 30.1],
   parse_warnings: ['крок 9.8 м у 3 рядках', 'розривів/перекриттів пікетажу: 1'],
   source_deleted: false, comparisons_count: 2,
+  kind: 'profilometer_form', channels: null,
+};
+
+const G3_REFERENCE: ReferenceOut = {
+  ...REFERENCE, kind: 'walking_profiler_g3', filename: 'G3 2026-11-14 Zao_1+Zao_3',
+  channels: [
+    { channel: 1, survey: 'Zao_1', date_time: '2026-11-14 10:08:29', quality: 'Reference Profiling',
+      surface: 'Concrete', serial: 'ROL417', length_m: 687.8, direction: 'forward',
+      alignment: 'master', r: 1, lag_m: 0 },
+    { channel: 2, survey: 'Zao_3', date_time: '2026-11-14 10:47:56', quality: 'Fast Profiling',
+      surface: 'Concrete', serial: 'ROL417', length_m: 685.4, direction: 'reverse',
+      alignment: 'profile', r: 0.607, lag_m: 0.5, mean_abs_diff_vs_ch1: 2.31 },
+  ],
 };
 
 const GEOJSON: GeoJsonFeatureCollection = {
@@ -86,6 +99,24 @@ describe('ReferenceDetail', () => {
     expect(text).toContain('M-01 km 12-14');
     expect(text).toContain('крок 9.8 м у 3 рядках');
     expect(text).toContain('розривів/перекриттів пікетажу: 1');
+  });
+
+  it('lists the G3 passes as channels only for a G3 reference', async () => {
+    const plain = createPage(apiStub());
+    await plain.whenStable();
+    expect((plain.nativeElement as HTMLElement).querySelector('#g3-channels')).toBeNull();
+
+    const fixture = createPage(apiStub({ getReference: () => of(G3_REFERENCE) }));
+    await fixture.whenStable();
+    const root = fixture.nativeElement as HTMLElement;
+    const rows = root.querySelectorAll('#g3-channels tbody tr');
+    expect(rows.length).toBe(2);
+    expect(rows[1].textContent).toContain('Zao_3');
+    expect(rows[1].textContent).toContain('зворотний');
+    expect(rows[1].textContent).toContain('за профілем');
+    expect(rows[1].textContent).toContain('0.61');
+    expect(rows[1].textContent).toContain('2.31');
+    expect(root.textContent).toContain('Профіль IRI Walking Profiler G3');
   });
 
   it('feeds the geojson into the shared segment map with metricKey iri_ref', async () => {

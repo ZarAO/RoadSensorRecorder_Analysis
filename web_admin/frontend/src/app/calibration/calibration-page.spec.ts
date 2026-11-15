@@ -14,6 +14,20 @@ const REFERENCE: ReferenceOut = {
   step_m: 10, measured_at: '2026-07-01', intervals_count: 20,
   chainage_span_m: 2000, bbox: null, parse_warnings: ['крок 9.8 м', 'пропуск пікету'],
   source_deleted: false, comparisons_count: 1,
+  kind: 'profilometer_form', channels: null,
+};
+
+const G3_REFERENCE: ReferenceOut = {
+  ...REFERENCE, id: 2, filename: 'G3 2026-11-14 Zao_5+Zao_7', road_name: 'Ділянка Б',
+  parse_warnings: [], kind: 'walking_profiler_g3',
+  channels: [
+    { channel: 1, survey: 'Zao_5', date_time: '2026-11-14 14:25:55', quality: 'Fast Profiling',
+      surface: 'Concrete', serial: 'ROL417', length_m: 360.8, direction: 'forward',
+      alignment: 'master', r: 1, lag_m: 0 },
+    { channel: 2, survey: 'Zao_7', date_time: '2026-11-14 14:32:40', quality: 'Fast Profiling',
+      surface: 'Concrete', serial: 'ROL417', length_m: 350, direction: 'reverse',
+      alignment: 'gnss', r: null, lag_m: 10.9, mean_abs_diff_vs_ch1: 3.15 },
+  ],
 };
 
 const RUN: RunOut = {
@@ -110,7 +124,7 @@ describe('CalibrationPage', () => {
     await fixture.whenStable();
 
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
-    expect(text).toContain('Еталони профілометра');
+    expect(text).toContain('Еталони: профілометр і Walking Profiler G3');
     expect(text).toContain('Порівняння');
     expect(text).toContain('Мультипроїзні порівняння');
     expect(text).toContain('Набори коефіцієнтів');
@@ -225,6 +239,36 @@ describe('CalibrationPage', () => {
     click(confirm.querySelector('.dialog-actions')!, 'Підтвердити');
     await fixture.whenStable();
     expect(confirmSpy).toHaveBeenCalledWith(9, undefined);
+  });
+
+  it('uploads all G3 pass files with the road name and marks G3 rows', async () => {
+    const uploadG3 = vi.fn(() => of(G3_REFERENCE));
+    const fixture = createPage(apiStub({
+      uploadG3Reference: uploadG3,
+      listReferences: () => of([REFERENCE, G3_REFERENCE]),
+    }));
+    await fixture.whenStable();
+    const page = fixture.componentInstance;
+    const files = ['Zao_5 IRI.csv', 'Zao_5 GNSS.csv', 'Zao_5 Profile.csv', 'Zao_7 IRI.csv']
+      .map(name => new File(['x'], `2026-11-14 ${name}`));
+    page.g3Files.set(files);
+    expect(page.g3PassCount()).toBe(2);
+
+    const root = fixture.nativeElement as HTMLElement;
+    fixture.detectChanges();
+    const button = Array.from(root.querySelectorAll('#g3-upload button'))
+      .find(candidate => candidate.textContent?.trim() === 'Завантажити G3') as HTMLButtonElement;
+    expect(button.disabled).toBe(true);                       // road name still empty
+
+    page.g3RoadName.set('  Ділянка Б ');
+    page.uploadG3();
+    expect(uploadG3).toHaveBeenCalledWith(files, 'Ділянка Б', undefined);
+    expect(page.g3Files()).toEqual([]);
+
+    fixture.detectChanges();
+    const rows = root.querySelectorAll('#references-table tbody tr');
+    expect(rows[0].textContent).not.toContain('G3 ·');
+    expect(rows[1].textContent).toContain('G3 · 2 прох.');
   });
 
   it('shows the parse-warning count of a reference row', async () => {

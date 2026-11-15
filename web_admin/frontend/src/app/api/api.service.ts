@@ -98,6 +98,20 @@ export class ApiService {
     return this.http.post<ReferenceOut>(`${this.base}/references`, form);
   }
 
+  /** One road section from Walking Profiler G3 passes: for every pass its
+   *  IRI.csv, GNSS.csv, Profile.csv (+ Information.txt), grouped server-side. */
+  uploadG3Reference(files: File[], roadName: string, measuredAt?: string): Observable<ReferenceOut> {
+    const form = new FormData();
+    for (const file of files) {
+      form.append('files', file, file.name);
+    }
+    form.append('road_name', roadName);
+    if (measuredAt != null) {
+      form.append('measured_at', measuredAt);
+    }
+    return this.http.post<ReferenceOut>(`${this.base}/references/g3`, form);
+  }
+
   getReference(id: number): Observable<ReferenceOut> {
     return this.http.get<ReferenceOut>(`${this.base}/references/${id}`);
   }

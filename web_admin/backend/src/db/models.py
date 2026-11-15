@@ -80,6 +80,10 @@ class ReferenceDataset(Base):
     bbox: Mapped[Optional[list]] = mapped_column(JSON, default=None)  # [min_lat, min_lon, max_lat, max_lon]
     parse_warnings: Mapped[list] = mapped_column(JSON, default=list)
     source_deleted: Mapped[bool] = mapped_column(default=False)
+    # 'profilometer_form' (xlsx) | 'walking_profiler_g3' (section built from G3 passes)
+    kind: Mapped[Optional[str]] = mapped_column(default='profilometer_form')
+    # G3 only: one entry per channel (= pass): survey, alignment, direction, r, lag_m, ...
+    channels: Mapped[Optional[list]] = mapped_column(JSON, default=None)
 
     comparisons: Mapped[list['Comparison']] = relationship(back_populates='reference')
 

@@ -38,6 +38,8 @@ section.card { margin-bottom: var(--space-4); }
 }
 .no-map { color: var(--color-muted-fg); font-size: var(--text-sm); margin: 0; }
 
+#g3-channels td small { display: block; color: var(--color-faint-fg); font-size: var(--text-xs); }
+
 .table-wrap { overflow-x: auto; }
 
 .pagination {

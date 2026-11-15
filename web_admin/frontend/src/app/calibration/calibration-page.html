@@ -5,7 +5,7 @@
 }
 
 <section class="card rise-in">
-  <h3>Еталони профілометра</h3>
+  <h3>Еталони: профілометр і Walking Profiler G3</h3>
 
   <div class="upload-row">
     <div class="file-picker">
@@ -22,6 +22,31 @@
     </label>
     <button class="primary" (click)="upload(refInput)"
             [disabled]="!pendingFile() || busy()">Завантажити</button>
+  </div>
+
+  <div class="upload-row" id="g3-upload">
+    <div class="file-picker">
+      <button type="button" (click)="g3Input.click()"
+              aria-label="Вибрати файли проходів Walking Profiler G3">Файли проходів G3…</button>
+      <span class="file-name" [class.muted]="!g3Files().length">
+        @if (g3Files().length) {
+          {{ g3Files().length }} файлів, проходів: {{ g3PassCount() }}
+        } @else {
+          IRI, GNSS, Profile та Information кожного проходу ділянки
+        }
+      </span>
+      <input type="file" accept=".csv,.txt" multiple #g3Input (change)="onG3FilesInput($event)" hidden />
+    </div>
+    <label class="field">
+      Дорога або ділянка
+      <input type="text" [value]="g3RoadName()" (input)="onG3RoadNameInput($event)" />
+    </label>
+    <label class="field">
+      Дата (за замовчуванням із файлу)
+      <input type="date" [value]="g3MeasuredAt()" (input)="onG3MeasuredAtInput($event)" />
+    </label>
+    <button class="primary" (click)="uploadG3(g3Input)"
+            [disabled]="!g3Files().length || !g3RoadName().trim() || busy()">Завантажити G3</button>
   </div>
 
   <div class="table-wrap">
@@ -42,6 +67,9 @@
           <tr [class.deleted]="reference.source_deleted">
             <td>
               <a routerLink="/calibration/references/{{ reference.id }}">{{ reference.road_name }}</a>
+              @if (reference.kind === 'walking_profiler_g3') {
+                <span class="chip kind-chip">G3 · {{ reference.channels?.length ?? 0 }} прох.</span>
+              }
               <small>{{ reference.filename }}</small>
             </td>
             <td>{{ fmt(reference.step_m, 0) }}</td>
@@ -65,7 +93,7 @@
           <tr>
             <td colspan="7">
               <div class="empty-state">
-                <p>Еталонів ще немає — завантажте форму 25 (.xlsx) із кроком 10 м.</p>
+                <p>Еталонів ще немає — завантажте форму 25 (.xlsx) із кроком 10 м або файли проходів Walking Profiler G3.</p>
               </div>
             </td>
           </tr>

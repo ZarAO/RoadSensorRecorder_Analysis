@@ -24,6 +24,7 @@ _ADDED_COLUMNS = {
     'analysis_runs': {'eq3_set_id': 'INTEGER', 'eq6_bias_set_id': 'INTEGER'},
     'coefficient_sets': {'aggregate_comparison_id': 'INTEGER',
                          'device_id': 'TEXT', 'vehicle_id': 'TEXT'},
+    'reference_datasets': {'kind': "TEXT DEFAULT 'profilometer_form'", 'channels': 'JSON'},
 }
 
 

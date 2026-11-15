@@ -49,6 +49,11 @@ export class CalibrationPage {
   readonly pendingFile = signal<File | null>(null);
   readonly measuredAt = signal('');
 
+  /** Walking Profiler G3 upload row: all files of the section's passes at once */
+  readonly g3Files = signal<File[]>([]);
+  readonly g3RoadName = signal('');
+  readonly g3MeasuredAt = signal('');
+
   /** «Нове порівняння» dialog */
   readonly comparisonOpen = signal(false);
   readonly selectedRunId = signal<number | null>(null);
@@ -167,6 +172,44 @@ export class CalibrationPage {
       },
       error: err => { this.busy.set(false); this.error.set(this.describe(err)); },
     });
+  }
+
+  onG3FilesInput(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    this.g3Files.set(input.files ? Array.from(input.files) : []);
+  }
+
+  onG3RoadNameInput(event: Event): void {
+    this.g3RoadName.set((event.target as HTMLInputElement).value);
+  }
+
+  onG3MeasuredAtInput(event: Event): void {
+    this.g3MeasuredAt.set((event.target as HTMLInputElement).value);
+  }
+
+  uploadG3(input?: HTMLInputElement): void {
+    const files = this.g3Files();
+    const roadName = this.g3RoadName().trim();
+    if (!files.length || !roadName) return;
+    const measuredAt = this.g3MeasuredAt().trim();
+    this.busy.set(true);
+    this.error.set(null);
+    this.api.uploadG3Reference(files, roadName, measuredAt || undefined).subscribe({
+      next: () => {
+        this.busy.set(false);
+        this.g3Files.set([]);
+        this.g3RoadName.set('');
+        this.g3MeasuredAt.set('');
+        if (input) input.value = '';
+        this.reloadReferences();
+      },
+      error: err => { this.busy.set(false); this.error.set(this.describe(err)); },
+    });
+  }
+
+  /** G3 passes are counted by their IRI.csv files (one per pass). */
+  g3PassCount(): number {
+    return this.g3Files().filter(file => file.name.endsWith(' IRI.csv')).length;
   }
 
   warningsTitle(reference: ReferenceOut): string {

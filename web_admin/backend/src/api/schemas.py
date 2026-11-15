@@ -41,6 +41,13 @@ class ReferenceOut(BaseModel):
     parse_warnings: list = []
     source_deleted: bool
     comparisons_count: int = 0
+    kind: str = 'profilometer_form'
+    channels: Optional[list] = None
+
+    @field_validator('kind', mode='before')
+    @classmethod
+    def _kind_default(cls, value):
+        return value or 'profilometer_form'
 
 
 class RunCreate(BaseModel):

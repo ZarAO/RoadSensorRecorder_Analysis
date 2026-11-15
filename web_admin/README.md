@@ -36,7 +36,7 @@ npm install
 |--------|-------------------|-------------|
 | `RQA_DATA_DIR` | `storage/data` | завантажені вхідні CSV |
 | `RQA_RESULTS_DIR` | `storage/results` | артефакти ранів і порівнянь |
-| `RQA_REFERENCE_DIR` | `storage/reference` | еталони профілометра (Phase 3) |
+| `RQA_REFERENCE_DIR` | `storage/reference` | еталони: форми профілометра (Phase 3) і ділянки Walking Profiler G3 (`POST /api/references/g3`) |
 | `RQA_DB_URL` | `sqlite:///web_admin/backend/admin.db` | рядок підключення SQLAlchemy |
 | `RQA_QUEUE_INLINE` | вимкнено | синхронне виконання черги (тести) |
 

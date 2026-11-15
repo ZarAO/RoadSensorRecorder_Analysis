@@ -74,6 +74,45 @@ def store_reference(session, settings: Settings, form: ParsedForm, tmp_xlsx: Pat
     return row
 
 
+def store_g3_reference(session, settings: Settings, section, sources: dict, road_name: str,
+                       measured_at: str | None) -> ReferenceDataset:
+    """Persist a Walking Profiler G3 section reference (profilometer_validation.g3.
+    SectionReference): same derived intervals CSV as a form, the uploaded device
+    files kept under <id>/source/. Mirrors store_reference's cleanup contract."""
+    row = ReferenceDataset(
+        filename=section.label,
+        road_name=road_name,
+        step_m=section.step_m,
+        measured_at=measured_at or section.survey_date,
+        intervals_count=len(section.intervals),
+        chainage_span_m=section.chainage_span_m,
+        bbox=section.bbox,
+        parse_warnings=section.warnings,
+        kind='walking_profiler_g3',
+        channels=section.channels,
+    )
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+
+    ref_dir = reference_dir(settings, row)
+    try:
+        source_dir = ref_dir / 'source'
+        source_dir.mkdir(parents=True, exist_ok=True)
+        for name, payload in sources.items():
+            (source_dir / name).write_bytes(payload)
+        section.intervals.to_csv(
+            intervals_csv_path(settings, row),
+            index=False, encoding='utf-8', lineterminator='\n',
+        )
+    except OSError:
+        session.delete(row)
+        session.commit()
+        shutil.rmtree(ref_dir, ignore_errors=True)
+        raise
+    return row
+
+
 def delete_reference_data(settings: Settings, ref: ReferenceDataset) -> None:
     shutil.rmtree(reference_dir(settings, ref), ignore_errors=True)
 

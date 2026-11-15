@@ -158,6 +158,24 @@ export interface ReferenceOut {
   parse_warnings: string[];
   source_deleted: boolean;
   comparisons_count: number;
+  kind: 'profilometer_form' | 'walking_profiler_g3';
+  channels: G3Channel[] | null;
+}
+
+/** One Walking Profiler G3 pass of a section reference (= one channel). */
+export interface G3Channel {
+  channel: number;
+  survey: string;
+  date_time: string | null;
+  quality: string | null;
+  surface: string | null;
+  serial: string | null;
+  length_m: number;
+  direction: 'forward' | 'reverse';
+  alignment: 'master' | 'profile' | 'gnss';
+  r: number | null;
+  lag_m: number;
+  mean_abs_diff_vs_ch1?: number;
 }
 
 /** One row of the stored intervals_{step_m}m.csv, plus the backend-computed

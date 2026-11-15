@@ -11,6 +11,7 @@ from pathlib import Path
 
 import numpy as np
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile
+from profilometer_validation.g3 import G3Pass, build_section_reference
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -24,6 +25,7 @@ from src.services.references import (
     build_reference_geojson,
     delete_reference_data,
     load_reference_intervals,
+    store_g3_reference,
     store_reference,
 )
 
@@ -74,6 +76,58 @@ def upload_reference(
     finally:
         tmp_path.unlink(missing_ok=True)
 
+    return _to_out(row)
+
+
+G3_PARTS = {' IRI.csv': 'iri', ' GNSS.csv': 'gnss', ' Profile.csv': 'profile',
+            ' Information.txt': 'info'}
+G3_REQUIRED = ('iri', 'gnss', 'profile')
+
+
+def _group_g3_files(uploads: dict) -> dict:
+    """{survey prefix: {part: text}} from uploaded device file names."""
+    surveys = {}
+    for name, payload in uploads.items():
+        for suffix, part in G3_PARTS.items():
+            if name.endswith(suffix):
+                surveys.setdefault(name[:-len(suffix)], {})[part] = payload.decode('utf-8-sig')
+                break
+        else:
+            raise HTTPException(422, f"невідомий файл G3: '{name}' (очікуються IRI.csv, "
+                                     'GNSS.csv, Profile.csv, Information.txt)')
+    for prefix, parts in surveys.items():
+        missing = [p for p in G3_REQUIRED if p not in parts]
+        if missing:
+            raise HTTPException(422, f"прохід '{prefix}': бракує файлів {', '.join(missing)}")
+    return surveys
+
+
+@router.post('/g3', status_code=201, response_model=ReferenceOut)
+def upload_g3_reference(
+    files: list[UploadFile],
+    road_name: str = Form(...),
+    measured_at: str | None = Form(None),
+    session: Session = Depends(get_session),
+):
+    """One road section from one or more Walking Profiler G3 passes, each pass
+    one channel (spec 2026-11-15-g3-section-reference-design.md)."""
+    if not road_name.strip():
+        raise HTTPException(422, 'вкажіть назву дороги або ділянки')
+    uploads = {Path(f.filename or '').name: f.file.read() for f in files}
+    surveys = _group_g3_files(uploads)
+    try:
+        passes = [G3Pass.from_texts(prefix, parts['iri'], parts['gnss'], parts['profile'],
+                                    parts.get('info'))
+                  for prefix, parts in sorted(surveys.items())]
+        section = build_section_reference(passes)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+
+    existing = session.scalar(select(ReferenceDataset).where(ReferenceDataset.filename == section.label))
+    if existing is not None:
+        raise HTTPException(409, f"еталон '{section.label}' вже існує")
+    row = store_g3_reference(session, get_settings(), section, uploads,
+                             road_name.strip(), measured_at)
     return _to_out(row)
 
 
