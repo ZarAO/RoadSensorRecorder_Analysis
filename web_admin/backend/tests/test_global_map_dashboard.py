@@ -24,6 +24,26 @@ def test_global_map_uses_only_latest_done_run_per_file(client, tmp_path, fake_an
     assert {f['properties']['run_id'] for f in fc['features']} == {rid2}
 
 
+def test_global_map_follows_new_runs_without_a_manual_rebuild(client, tmp_path, fake_analyze):
+    """The cached map remembers which runs it was built from: a run finished
+    after the last rebuild (new file or re-analysis) makes GET rebuild it, so
+    the map never lags behind the run counters of the dashboard."""
+    make_done_run(client, tmp_path, name='a.csv')
+    first = client.get('/api/global-map').json()
+    assert {f['properties']['filename'] for f in first['features']} == {'a.csv'}
+
+    rid_b = make_done_run(client, tmp_path, name='b.csv')
+    second = client.get('/api/global-map').json()
+    assert {f['properties']['filename'] for f in second['features']} == {'a.csv', 'b.csv'}
+
+    fid_b = client.get(f'/api/runs/{rid_b}').json()['file_id']
+    rid_b2 = client.post('/api/runs', json={'file_id': fid_b, 'params': {}}).json()['id']
+    third = client.get('/api/global-map').json()
+    runs_b = {f['properties']['run_id'] for f in third['features']
+              if f['properties']['filename'] == 'b.csv'}
+    assert runs_b == {rid_b2}
+
+
 def test_dashboard_aggregates(client, tmp_path, fake_analyze):
     make_done_run(client, tmp_path)
     d = client.get('/api/dashboard').json()

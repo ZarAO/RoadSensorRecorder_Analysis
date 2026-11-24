@@ -28,7 +28,8 @@ EXPECTED_REPEATABILITY_SD = 0.1
 EXPECTED_SPEED_SLOPE = 0.0025
 
 
-def _make_pass(result_dir: Path, iri_shift: float, speed: float, n_seg=10):
+def _make_pass(result_dir: Path, iri_shift: float, speed: float, n_seg=10, with_raw=False,
+               lon=30.5):
     """conftest._make_run_artifacts with a per-pass IRI shift and mean speed:
     10 x 100 m segments heading north along lon=30.5 (same geometry for every
     pass, so all passes land on the same reference bins)."""
@@ -43,7 +44,9 @@ def _make_pass(result_dir: Path, iri_shift: float, speed: float, n_seg=10):
                      'iri_multi': 2.0 + 0.2 * i + iri_shift, 'mean_speed_kmh': speed,
                      'partial': False, 'speed_valid': True,
                      'low_speed_class': None, 'needs_class12_survey': False})
-        coords = [[30.5, lat0], [30.5, (lat0 + lat1) / 2], [30.5, lat1]]
+        if with_raw:   # analyzer >= the unclipped Eq.6 column
+            rows[-1]['iri_multi_raw'] = rows[-1]['iri_multi']
+        coords = [[lon, lat0], [lon, (lat0 + lat1) / 2], [lon, lat1]]
         features.append({'type': 'Feature', 'properties': {'seg_id': i},
                          'geometry': {'type': 'LineString', 'coordinates': coords}})
     result_dir.mkdir(parents=True, exist_ok=True)
@@ -52,7 +55,8 @@ def _make_pass(result_dir: Path, iri_shift: float, speed: float, n_seg=10):
         {'type': 'FeatureCollection', 'features': features}), encoding='utf-8')
 
 
-def _make_passes_and_reference(client, tmp_path):
+def _make_passes_and_reference(client, tmp_path, with_raw=False, passes=PASSES, n_seg=10,
+                               lons=None):
     """Three done runs (one per pass) plus the matching 10 m reference."""
     from src.core.config import get_settings
     from src.db.models import AnalysisRun, ReferenceDataset, SourceFile
@@ -67,7 +71,7 @@ def _make_passes_and_reference(client, tmp_path):
         s.add(ref)
         s.commit()
         _make_reference(settings.storage_reference_dir / str(ref.id))
-        for idx, (shift, speed) in enumerate(PASSES):
+        for idx, (shift, speed) in enumerate(passes):
             f = SourceFile(filename=f'pass{idx}.csv', size_bytes=1)
             s.add(f)
             s.commit()
@@ -75,7 +79,8 @@ def _make_passes_and_reference(client, tmp_path):
                               result_dir=str(tmp_path / f'pass{idx}'))
             s.add(run)
             s.commit()
-            _make_pass(Path(run.result_dir), shift, speed)
+            _make_pass(Path(run.result_dir), shift, speed, n_seg=n_seg, with_raw=with_raw,
+                       lon=lons[idx] if lons else 30.5)
             run_ids.append(run.id)
         ref_id = ref.id
     return run_ids, ref_id
@@ -166,6 +171,8 @@ def test_aggregate_flow_and_artifacts(client, tmp_path):
     assert chart['speed_effect']['slope_iri_per_kmh'] == pytest.approx(
         EXPECTED_SPEED_SLOPE, abs=1e-6)
     assert chart['validation']['rho'] == pytest.approx(1.0, abs=1e-6)
+    # runs without iri_multi_raw (older analyzer) carry no calibration model
+    assert chart['calibration_model'] is None
     # The reported bias IS the mean per-bin diff of the rendered profile
     mean_diff = (sum(r['mean_iri'] - r['iri_ref'] for r in chart['profile'])
                  / len(chart['profile']))
@@ -225,6 +232,32 @@ def test_aggregate_create_guards(client, tmp_path):
                     json={'reference_id': deleted_ref_id, 'run_ids': run_ids})
     assert r.status_code == 409
     assert r.json()['detail'] == MSG_REFERENCE_DELETED
+
+
+def test_aggregate_pools_short_passes_and_guards_the_pooled_minimum(client, tmp_path):
+    """A short section gives each pass only a few whole 100 m segments: the pass
+    must land on the section, the minimum number of pairs is for the pool."""
+    run_ids, ref_id = _make_passes_and_reference(client, tmp_path, n_seg=2)
+    agg = client.get(f'/api/aggregate-comparisons/{_create_aggregate(client, run_ids, ref_id)}').json()
+    assert agg['status'] == 'done', agg['error']
+    assert agg['summary']['n_runs'] == 3
+
+
+def test_aggregate_refuses_too_few_pooled_pairs(client, tmp_path):
+    from src.services.comparison import MIN_PAIRS
+
+    run_ids, ref_id = _make_passes_and_reference(client, tmp_path, passes=PASSES[:2], n_seg=2)
+    agg = client.get(f'/api/aggregate-comparisons/{_create_aggregate(client, run_ids, ref_id)}').json()
+    assert agg['status'] == 'failed'
+    assert 'у всіх проїздах разом (4' in agg['error'] and str(MIN_PAIRS) in agg['error']
+
+
+def test_aggregate_names_the_pass_that_misses_the_section(client, tmp_path):
+    # inside the reference bbox, but 3.5 km east of the surveyed line
+    run_ids, ref_id = _make_passes_and_reference(client, tmp_path, lons=[30.5, 30.5, 30.55])
+    agg = client.get(f'/api/aggregate-comparisons/{_create_aggregate(client, run_ids, ref_id)}').json()
+    assert agg['status'] == 'failed'
+    assert agg['error'].startswith(f'ран #{run_ids[2]} (pass2.csv): жодної зіставленої пари')
 
 
 def test_coefficient_set_draft_from_aggregate(client, tmp_path):
@@ -420,3 +453,27 @@ def test_init_db_migrates_existing_coefficient_sets_table(tmp_path):
     init_db(engine)  # idempotent
     assert 'aggregate_comparisons' in inspect(engine).get_table_names()
     assert len(inspect(engine).get_columns('coefficient_sets')) == len(columns)
+
+
+def test_aggregate_calibration_model_on_passes_at_different_speeds(client, tmp_path):
+    """The study's calibration model on the aggregate's passes: beta is the
+    within-bin speed slope of the unclipped column (here equal to iri_multi, so
+    the known 0.0025), and every pass is predicted by the model fitted on the
+    other two (beta re-estimated without it)."""
+    run_ids, ref_id = _make_passes_and_reference(client, tmp_path, with_raw=True)
+    agg_id = _create_aggregate(client, run_ids, ref_id)
+    assert client.get(f'/api/aggregate-comparisons/{agg_id}').json()['status'] == 'done'
+    model = client.get(
+        f'/api/aggregate-comparisons/{agg_id}/artifacts/chart_data.json').json()['calibration_model']
+    assert model['beta']['slope_iri_per_kmh'] == pytest.approx(EXPECTED_SPEED_SLOPE, abs=1e-6)
+    assert model['beta']['ci_low'] <= model['beta']['slope_iri_per_kmh'] <= model['beta']['ci_high']
+    assert model['v0_kmh'] == 50.0 and model['n_pairs'] > 0
+    assert model['gamma_ci'][0] <= model['gamma'] <= model['gamma_ci'][1]
+    held = model['held_out']
+    assert [h['run_id'] for h in held] == run_ids             # sorted by speed 40/60/80
+    assert [h['mean_speed_kmh'] for h in held] == [40.0, 60.0, 80.0]
+    for h in held:
+        assert set(h) >= {'book', 'bias_only', 'model', 'beta_train', 'n_pairs'}
+        assert h['model']['mae'] >= 0 and h['book']['mae'] >= 0
+    assert set(model['held_out_mean_mae']) == {'book', 'bias_only', 'model'}
+    assert model['repeatability_sd_model'] is not None

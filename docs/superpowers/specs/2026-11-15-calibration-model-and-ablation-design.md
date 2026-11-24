@@ -103,3 +103,52 @@ Now: unclipped column `iri_multi_raw` in the analyzer (additive); `calibration_m
 (fit/apply M1/M2, LOSO/LOVO, bootstrap) with tests; pilot block in the study; ablation
 flags and the ablation block on the profilometer data; dissertation §2 (derivation) and
 §4 (pilot, ablation). After the campaign: β, final γ/δ/G0, gates, §4.7, article 2.
+
+## 7. Amendment 2026-11-21: first G3 section campaign (study block)
+
+First campaign done: one rough section (G3 2026-11-21, about 1.2 km, mean IRI about
+8.3 m/km, 100 m means 3.2-12.7), one lane, two G3 passes in one wheel path (Standard
+Profiling; calibration dated 2026-01-29, not the survey day - stated as a limitation),
+the Cupra at 30 / 40 / 50 / 60 km/h in the surveyed lane.
+
+Block `g3_section_campaign` of `run_study.py` (inputs and numbers: docs/10):
+
+- the reference is rebuilt from the raw G3 exports on every run; the segments are the
+  analyzer CLI output with defaults; the matcher and its parameters are unchanged;
+- beta from the four passes (within-bin estimator, t interval with dof =
+  n_rows - n_bins - 1); leave-one-run-out re-estimates beta without the held-out pass
+  (`calibration_model.leave_one_run_out`) - the error at an unseen speed;
+- spatial block CV (200 m) uses the beta of all passes and is reported next to the
+  bias-only baseline; block bootstrap of gamma/delta;
+- external check on the profilometer roads with the same car (other tyres), nothing
+  refitted, with the share of pairs inside the fitted speed and IRI ranges.
+
+The gates of section 3 are defined on leave-one-section-out and are evaluated after the
+second section; until then the block reports, it does not pass or fail. The next
+section should be smooth (IRI about 1-3 m/km): one rough section does not identify
+gamma (bootstrap CI 0.03-1.27).
+
+## 8. Amendment 2026-11-22: second G3 section, gates evaluated
+
+Second section done: about 390 m, rough (lane IRI 3.8-14.5 m/km on 10 m, mean 7.9),
+both wheel paths there and back (Fast Profiling), the Cupra at 40 / 50 / 60 / 70 km/h.
+The first odometer calibration of the day was wrong (factor 1.16176); the surveys used
+are the tablet app's own REPROCESS with the factor of the second, taped calibration
+(0.99483), documented in the field folder README. The section was meant to be moderate
+(IRI 2.5-4, corrected from "smooth" on 2026-11-22: below IRI 2 the raw Eq.6 output is
+mostly negative); a rough one was what could be found within the time budget.
+
+Block `g3_two_sections` of `run_study.py` (block `g3_section_campaign` unchanged):
+
+- per-section book error, constant offset k and beta; pooled beta and M1;
+- leave-one-section-out over the G3 sections with beta, gamma, delta re-estimated on the
+  training section (`calibration_model.leave_one_section_out`);
+- the gates of section 3 on four held-out sets (each G3 section with the model of the
+  other, each profilometer road with the model of both). "rho unchanged" is read as
+  Spearman of M1 not lower than that of the book estimate.
+
+Outcome (numbers: docs/10): the constant offset reproduces across sections (k 3.01 and
+3.02 m/km) and transfers to the unseen section (MAE 3.03 -> 0.83); beta is identified
+only by the long section (pooled 0.099 [0.069; 0.129]); gamma is not identified. The
+MAE < 0.5 gate fails on all four held-out sets; the full model is not validated on
+these data. A section with IRI 2.5-4 m/km is still the missing design point.

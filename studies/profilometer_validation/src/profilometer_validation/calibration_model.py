@@ -64,19 +64,26 @@ def predictor(df: pd.DataFrame, beta: float = 0.0, v0: float = V0_KMH,
 
 
 def estimate_beta(passes: pd.DataFrame, section_col: str = 'section',
-                  min_speed_spread_kmh: float = 3.0) -> dict | None:
+                  min_speed_spread_kmh: float = 3.0, confidence: float = 0.95) -> dict | None:
     """
     beta from passes of the same section(s) at different speeds: pairs with
     run_id, chainage_m, iri_ref, iri_multi, iri_multi_raw, mean_speed_kmh.
     Sections are kept apart (their chainages are offset) so a bin never mixes
     two sections. None when the design does not identify it (single passes,
-    no speed spread).
+    no speed spread). The t interval uses the fixed-effects dof of
+    aggregate.speed_effect (n_rows - n_bins - 1).
     """
     frame = passes.copy()
     if section_col in frame.columns:
         codes = {s: i for i, s in enumerate(sorted(frame[section_col].unique()))}
         frame['chainage_m'] = frame['chainage_m'] + 1e7 * frame[section_col].map(codes)
-    return speed_effect(bin_pairs(frame), min_speed_spread_kmh, metric_col=R_COL)
+    beta = speed_effect(bin_pairs(frame), min_speed_spread_kmh, metric_col=R_COL)
+    if beta is None:
+        return None
+    dof = max(1, beta['n_rows'] - beta['n_bins'] - 1)
+    half = float(sps.t.ppf(0.5 + confidence / 2.0, dof)) * beta['stderr']
+    return {**beta, 'dof': dof, 'confidence': confidence,
+            'ci_low': beta['slope_iri_per_kmh'] - half, 'ci_high': beta['slope_iri_per_kmh'] + half}
 
 
 def clean_pairs(df: pd.DataFrame) -> pd.DataFrame:
@@ -175,6 +182,37 @@ def leave_one_group_out(df: pd.DataFrame, group_col: str, models=MODELS,
                         beta: float = 0.0, v0: float = V0_KMH) -> dict:
     return {str(g): holdout(df, df[group_col] != g, models, beta, v0)
             for g in sorted(df[group_col].unique())}
+
+
+def leave_one_run_out(df: pd.DataFrame, section_col: str = 'section', models=MODELS,
+                      v0: float = V0_KMH) -> dict:
+    """
+    Each pass (run_id) held out in turn: beta re-estimated on the remaining
+    passes (0 when they no longer identify it), gamma and delta fitted on them,
+    the held-out pass predicted - the error at a speed the model has not seen.
+    """
+    return _leave_one_out_beta_refitted(df, 'run_id', section_col, models, v0)
+
+
+def leave_one_section_out(df: pd.DataFrame, section_col: str = 'section', models=MODELS,
+                          v0: float = V0_KMH) -> dict:
+    """
+    Each section held out in turn, as leave_one_run_out: beta, gamma and delta
+    from the other section(s) only - the error on a road the model has not seen.
+    """
+    return _leave_one_out_beta_refitted(df, section_col, section_col, models, v0)
+
+
+def _leave_one_out_beta_refitted(df: pd.DataFrame, group_col: str, section_col: str,
+                                 models, v0: float) -> dict:
+    out = {}
+    for group in sorted(df[group_col].unique()):
+        train_mask = (df[group_col] != group).to_numpy()
+        beta = estimate_beta(df[train_mask], section_col)
+        slope = beta['slope_iri_per_kmh'] if beta else 0.0
+        out[str(group)] = {'beta_train': slope, 'beta_identified': beta is not None,
+                           **holdout(df, train_mask, models, slope, v0)}
+    return out
 
 
 def spatial_blocks(df: pd.DataFrame, section_col: str = 'road', block_m: float = 200.0) -> pd.Series:

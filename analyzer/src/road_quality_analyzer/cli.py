@@ -67,6 +67,11 @@ def main():
         help='АБЛЯЦІЯ: iri_multi рахується для всіх сегментів, також поза 20–100 км/год '
              '(speed_valid зберігає справжнє значення).'
     )
+    analyze_parser.add_argument(
+        '--segment-length', type=float, default=100.0, metavar='M',
+        help='Довжина сегмента, м (типово 100). Інше значення — лише для перевірки '
+             'чутливості в дослідженні; Eq.6 виведено для 100 м.'
+    )
 
     args = parser.parse_args()
 
@@ -75,7 +80,8 @@ def main():
                 iri_psd_A=getattr(args, 'iri_psd_A'), iri_psd_B=getattr(args, 'iri_psd_B'),
                 ablate_orientation=args.ablate_orientation,
                 ablate_segmentation_time=args.ablate_segmentation_time,
-                ablate_speed_gate=args.ablate_speed_gate)
+                ablate_speed_gate=args.ablate_speed_gate,
+                segment_length_m=args.segment_length)
     else:
         parser.print_help()
         sys.exit(1)
@@ -86,7 +92,8 @@ def analyze(input_path: str, output_dir: str,
             iri_psd_A: float = None, iri_psd_B: float = None,
             ablate_orientation: bool = False,
             ablate_segmentation_time: bool = False,
-            ablate_speed_gate: bool = False):
+            ablate_speed_gate: bool = False,
+            segment_length_m: float = 100.0):
     """
     Full analysis of sensor data
 
@@ -98,6 +105,8 @@ def analyze(input_path: str, output_dir: str,
             from the CSV/GeoJSON/map (the report still counts them)
         iri_psd_A, iri_psd_B: optional calibrated Eq.3 coefficients (a named,
             provenance-documented set); None -> the book values, unchanged
+        segment_length_m: segment length (default 100 m; other values are study
+            sensitivity runs only - the Eq.6 coefficients were derived for 100 m)
         ablate_orientation, ablate_segmentation_time, ablate_speed_gate:
             EXPERIMENTAL ablations for the base-vs-improved study, default off
             (output then byte-identical to a run without them). Each one
@@ -139,7 +148,7 @@ def analyze(input_path: str, output_dir: str,
     FILTFILT_MIN_SAMPLES = 28
     ANOMALY_THRESHOLD_MS2 = 10.0
     DISTRESS_WINDOW_SEC = 0.5
-    SEGMENT_LENGTH_M = 100.0
+    SEGMENT_LENGTH_M = float(segment_length_m)
     DEFAULT_SCALAR_MODE = 'mean_psd_sqrt'
     # --ablate-segmentation-time: the median speed that sizes the windows is
     # taken over moving samples only
@@ -364,7 +373,7 @@ def analyze(input_path: str, output_dir: str,
               f"({time_window_samples} samples) = {SEGMENT_LENGTH_M:.0f} м / "
               f"{median_moving_speed_mps:.2f} м/с...")
     else:
-        print("\n[8/9] Сегментація по 100 м...")
+        print(f"\n[8/9] Сегментація по {SEGMENT_LENGTH_M:.0f} м...")
 
     # Try different scalar modes for diagnostics
     scalar_modes = ['mean_psd_sqrt', 'band_power_sqrt', 'median_psd_sqrt', 'peak_psd_sqrt']

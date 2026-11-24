@@ -128,6 +128,7 @@ export class AggregateDetail {
     .sort((a, b) => a.chainage_km - b.chainage_km));
 
   readonly speedEffect = computed(() => this.chart()?.speed_effect ?? null);
+  readonly model = computed(() => this.chart()?.calibration_model ?? null);
 
   readonly figures = computed(
     () => this.speedEffect() ? [FIGURE_PROFILE, FIGURE_SPEED] : [FIGURE_PROFILE]);
@@ -253,6 +254,11 @@ export class AggregateDetail {
   signed(value: number | null | undefined, digits = 2): string {
     if (value == null) return '—';
     return (value < 0 ? '−' : '') + Math.abs(value).toFixed(digits);
+  }
+  /** Like signed(), with an explicit «+» — for errors, where the sign is the point. */
+  signedPlus(value: number | null | undefined, digits = 2): string {
+    if (value == null) return '—';
+    return (value < 0 ? '−' : '+') + Math.abs(value).toFixed(digits);
   }
 
   /** Explicit sign on both directions — the column is a deviation, not a value */

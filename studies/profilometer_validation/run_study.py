@@ -34,7 +34,7 @@ from profilometer_validation.calibrate import (
     validation_stats,
 )
 from profilometer_validation.match import (
-    REFERENCE_CHANNELS, load_form_10m, load_form_intervals, match_segments,
+    REFERENCE_CHANNELS, form_10m, load_form_10m, load_form_intervals, match_segments,
     segment_midpoints_from_geojson, windowed_reference,
 )
 
@@ -67,6 +67,40 @@ CROSS_VEHICLE_DATASETS = [
         'road': 'Т1016',
         'form_10m_csv': DATASETS[1]['form_10m_csv'],
         'segments_csv': 'storage/results/field_cupra_sensor_data_20260920_120302/road_segments.csv',
+    },
+]
+
+# G3 section campaigns (block added 2026-11-21; spec 2026-11-15-calibration-model-
+# and-ablation-design.md, Amendment 2026-11-21): one section surveyed with the ARRB
+# Walking Profiler G3 (class 1; passes = reference channels) and driven by the same
+# phone and car at several steady speeds in the surveyed lane. The reference is
+# rebuilt from the raw G3 exports on every run (profilometer_validation.g3); the
+# segments are the analyzer CLI output (defaults) for storage/data/field_2026_11_21.
+G3_CAMPAIGNS = [
+    {
+        'section': 'G3_2026-11-21',
+        'vehicle': 'crossover',
+        'surveys_dir': 'storage/field_measurements/g3/2026-11-21/Surveys',
+        'surveys': ('2026-11-21 14h10m34s Zao_7', '2026-11-21 14h45m35s Zao_8'),
+        'results_dir': 'storage/results/field_g3_20261121',
+        'runs': {'sensor_data_20261121_145112': 30, 'sensor_data_20261121_145720': 40,
+                 'sensor_data_20261121_150236': 50, 'sensor_data_20261121_150735': 60},
+    },
+    # Second section (added 2026-11-22): both wheel paths there and back, Fast
+    # Profiling. The first odometer calibration of the day was wrong (factor 1.16176);
+    # the surveys are the tablet app's own REPROCESS with the factor of the second,
+    # taped calibration (0.99483) - see Dissertation/field_research_22_11_2026/
+    # walking_profiler_g3/README.md. Segments: analyzer CLI output (defaults) for
+    # storage/data/field_2026_11_22; the failed 80 km/h attempt is not used.
+    {
+        'section': 'G3_2026-11-22',
+        'vehicle': 'crossover',
+        'surveys_dir': 'storage/field_measurements/g3/2026-11-22/Surveys',
+        'surveys': ('2026-11-22 06h02m15s B_l_1', '2026-11-22 06h11m58s B_l_2',
+                    '2026-11-22 06h18m57s B_R_1', '2026-11-22 06h25m14s B_R_2'),
+        'results_dir': 'storage/results/field_g3_20261122',
+        'runs': {'sensor_data_20261122_044740': 40, 'sensor_data_20261122_045451': 50,
+                 'sensor_data_20261122_050113': 60, 'sensor_data_20261122_050800': 70},
     },
 ]
 
@@ -243,6 +277,253 @@ def single_channel_sensitivity(pairs: pd.DataFrame) -> dict:
     return out
 
 
+def _vehicle_passport(segments_csv: str) -> dict:
+    """vehicle_id and tyres of a recording (its recording_meta.json)."""
+    meta = json.loads((REPO_ROOT / segments_csv).parent.joinpath('recording_meta.json')
+                      .read_text(encoding='utf-8'))
+    return {k: meta['vehicle'].get(k) for k in ('vehicle_id', 'vehicle_tire_type', 'vehicle_make_model')}
+
+
+def _g3_segments_csv(run_id: str, campaigns=G3_CAMPAIGNS) -> str:
+    campaign = next(c for c in campaigns if run_id in c['runs'])
+    return f"{campaign['results_dir']}/{run_id}/road_segments.csv"
+
+
+def g3_reference(campaign: dict):
+    """The section reference rebuilt from the raw G3 exports of a campaign."""
+    from profilometer_validation import g3
+    root = REPO_ROOT / campaign['surveys_dir']
+
+    def _pass(stem):
+        def read(suffix):
+            return (root / f'{stem} {suffix}').read_text(encoding='utf-8-sig')
+        return g3.G3Pass.from_texts(stem, read('IRI.csv'), read('GNSS.csv'), read('Profile.csv'),
+                                    read('Information.txt'))
+    return g3.build_section_reference([_pass(stem) for stem in campaign['surveys']])
+
+
+def g3_pairs(campaigns=G3_CAMPAIGNS) -> tuple:
+    """(pairs of every run against its section reference, {section: reference});
+    the study matcher with its parameters unchanged."""
+    frames, references = [], {}
+    for campaign in campaigns:
+        reference = g3_reference(campaign)
+        references[campaign['section']] = reference
+        form10 = form_10m(reference.intervals)
+        for run_id, target_kmh in campaign['runs'].items():
+            matched = windowed_reference(
+                _segment_geometry({'segments_csv': _g3_segments_csv(run_id, campaigns)}), form10,
+                endpoint_tolerance_m=MATCHING['endpoint_tolerance_m'],
+                min_rows_in_window=MATCHING['min_ref_rows'],
+                max_window_m=MATCHING['max_window_m'])
+            matched['road'] = campaign['section']
+            frames.append(matched[[c for c in PAIR_COLUMNS if c in matched.columns]].assign(
+                run_id=run_id, target_kmh=target_kmh, vehicle=campaign['vehicle']))
+    return pd.concat(frames, ignore_index=True), references
+
+
+def g3_section_campaign(pairs_g3: pd.DataFrame, references: dict,
+                        pairs_external: pd.DataFrame) -> dict:
+    """
+    Calibration model on the G3 section(s): beta from the passes at different
+    speeds, gamma/delta by inverse calibration, checked on held-out passes
+    (beta re-estimated without them), on 200 m spatial blocks, and on the
+    laser-profilometer roads driven by the same car (pairs_external), where
+    nothing is refitted.
+    """
+    from scipy import stats as sps
+    from profilometer_validation import calibration_model as cmod
+    from profilometer_validation.aggregate import bin_pairs, repeatability_sd
+
+    clean = cmod.clean_pairs(pairs_g3)
+    beta = cmod.estimate_beta(clean, section_col='road')
+    slope = beta['slope_iri_per_kmh'] if beta else 0.0
+    m1, m1_beta0 = cmod.fit(clean, slope), cmod.fit(clean, 0.0)
+    k = cmod.fit_bias_only(clean)
+
+    per_run = _g3_per_run(clean)
+
+    # Pass-mean agreement over 100 m bins (what averaging the passes gives)
+    binned = bin_pairs(clean.assign(r_v0=cmod.predictor(clean, slope)))
+    bins = binned.groupby(['road', 'bin_center']).agg(
+        iri_ref=('iri_ref', 'mean'), r=('iri_multi_raw', 'mean'), r_v0=('r_v0', 'mean'))
+    pass_mean = {'n_bins': int(len(bins)),
+                 'spearman_r': float(sps.spearmanr(bins['r'], bins['iri_ref']).statistic),
+                 'pearson_r_v0': float(np.corrcoef(bins['r_v0'], bins['iri_ref'])[0, 1])}
+
+    training_range, external = _g3_external_roads(clean, slope, pairs_external)
+
+    return {
+        'block_added': '2026-11-21',
+        'model': 'IRI_cal = max(0, gamma * [R - beta * (v - v0)] + delta), R = iri_multi_raw',
+        'v0_kmh': cmod.V0_KMH,
+        'references': _g3_reference_summary(references),
+        'n_pairs': int(len(clean)),
+        'per_run': per_run,
+        'training_range': training_range,
+        'beta': beta,
+        'fits': {'M1_beta': m1.to_dict(), 'M1_beta0': m1_beta0.to_dict(),
+                 'M2_beta': cmod.fit_m2(clean, slope).to_dict(), 'bias_only_k': k},
+        'in_sample': {'book': _g3_book(clean),
+                      'bias_only': cmod.evaluate(np.maximum(0.0, clean['iri_multi_raw']) + k, clean['iri_ref']),
+                      'M1_beta0': cmod.evaluate(cmod.predict(clean, m1_beta0), clean['iri_ref']),
+                      'M1_beta': cmod.evaluate(cmod.predict(clean, m1), clean['iri_ref'])},
+        'leave_one_run_out_beta_refitted': cmod.leave_one_run_out(clean, section_col='road'),
+        'block_cv_200m_beta_all_passes': cmod.block_cv(clean, n_folds=5, beta=slope),
+        'block_cv_200m_beta0': cmod.block_cv(clean, n_folds=5, beta=0.0),
+        'bootstrap_M1_beta': cmod.bootstrap_params(clean, n_boot=1000, beta=slope),
+        'repeatability_sd': {'book': repeatability_sd(bin_pairs(clean)),
+                             'M1_beta': repeatability_sd(bin_pairs(
+                                 clean.assign(iri_multi=cmod.predict(clean, m1))))},
+        'pass_mean_agreement_100m': pass_mean,
+        'external_profilometer_roads_same_car': external,
+        'external_vehicle': {ds['road']: _vehicle_passport(ds['segments_csv'])
+                             for ds in CROSS_VEHICLE_DATASETS},
+        'notes': [
+            'block_cv uses beta estimated on all passes (beta is a property of the design, '
+            'not of a spatial block); leave_one_run_out re-estimates it without the held-out pass',
+            'external roads: fitted on G3 only, nothing refitted; outside the training speed or '
+            'IRI range the model extrapolates',
+        ],
+    }
+
+
+def _g3_book(d: pd.DataFrame) -> dict:
+    from profilometer_validation import calibration_model as cmod
+    return cmod.evaluate(np.maximum(0.0, d['iri_multi_raw']), d['iri_ref'])
+
+
+def _g3_reference_summary(references: dict) -> dict:
+    return {s: {'channels': r.channels, 'warnings': r.warnings, 'step_m': r.step_m,
+                'chainage_span_m': r.chainage_span_m, 'survey_date': r.survey_date,
+                'n_intervals': int(len(r.intervals))} for s, r in references.items()}
+
+
+def _g3_external_roads(clean: pd.DataFrame, slope: float, pairs_external: pd.DataFrame) -> tuple:
+    """(training range, the G3-fitted model on the laser-profilometer roads, nothing refitted)."""
+    from profilometer_validation import calibration_model as cmod
+    training_range = {'speed_kmh': [float(clean['mean_speed_kmh'].min()), float(clean['mean_speed_kmh'].max())],
+                      'iri_ref': [float(clean['iri_ref'].min()), float(clean['iri_ref'].max())]}
+    external = {}
+    ext = cmod.clean_pairs(pairs_external)
+    for road, g in ext.groupby('road'):
+        both = pd.concat([clean, g], ignore_index=True)
+        train = np.r_[np.ones(len(clean), bool), np.zeros(len(g), bool)]
+        with_beta = cmod.holdout(both, train, models=('book', 'bias_only', 'M1'), beta=slope)
+        speed = g['mean_speed_kmh']
+        external[road] = {
+            'n': int(len(g)), 'mean_speed_kmh': float(speed.mean()),
+            'share_inside_training_speed_range': float(speed.between(*training_range['speed_kmh']).mean()),
+            'share_inside_training_iri_range': float(g['iri_ref'].between(*training_range['iri_ref']).mean()),
+            'book': with_beta['book'], 'bias_only': with_beta['bias_only'], 'M1_beta': with_beta['M1'],
+            'M1_beta0': cmod.holdout(both, train, models=('M1',), beta=0.0)['M1'],
+        }
+    return training_range, external
+
+
+def _g3_per_run(clean: pd.DataFrame) -> dict:
+    return {run: {'target_kmh': int(g['target_kmh'].iloc[0]), 'n_pairs': int(len(g)),
+                  'mean_speed_kmh': float(g['mean_speed_kmh'].mean()),
+                  'match_dist_m_max': float(g['match_dist_m'].max()),
+                  'vehicle': _vehicle_passport(_g3_segments_csv(run)),
+                  'book': _g3_book(g)}
+            for run, g in clean.groupby('run_id')}
+
+
+def _g3_gate_row(train: pd.DataFrame, test: pd.DataFrame, beta: float) -> dict:
+    """The gate quantities of one held-out set: book, bias-only and M1 fitted on train."""
+    from profilometer_validation import calibration_model as cmod
+    test = cmod.clean_pairs(test)
+    ref = test['iri_ref'].to_numpy(float)
+    preds = {m: cmod.fit_and_predict(train, test, m, beta)[1] for m in ('book', 'bias_only', 'M1')}
+    ev = {m: cmod.evaluate(p, ref) for m, p in preds.items()}
+    level = {m: ranking_agreement(test.assign(pred=p), metric_col='pred')['level_same_share']
+             for m, p in preds.items()}
+    ratio = ev['M1']['rough_pred_to_ref']
+    return {
+        'n': ev['M1']['n'], 'iri_ref_mean': float(ref.mean()), 'beta': beta,
+        'mae': {m: e['mae'] for m, e in ev.items()},
+        'mae_below_0_5': ev['M1']['mae'] < 0.5,
+        'rough_n': ev['M1']['rough_n'], 'rough_pred_to_ref_M1': ratio,
+        'rough_ratio_in_0_9_1_1': None if ratio is None else bool(0.9 <= ratio <= 1.1),
+        'spearman': {m: e['spearman_rho'] for m, e in ev.items()},
+        'spearman_not_lower': bool(ev['M1']['spearman_rho'] >= ev['book']['spearman_rho']),
+        'dstu_level_same_share': level,
+        'dstu_not_worse_than_bias_only': bool(level['M1'] >= level['bias_only']),
+    }
+
+
+def g3_two_sections(pairs_g3: pd.DataFrame, references: dict, pairs_external: pd.DataFrame) -> dict:
+    """
+    The calibration model on every G3 section together (block added 2026-11-22):
+    what each section says on its own, the pooled fit, and the error on a section
+    the model has not seen (leave_one_section_out: beta, gamma, delta from the other
+    section only). The 2026-11-21 block above stays the single-section record.
+    """
+    from profilometer_validation import calibration_model as cmod
+
+    clean = cmod.clean_pairs(pairs_g3)
+    per_section = {}
+    for road, g in clean.groupby('road'):
+        b = cmod.estimate_beta(g, section_col='road')
+        per_section[road] = {
+            'n_pairs': int(len(g)), 'n_runs': int(g['run_id'].nunique()),
+            'speed_kmh': [float(g['mean_speed_kmh'].min()), float(g['mean_speed_kmh'].max())],
+            'iri_ref': [float(g['iri_ref'].min()), float(g['iri_ref'].max())],
+            'iri_ref_mean': float(g['iri_ref'].mean()),
+            'book': _g3_book(g),
+            'bias_only_k': cmod.fit_bias_only(g),
+            'beta': b,
+        }
+    beta = cmod.estimate_beta(clean, section_col='road')
+    slope = beta['slope_iri_per_kmh'] if beta else 0.0
+    m1 = cmod.fit(clean, slope)
+    k = cmod.fit_bias_only(clean)
+    training_range, external = _g3_external_roads(clean, slope, pairs_external)
+
+    # Pre-declared gates (spec 2026-11-15, section 3) on every held-out set: each G3
+    # section with the model of the other one, each profilometer road with the model
+    # of both sections
+    held_out = {}
+    for road in sorted(clean['road'].unique()):
+        train = clean[clean['road'] != road]
+        b = cmod.estimate_beta(train, section_col='road')
+        held_out[road] = _g3_gate_row(train, clean[clean['road'] == road], b['slope_iri_per_kmh'] if b else 0.0)
+    for road, g in cmod.clean_pairs(pairs_external).groupby('road'):
+        held_out[road] = _g3_gate_row(clean, g, slope)
+    gate_keys = ('mae_below_0_5', 'rough_ratio_in_0_9_1_1', 'spearman_not_lower', 'dstu_not_worse_than_bias_only')
+    gates = {'held_out': held_out,
+             'all_pass': {g: all(row[g] is not False for row in held_out.values()) for g in gate_keys}}
+    return {
+        'block_added': '2026-11-22',
+        'sections': sorted(clean['road'].unique()),
+        'references': _g3_reference_summary(references),
+        'n_pairs': int(len(clean)),
+        'per_run': _g3_per_run(clean),
+        'per_section': per_section,
+        'beta_pooled': beta,
+        'fits': {'M1_beta': m1.to_dict(), 'bias_only_k': k},
+        'in_sample': {'book': _g3_book(clean),
+                      'bias_only': cmod.evaluate(np.maximum(0.0, clean['iri_multi_raw']) + k, clean['iri_ref']),
+                      'M1_beta': cmod.evaluate(cmod.predict(clean, m1), clean['iri_ref'])},
+        'leave_one_section_out': cmod.leave_one_section_out(clean, section_col='road'),
+        'leave_one_run_out_beta_refitted': cmod.leave_one_run_out(clean, section_col='road'),
+        'training_range': training_range,
+        'external_profilometer_roads_same_car': external,
+        'gates': gates,
+        'notes': [
+            'gates (spec 2026-11-15, section 3, fixed before the campaign): held-out MAE of M1 '
+            '< 0.5 m/km; mean predicted/reference on rough bins within 0.9-1.1 (None = no rough '
+            'bins); "rho unchanged" read as Spearman of M1 not lower than of the book estimate; '
+            'DSTU 3587 level agreement of M1 not worse than bias-only',
+            'a 100 m phone segment is matched only when it lies inside the surveyed section, '
+            'so the 380 m section of 2026-11-22 yields 2-3 pairs per pass',
+            'leave_one_section_out: beta re-estimated on the training section (0 when it no '
+            'longer identifies it); external roads: fitted on both sections, nothing refitted',
+        ],
+    }
+
+
 def main() -> None:
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     parser = argparse.ArgumentParser()
@@ -379,6 +660,14 @@ def main() -> None:
             for (v, r), g in model_pairs.groupby(['vehicle', 'road'])},
     }
 
+    # --- G3 section campaign (block added 2026-11-21): the same car on a section
+    # with a class-1 reference at several speeds; checked on the profilometer roads ---
+    pairs_g3, g3_references = g3_pairs()
+    first = G3_CAMPAIGNS[0]['section']
+    g3_campaign = g3_section_campaign(pairs_g3[pairs_g3['road'] == first],
+                                      {first: g3_references[first]}, pairs_cv)
+    g3_sections = g3_two_sections(pairs_g3, g3_references, pairs_cv)
+
     from profilometer_validation import ablation as abl_mod
     check_ablation_inputs()
     variant_pairs = {v: ablation_pairs(v) for v in ('full', *ABLATION_VARIANTS)}
@@ -453,6 +742,8 @@ def main() -> None:
         'bias_correction_loro_vehicle': bias_loro_vehicle,
         'cross_vehicle': cross_vehicle,
         'calibration_model_pilot': calibration_model_pilot,
+        'g3_section_campaign': g3_campaign,
+        'g3_two_sections': g3_sections,
         'ablation_base_vs_improved': ablation,
         'profilometer_noise_floor': profilometer_noise_floor(),
         'autocorrelation_effective_n': autocorrelation,
@@ -468,6 +759,9 @@ def main() -> None:
                      encoding='utf-8', lineterminator='\n', float_format='%.10g')
     pairs_cv.sort_values(['road', 'seg_id']).reset_index(drop=True).to_csv(
         out_dir / 'matched_pairs_cross_vehicle.csv', index=False,
+        encoding='utf-8', lineterminator='\n', float_format='%.10g')
+    pairs_g3.sort_values(['road', 'run_id', 'seg_id']).reset_index(drop=True).to_csv(
+        out_dir / 'matched_pairs_g3.csv', index=False,
         encoding='utf-8', lineterminator='\n', float_format='%.10g')
     (out_dir / 'stats.json').write_text(
         json.dumps(stats, ensure_ascii=False, indent=1, sort_keys=True),
@@ -671,6 +965,84 @@ def main() -> None:
     else:
         lines.append('- Швидкісний коридор: зіставлених сегментів поза 20–100 км/год немає — '
                      'на цих даних його ефект не перевіряється.')
+    g3c = g3_campaign
+    lines += ['', '## Ділянка з еталоном G3: калібрувальна модель на проїздах із різними швидкостями']
+    for section, ref_ in sorted(g3c['references'].items()):
+        lines.append(f"- {section}: еталон із {len(ref_['channels'])} проходів G3, {ref_['n_intervals']} "
+                     f"інтервалів по {ref_['step_m']:g} м; "
+                     + ('попередження: ' + '; '.join(ref_['warnings']) if ref_['warnings']
+                        else 'без попереджень') + '.')
+    lines.append('- Проїзди: ' + '; '.join(
+        f"{run[-6:]} — {v['target_kmh']} км/год (факт {v['mean_speed_kmh']:.1f}), n = {v['n_pairs']}, "
+        f"зсув книжкової оцінки {v['book']['bias']:+.2f} м/км" for run, v in sorted(g3c['per_run'].items())) + '.')
+    beta_ = g3c['beta']
+    lines.append(
+        f"- β = {beta_['slope_iri_per_kmh']:.4f} м/км на км/год [{beta_['ci_low']:.4f}; {beta_['ci_high']:.4f}] "
+        f"({beta_['confidence']:.0%}, dof = {beta_['dof']}; {beta_['n_rows']} пар, {beta_['n_bins']} бінів по 100 м)."
+        if beta_ else '- β не ідентифіковано: немає розкиду швидкостей на одній ділянці.')
+    lines.append('- Проїзд поза підгонкою (β перераховано без нього), MAE / зсув, м/км: ' + '; '.join(
+        f"{run[-6:]}: модель {res['M1']['mae']:.2f} / {res['M1']['bias']:+.2f}, лише зсув "
+        f"{res['bias_only']['mae']:.2f} / {res['bias_only']['bias']:+.2f}, книжкова {res['book']['mae']:.2f}"
+        for run, res in sorted(g3c['leave_one_run_out_beta_refitted'].items())) + '.')
+    boot_, cv_ = g3c['bootstrap_M1_beta'], g3c['block_cv_200m_beta_all_passes']
+    lines.append(
+        f"- γ = {boot_['gamma']:.3f} [{boot_['gamma_ci'][0]:.3f}; {boot_['gamma_ci'][1]:.3f}], "
+        f"δ = {boot_['delta']:.3f} [{boot_['delta_ci'][0]:.3f}; {boot_['delta_ci'][1]:.3f}] (бутстреп "
+        f"{boot_['n_blocks']} блоків по 200 м); просторові блоки: MAE моделі {cv_['M1']['mae']:.3f} проти "
+        f"{cv_['bias_only']['mae']:.3f} (лише зсув) — "
+        + ('модель краща.' if cv_['M1']['mae'] < cv_['bias_only']['mae']
+           else 'модель не краща: γ однією ділянкою не визначається.'))
+    rep_ = g3c['repeatability_sd']
+    lines.append(f"- Розкид між проїздами (σ_r): {rep_['book']['sd']:.2f} → {rep_['M1_beta']['sd']:.2f} м/км "
+                 'після моделі.')
+    tyres_g3 = sorted({v['vehicle']['vehicle_tire_type'] for v in g3c['per_run'].values()})
+    tyres_ext = sorted({v['vehicle_tire_type'] for v in g3c['external_vehicle'].values()})
+    for road, ext_ in sorted(g3c['external_profilometer_roads_same_car'].items()):
+        lines.append(
+            f"- {road} (лазерний профілометр, той самий автомобіль; нічого не перепідганялося; "
+            f"{ext_['share_inside_training_speed_range']:.0%} пар у діапазоні швидкостей підгонки, "
+            f"{ext_['share_inside_training_iri_range']:.0%} — у діапазоні IRI): MAE моделі "
+            f"{ext_['M1_beta']['mae']:.3f}, лише зсув {ext_['bias_only']['mae']:.3f}, книжкова "
+            f"{ext_['book']['mae']:.3f} м/км.")
+    if tyres_g3 != tyres_ext:
+        lines.append(f"- Шини: на ділянці G3 {', '.join(tyres_g3)}, на дорогах із профілометром "
+                     f"{', '.join(tyres_ext)} — перевірка перенесення включає зміну шин.")
+    g3s = g3_sections
+    lines += ['', '## Дві ділянки з еталоном G3: перенесення моделі на ділянку, якої вона не бачила']
+    for section, s_ in sorted(g3s['per_section'].items()):
+        b_ = s_['beta']
+        lines.append(
+            f"- {section}: {s_['n_pairs']} пар із {s_['n_runs']} проїздів, швидкості "
+            f"{s_['speed_kmh'][0]:.0f}–{s_['speed_kmh'][1]:.0f} км/год, IRI еталона "
+            f"{s_['iri_ref'][0]:.1f}–{s_['iri_ref'][1]:.1f} м/км; книжкова оцінка MAE {s_['book']['mae']:.2f}, "
+            f"зсув {s_['book']['bias']:+.2f}; власний зсув k = {s_['bias_only_k']:.2f}; β = "
+            + (f"{b_['slope_iri_per_kmh']:.4f} [{b_['ci_low']:.4f}; {b_['ci_high']:.4f}]." if b_
+               else 'не ідентифіковано.'))
+    for section, res in sorted(g3s['leave_one_section_out'].items()):
+        lines.append(
+            f"- Ділянка {section} поза підгонкою (β = {res['beta_train']:.4f} з іншої ділянки), MAE / зсув, "
+            f"м/км: книжкова {res['book']['mae']:.2f} / {res['book']['bias']:+.2f}, лише зсув "
+            f"{res['bias_only']['mae']:.2f} / {res['bias_only']['bias']:+.2f}, модель "
+            f"{res['M1']['mae']:.2f} / {res['M1']['bias']:+.2f} (n = {res['M1']['n']}).")
+    bp_ = g3s['beta_pooled']
+    if bp_:
+        lines.append(f"- β за обома ділянками = {bp_['slope_iri_per_kmh']:.4f} [{bp_['ci_low']:.4f}; "
+                     f"{bp_['ci_high']:.4f}] ({bp_['n_rows']} пар).")
+    verdict = {True: 'так', False: 'ні', None: '—'}
+    lines.append('- Заздалегідь задані ворота (специфікація 2026-11-15, розд. 3), M1 на відкладеному наборі:')
+    for name, row in g3s['gates']['held_out'].items():
+        ratio_ = row['rough_pred_to_ref_M1']
+        lines.append(
+            f"  - {name} (n = {row['n']}, IRI еталона {row['iri_ref_mean']:.1f}): MAE {row['mae']['M1']:.2f} "
+            f"< 0.5 — {verdict[row['mae_below_0_5']]}; прогноз/еталон на розбитих "
+            + (f"{ratio_:.2f}" if ratio_ is not None else '—')
+            + f" у 0.9–1.1 — {verdict[row['rough_ratio_in_0_9_1_1']]}; ρ {row['spearman']['M1']:.2f} проти "
+            f"книжкової {row['spearman']['book']:.2f} — {verdict[row['spearman_not_lower']]}; рівень ДСТУ "
+            f"{row['dstu_level_same_share']['M1']:.0%} проти {row['dstu_level_same_share']['bias_only']:.0%} "
+            f"(лише зсув) — {verdict[row['dstu_not_worse_than_bias_only']]}.")
+    all_ = g3s['gates']['all_pass']
+    lines.append('  - Усі відкладені набори: ' + '; '.join(
+        f"{g} — {verdict[v]}" for g, v in all_.items()) + '. Невиконані ворота — результат, не приховується.')
     lines += [
         '',
         '## LORO всіх моделей (out-of-sample MAE, м/км)',
@@ -688,7 +1060,8 @@ def main() -> None:
         f"- Альтернативний матчинг (nearest-100, 60 м): R² = {sensitivity_nearest['nearest100_60m']['r2']:.3f} "
         f"проти {fits['eq3']['r2']:.3f} у первинного — висновки не змінюються.",
         '',
-        '_Повні числа: stats.json; пари: matched_pairs.csv; фігури: figures/_',
+        '_Повні числа: stats.json; пари: matched_pairs.csv, matched_pairs_cross_vehicle.csv, '
+        'matched_pairs_g3.csv; фігури: figures/_',
     ]
     (out_dir / 'study_report.md').write_text('\n'.join(lines) + '\n', encoding='utf-8')
 

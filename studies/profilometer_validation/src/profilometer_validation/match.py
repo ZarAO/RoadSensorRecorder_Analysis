@@ -148,12 +148,19 @@ def segment_midpoints(segments_df: pd.DataFrame, gps_track: pd.DataFrame) -> pd.
 
 
 def load_form_10m(csv_path: str) -> pd.DataFrame:
+    """The 10 m form table of a CSV file (see form_10m)."""
+    return form_10m(pd.read_csv(csv_path, encoding='utf-8'))
+
+
+def form_10m(df: pd.DataFrame) -> pd.DataFrame:
     """
-    The 10 m form table as a chainage-indexed reference profile:
-    iri_ref_10 = mean(ch1..ch8) plus the individual channels (for the
-    single-channel sensitivity analysis), midpoint coordinate and chainage.
+    A 10 m reference table (profilometer form or G3 section reference
+    intervals) as a chainage-indexed reference profile:
+    iri_ref_10 = mean of the channels ch1..ch8 present in the row (a G3
+    reference has as many channels as passes) plus the individual channels
+    (for the single-channel sensitivity analysis), midpoint coordinate and
+    chainage.
     """
-    df = pd.read_csv(csv_path, encoding='utf-8')
     out = pd.DataFrame({
         'iri_ref_10': df[REFERENCE_CHANNELS].mean(axis=1),
         'lat_mid': (df['lat_start'] + df['lat_end']) / 2.0,

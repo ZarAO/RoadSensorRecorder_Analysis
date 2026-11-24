@@ -204,3 +204,16 @@ def test_create_segments_dataframe_is_ordered_by_seg_id():
     df = create_segments_dataframe(s_grid, a, a, v_grid, FS)
 
     assert df['seg_id'].is_monotonic_increasing
+
+
+def test_create_segments_dataframe_shorter_segments_keep_the_90_percent_rule():
+    """Sensitivity runs with 50 m segments: full segments are not partial, a
+    tail below 45 m is."""
+    n = 2300
+    _, s_grid, v_grid, a = uniform_drive(n, speed_mps=10.0)
+
+    df = create_segments_dataframe(s_grid, a, a, v_grid, FS, segment_length_m=50.0)
+
+    assert list(df['seg_id']) == [0, 1, 2, 3, 4]
+    assert list(df['partial']) == [False, False, False, False, True]
+    assert df['s_start'].iloc[1] == pytest.approx(50.0, abs=0.2)

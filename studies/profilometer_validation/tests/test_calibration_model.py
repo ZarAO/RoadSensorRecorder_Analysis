@@ -106,3 +106,53 @@ def test_block_cv_keeps_blocks_whole_and_bootstrap_covers_truth():
     assert boot['n_blocks'] == 30 and boot['n_boot_ok'] == 200
     # same seed -> same interval (determinism rule)
     assert cm.bootstrap_params(data, n_boot=200, beta=BETA)['gamma_ci'] == boot['gamma_ci']
+
+
+def test_beta_carries_a_t_interval_with_the_fixed_effects_dof():
+    from scipy import stats as sps
+    passes = _section('A', n_bins=30, speeds=(30.0, 40.0, 50.0, 60.0), noise=0.2)
+    beta = cm.estimate_beta(passes)
+    assert beta['dof'] == beta['n_rows'] - beta['n_bins'] - 1 == 120 - 30 - 1
+    half = sps.t.ppf(0.975, beta['dof']) * beta['stderr']
+    assert beta['ci_low'] == pytest.approx(beta['slope_iri_per_kmh'] - half)
+    assert beta['ci_high'] == pytest.approx(beta['slope_iri_per_kmh'] + half)
+    # one seeded draw: a 95 % interval may miss the truth; the estimate itself must not stray
+    assert abs(beta['slope_iri_per_kmh'] - BETA) < 4 * beta['stderr'] and beta['confidence'] == 0.95
+
+
+def test_leave_one_run_out_re_estimates_beta_and_removes_the_speed_bias():
+    data = _section('A', speeds=(30.0, 40.0, 50.0, 60.0))
+    out = cm.leave_one_run_out(data)
+    assert set(out) == {'A-0', 'A-1', 'A-2', 'A-3'}
+    for run, res in out.items():
+        assert res['beta_identified'] and res['beta_train'] == pytest.approx(BETA, abs=1e-9)
+        assert res['M1']['mae'] < 1e-9                    # exact model: any unseen speed
+    # a constant offset cannot follow the speed: biased at both ends of the range
+    assert out['A-0']['bias_only']['bias'] < 0 < out['A-3']['bias_only']['bias']
+
+
+def test_leave_one_section_out_transfers_the_model_to_an_unseen_section():
+    data = pd.concat([_section('A', speeds=(30.0, 50.0, 70.0)),
+                      _section('B', n_bins=10, speeds=(40.0, 60.0), ref_lo=6.0, ref_hi=9.0)],
+                     ignore_index=True)
+    out = cm.leave_one_section_out(data, section_col='road')
+    assert set(out) == {'A', 'B'}
+    for res in out.values():                          # each training section identifies beta
+        assert res['beta_identified'] and res['beta_train'] == pytest.approx(BETA, abs=1e-9)
+        assert res['M1']['mae'] < 1e-9
+    assert out['A']['M1']['n'] == 120 and out['B']['M1']['n'] == 20
+
+
+def test_leave_one_section_out_without_beta_in_the_training_section():
+    data = pd.concat([_section('A', speeds=(30.0, 50.0, 70.0)),
+                      _section('B', n_bins=10, speeds=(60.0,), ref_lo=6.0, ref_hi=9.0)],
+                     ignore_index=True)
+    out = cm.leave_one_section_out(data, section_col='road')
+    assert not out['A']['beta_identified'] and out['A']['beta_train'] == 0.0   # trained on B alone
+    assert out['B']['beta_identified']
+
+
+def test_leave_one_run_out_falls_back_to_beta_zero_when_not_identified():
+    data = _section('A', speeds=(30.0, 60.0))
+    out = cm.leave_one_run_out(data)
+    assert all(not r['beta_identified'] and r['beta_train'] == 0.0 for r in out.values())

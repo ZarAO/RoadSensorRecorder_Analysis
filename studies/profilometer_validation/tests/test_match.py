@@ -265,3 +265,27 @@ def test_windowed_reference_drops_far_and_degenerate(tmp_path):
     degenerate = _seg_with_endpoints(2, 100.0, 101.0)  # window of ~1 row
     out = windowed_reference(pd.concat([far, degenerate]), form10)
     assert len(out) == 0
+
+
+def test_form_10m_from_g3_intervals_uses_the_channels_present():
+    """A G3 section reference carries iri_ch1..ch10 with only as many channels as
+    passes; the 10 m reference is the mean of the channels that are present."""
+    from profilometer_validation.match import form_10m
+    intervals = pd.DataFrame({
+        'km_start': [0, 0], 'm_start': [0.0, 10.0], 'km_end': [0, 0], 'm_end': [10.0, 20.0],
+        'iri_ch1': [2.0, 4.0], 'iri_ch2': [4.0, np.nan],
+        **{f'iri_ch{c}': [np.nan, np.nan] for c in range(3, 11)},
+        'lat_start': [LAT0, LAT0], 'lon_start': [LON0, LON0],
+        'lat_end': [LAT0, LAT0], 'lon_end': [LON0, LON0],
+    })
+    out = form_10m(intervals)
+    assert out['iri_ref_10'].tolist() == [3.0, 4.0]
+    assert out['chainage_m'].tolist() == [5.0, 15.0]
+    assert out['iri_ch2_10'].isna().tolist() == [False, True]
+
+
+def test_load_form_10m_is_form_10m_of_the_csv(tmp_path):
+    from profilometer_validation.match import form_10m, load_form_10m
+    path = _form10_csv(tmp_path)
+    pd.testing.assert_frame_equal(load_form_10m(path),
+                                  form_10m(pd.read_csv(path, encoding='utf-8')))

@@ -125,6 +125,82 @@
         }
       </section>
 
+      <section class="card rise-in" id="calibration-model">
+        <h3>Калібрувальна модель</h3>
+        @if (model(); as m) {
+          <p class="lead">
+            IRI<sub>кал</sub> = max(0, γ·[R − β(v − v<sub>0</sub>)] + δ),
+            v<sub>0</sub> = {{ m.v0_kmh }} км/год; R — необрізана оцінка Eq.6, {{ m.n_pairs }} пар.
+          </p>
+          <div class="cards">
+            <div class="card kpi-card">
+              <b class="num">{{ fmt(m.held_out_mean_mae.book) }} → {{ fmt(m.held_out_mean_mae.model) }}</b>
+              <span>MAE проїзду поза підгонкою, м/км: книжкова → модель</span>
+            </div>
+            <div class="card kpi-card">
+              <b class="num">{{ fmt(data.repeatability.sd) }} → {{ fmt(m.repeatability_sd_model) }}</b>
+              <span>σ<sub>r</sub> між проїздами, м/км</span>
+            </div>
+            <div class="card kpi-card">
+              <b class="num">{{ fmt(m.beta.slope_iri_per_kmh, 3) }}</b>
+              <em class="ci">[{{ fmt(m.beta.ci_low, 3) }}; {{ fmt(m.beta.ci_high, 3) }}]</em>
+              <span>β, м/км на км/год ({{ m.beta.confidence * 100 }}% ДІ)</span>
+            </div>
+            <div class="card kpi-card">
+              <b class="num">{{ fmt(m.gamma) }}</b>
+              <em class="ci">[{{ fmt(m.gamma_ci[0]) }}; {{ fmt(m.gamma_ci[1]) }}]</em>
+              <span>γ (бутстреп {{ m.n_blocks }} блоків по 200 м)</span>
+            </div>
+            <div class="card kpi-card">
+              <b class="num">{{ signed(m.delta) }}</b>
+              <em class="ci">[{{ signed(m.delta_ci[0]) }}; {{ signed(m.delta_ci[1]) }}]</em>
+              <span>δ, м/км</span>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="data" id="model-table">
+              <thead>
+                <tr>
+                  <th>Проїзд поза підгонкою</th>
+                  <th class="num">Швидкість, км/год</th>
+                  <th class="num">Книжкова: MAE / зсув</th>
+                  <th class="num">Лише зсув: MAE / зсув</th>
+                  <th class="num">Модель: MAE / зсув</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (row of m.held_out; track row.run_id) {
+                  <tr>
+                    <td>ран #{{ row.run_id }}</td>
+                    <td class="num">{{ fmt(row.mean_speed_kmh, 1) }}</td>
+                    <td class="num">{{ fmt(row.book.mae) }} / {{ signedPlus(row.book.bias) }}</td>
+                    <td class="num">{{ fmt(row.bias_only.mae) }} / {{ signedPlus(row.bias_only.bias) }}</td>
+                    <td class="num">{{ fmt(row.model.mae) }} / {{ signedPlus(row.model.bias) }}</td>
+                  </tr>
+                }
+                <tr class="total">
+                  <td>Середнє</td>
+                  <td></td>
+                  <td class="num">{{ fmt(m.held_out_mean_mae.book) }}</td>
+                  <td class="num">{{ fmt(m.held_out_mean_mae.bias_only) }}</td>
+                  <td class="num">{{ fmt(m.held_out_mean_mae.model) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="hint">
+            Кожен проїзд передбачено моделлю, підігнаною на решті проїздів: β щоразу
+            оцінено без нього, тож це похибка на швидкості, якої модель не бачила.
+            Ширина інтервалу γ показує, наскільки діапазон рівності цих бінів визначає масштаб.
+          </p>
+        } @else {
+          <p class="muted">
+            Модель не оцінено: потрібні проїзди однієї ділянки на різних швидкостях,
+            проаналізовані поточною версією аналізатора (колонка iri_multi_raw).
+          </p>
+        }
+      </section>
+
       <section class="card rise-in figures">
         <h3>Рисунки (PNG / PDF)</h3>
         <ul class="figure-list">

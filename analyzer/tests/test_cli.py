@@ -525,3 +525,20 @@ def test_recording_without_passport_resolves_to_generic_defaults_end_to_end(base
     meta = json.loads((baseline_run['out'] / 'recording_meta.json').read_text(encoding='utf-8'))
     assert meta['vehicle_params']['equation'] == 'eq6'
     assert set(meta['vehicle_params']['provenance'].values()) == {'default'}
+
+
+def test_segment_length_option_for_sensitivity_runs(baseline_run, tmp_path):
+    """--segment-length 50: about twice the full segments of the default run, the
+    report names the length, the default run is untouched."""
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        analyze(str(baseline_run['csv']), str(tmp_path / 'out50'), segment_length_m=50.0)
+    df = pd.read_csv(tmp_path / 'out50' / 'road_segments.csv')
+    full = df[~df['partial']]
+
+    # at least twice the default's full segments (the trimmed edges leave room
+    # for a whole 50 m segment where a 100 m one would be partial)
+    assert len(full) >= 2 * int((~baseline_run['segments']['partial']).sum())
+    assert full['length_m'].to_numpy() == pytest.approx(50.0, abs=0.5)
+    assert '- Segment length: 50 m' in (tmp_path / 'out50' / 'report.md').read_text(encoding='utf-8')
+    assert '- Segment length: 100 m' in baseline_run['report']

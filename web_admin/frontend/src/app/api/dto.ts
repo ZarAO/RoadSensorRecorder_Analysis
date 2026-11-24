@@ -402,6 +402,42 @@ export interface AggregateSpeedEffect {
   speed_spread_kmh: number;
 }
 
+export interface AggregateModelError {
+  mae: number;
+  bias: number;
+}
+
+/** One pass predicted by the model fitted on the other passes (beta re-estimated without it). */
+export interface AggregateHeldOutPass {
+  run_id: number;
+  mean_speed_kmh: number;
+  n_pairs: number;
+  beta_train: number;
+  book: AggregateModelError;
+  bias_only: AggregateModelError;
+  model: AggregateModelError;
+}
+
+/** The study's calibration model IRI_cal = max(0, γ[R − β(v − v0)] + δ) on the
+ *  aggregate's passes (services.aggregate._calibration_model). */
+export interface AggregateCalibrationModel {
+  v0_kmh: number;
+  n_pairs: number;
+  beta: {
+    slope_iri_per_kmh: number; stderr: number; ci_low: number; ci_high: number;
+    dof: number; confidence: number; n_rows: number; n_bins: number;
+  };
+  gamma: number;
+  gamma_ci: [number, number];
+  delta: number;
+  delta_ci: [number, number];
+  n_blocks: number;
+  /** sorted by speed */
+  held_out: AggregateHeldOutPass[];
+  held_out_mean_mae: { book: number; bias_only: number; model: number };
+  repeatability_sd_model: number | null;
+}
+
 /** chart_data.json of an aggregate (services.aggregate._build_chart_data).
  *  Unlike the single-comparison ChartData, `bias` here is the whole CI object. */
 export interface AggregateChartData {
@@ -410,5 +446,7 @@ export interface AggregateChartData {
   repeatability: AggregateRepeatability;
   /** null when the passes' speeds barely differ — the slope is not estimated */
   speed_effect: AggregateSpeedEffect | null;
+  /** null (or absent in older aggregates) when the runs lack iri_multi_raw or beta is not identified */
+  calibration_model?: AggregateCalibrationModel | null;
   validation: { rho: number | null; mae: number | null };
 }

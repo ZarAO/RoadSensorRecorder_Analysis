@@ -27,6 +27,7 @@ ALIGN_MIN_OVERLAP_M = 100.0
 ALIGN_MIN_R = 0.4
 MIN_COVERAGE = 0.9              # share of a 10 m interval a pass must cover
 REFERENCE_SPEED_WARN_KMH = 1.1  # G3 manual: Reference Profiling warning threshold
+DAILY_CALIBRATION_KEYS = ('Odometer Calibration Date/Time', 'Field Offset Calibration Date/Time')
 CHANNEL_COUNT_IN_FORMAT = 10    # iri_ch1..iri_ch10 of the stored derived CSV
 _EARTH_R = 6371008.8
 
@@ -209,7 +210,9 @@ def _calibration_warning(p: G3Pass) -> str | None:
     survey_day = (p.date_time or '')[:10]
     if not survey_day:
         return None
-    keys = [k for k in p.info if 'Calibration Date/Time' in k]
+    # only the daily calibrations; the accelerometer sensitivity calibration
+    # ('Accelerometer Calibration Date/Time') is a factory one and must not be redone
+    keys = [k for k in DAILY_CALIBRATION_KEYS if k in p.info]
     stale = sorted({p.info[k][:10] for k in keys if p.info[k][:10] < survey_day})
     if not stale:
         return None

@@ -397,5 +397,8 @@ def create_segments_dataframe(
     # the windows whose speed-dependent length the ablation is meant to expose.
     if time_window_samples is not None and len(df) > 0:
         df['partial'] = df['n_samples'] < time_window_samples
+    # A non-default segment length (sensitivity runs) keeps the same 90 % rule
+    elif segment_length_m != 100.0 and len(df) > 0:
+        df['partial'] = df['length_m'] < MIN_FULL_SEGMENT_M / 100.0 * segment_length_m
 
     return df

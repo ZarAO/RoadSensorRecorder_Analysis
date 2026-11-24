@@ -3,7 +3,9 @@ import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/route
 import { of, throwError } from 'rxjs';
 
 import { ApiService } from '../api/api.service';
-import { AggregateChartData, AggregateOut, CoefficientSetOut, RunOut } from '../api/dto';
+import {
+  AggregateCalibrationModel, AggregateChartData, AggregateOut, CoefficientSetOut, RunOut,
+} from '../api/dto';
 import { AggregateDetail } from './aggregate-detail';
 
 const AGGREGATE: AggregateOut = {
@@ -29,11 +31,29 @@ const CHART: AggregateChartData = {
     bias: -1.61, se: 0.09, ci_low: -1.8, ci_high: -1.42,
     n_bins: 12, n_eff: 9.4, confidence: 0.95,
   },
-  repeatability: { sd: 0.34, n_bins_used: 10 },
+  repeatability: { sd: 1.87, n_bins_used: 10 },
   speed_effect: {
     slope_iri_per_kmh: -0.05, stderr: 0.01, n_rows: 24, n_bins: 10, speed_spread_kmh: 7.4,
   },
   validation: { rho: 0.91, mae: 1.12 },
+};
+
+/** Calibration model block as services.aggregate._calibration_model writes it. */
+const MODEL: AggregateCalibrationModel = {
+  v0_kmh: 50, n_pairs: 22,
+  beta: { slope_iri_per_kmh: 0.1073, stderr: 0.0155, ci_low: 0.0758, ci_high: 0.1389,
+          dof: 10, confidence: 0.95, n_rows: 22, n_bins: 11 },
+  gamma: 0.924, gamma_ci: [0.034, 1.272], delta: 2.893, delta_ci: [1.046, 9.551], n_blocks: 6,
+  held_out: [
+    { run_id: 5, mean_speed_kmh: 29.5, n_pairs: 11, beta_train: 0.111,
+      book: { mae: 4.59, bias: -4.59 }, bias_only: { mae: 2.5, bias: -2.1 },
+      model: { mae: 1.38, bias: 0.107 } },
+    { run_id: 6, mean_speed_kmh: 60.6, n_pairs: 11, beta_train: 0.107,
+      book: { mae: 1.54, bias: -1.28 }, bias_only: { mae: 2.72, bias: 2.3 },
+      model: { mae: 1.64, bias: 0.01 } },
+  ],
+  held_out_mean_mae: { book: 3.09, bias_only: 2.12, model: 1.51 },
+  repeatability_sd_model: 1.14,
 };
 
 const RUN: RunOut = {
@@ -190,6 +210,35 @@ describe('AggregateDetail', () => {
 
     expect(text(host, '#speed-effect')).toContain('Швидкісний ефект не оцінено');
     expect(host.querySelector('#speed-effect .muted')).toBeTruthy();
+  });
+
+  it('shows the calibration model: beta, gamma, delta and every pass held out', async () => {
+    const fixture = createPage(apiStub({
+      getAggregateChartData: () => of({ ...CHART, calibration_model: MODEL }),
+    }));
+    await fixture.whenStable();
+    const host = fixture.nativeElement as HTMLElement;
+
+    const card = text(host, '#calibration-model');
+    expect(card).toContain('0.107');            // beta
+    expect(card).toContain('[0.076; 0.139]');   // its CI
+    expect(card).toContain('0.92');             // gamma
+    expect(card).toContain('3.09 → 1.51');      // held-out MAE book -> model
+    expect(card).toContain('1.87 → 1.14');      // repeatability before -> after
+    const rows = Array.from(host.querySelectorAll('#model-table tbody tr'));
+    expect(rows.length).toBe(3);                // two passes + the mean row
+    expect(rows[0].textContent).toContain('ран #5');
+    expect(rows[0].textContent).toContain('−4.59');
+    expect(rows[0].textContent).toContain('+0.11');
+  });
+
+  it('explains a missing calibration model instead of showing numbers', async () => {
+    const fixture = createPage(apiStub());
+    await fixture.whenStable();
+    const host = fixture.nativeElement as HTMLElement;
+
+    expect(text(host, '#calibration-model')).toContain('Модель не оцінено');
+    expect(host.querySelector('#model-table')).toBeNull();
   });
 
   it('sorts the bins table by chainage and shows «—» for a single-pass std', async () => {

@@ -16,10 +16,12 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from profilometer_validation import calibration_model as cmod
 from profilometer_validation.aggregate import (
     bias_with_ci,
     bin_pairs,
@@ -92,13 +94,60 @@ def _pairs_for_run(run: AnalysisRun | None, run_id: int, reference: ReferenceDat
         pd.read_csv(run_dir / 'road_segments.csv'),
         str(run_dir / 'roughness.geojson'))
     pairs = windowed_reference(usable, form10, **params)
-    if len(pairs) < MIN_PAIRS:
+    # A pass only has to land on the section: a short G3 section holds 2-3 whole
+    # 100 m segments per pass, so MIN_PAIRS applies to the pooled passes instead
+    if pairs.empty:
         raise AggregateError(
-            f'{_run_label(run, run_id)}: замало зіставлених пар ({len(pairs)}) — '
+            f'{_run_label(run, run_id)}: жодної зіставленої пари — '
             'перевірте, що ран і еталон покривають ту саму ділянку')
     pairs = pairs.copy()
     pairs['run_id'] = run.id
     return pairs
+
+
+def _calibration_model(pairs: pd.DataFrame) -> dict | None:
+    """
+    The study's calibration model IRI_cal = max(0, gamma [R - beta (v - v0)] + delta)
+    (profilometer_validation.calibration_model, unchanged) on this aggregate's
+    passes: beta from the passes at different speeds, gamma/delta by inverse
+    calibration, and every pass predicted by the model fitted on the others
+    (beta re-estimated without it) next to the book value and a constant offset.
+    None when the runs predate the unclipped column or the passes do not
+    identify beta (no speed spread in shared bins).
+    """
+    if cmod.R_COL not in pairs.columns:
+        return None
+    clean = cmod.clean_pairs(pairs)
+    beta = cmod.estimate_beta(clean)
+    if beta is None:
+        return None
+    slope = beta['slope_iri_per_kmh']
+    params = cmod.fit(clean, slope)
+    held_out = []
+    for run_id, result in cmod.leave_one_run_out(clean).items():
+        speed = clean.loc[clean['run_id'].astype(str) == run_id, 'mean_speed_kmh'].mean()
+        held_out.append({
+            'run_id': int(run_id), 'mean_speed_kmh': float(speed),
+            'n_pairs': result['M1']['n'], 'beta_train': result['beta_train'],
+            **{name: {'mae': result[key]['mae'], 'bias': result[key]['bias']}
+               for name, key in (('book', 'book'), ('bias_only', 'bias_only'), ('model', 'M1'))},
+        })
+    held_out.sort(key=lambda row: row['mean_speed_kmh'])
+    boot = cmod.bootstrap_params(clean.assign(road='section'), n_boot=1000, beta=slope)
+    calibrated = clean.assign(iri_multi=cmod.predict(clean, params))
+    return {
+        'v0_kmh': cmod.V0_KMH,
+        'n_pairs': int(len(clean)),
+        'beta': {key: beta[key] for key in ('slope_iri_per_kmh', 'stderr', 'ci_low', 'ci_high',
+                                            'dof', 'confidence', 'n_rows', 'n_bins')},
+        'gamma': params.gamma, 'gamma_ci': boot['gamma_ci'],
+        'delta': params.delta, 'delta_ci': boot['delta_ci'],
+        'n_blocks': boot['n_blocks'],
+        'held_out': held_out,
+        'held_out_mean_mae': {name: float(np.mean([row[name]['mae'] for row in held_out]))
+                              for name in ('book', 'bias_only', 'model')},
+        'repeatability_sd_model': repeatability_sd(bin_pairs(calibrated))['sd'],
+    }
 
 
 def _build_stats(run_ids: list, pairs: pd.DataFrame, bins: pd.DataFrame,
@@ -114,6 +163,7 @@ def _build_stats(run_ids: list, pairs: pd.DataFrame, bins: pd.DataFrame,
         'bias': bias_with_ci(bins),
         'repeatability': repeatability_sd(binned),
         'speed_effect': speed_effect(binned),
+        'calibration_model': _calibration_model(pairs),
         'validation': validation_stats(aggregated, 'm'),
         'params': params,
     }
@@ -133,6 +183,7 @@ def _build_chart_data(bins: pd.DataFrame, stats: dict) -> dict:
         'bias': stats['bias'],
         'repeatability': stats['repeatability'],
         'speed_effect': stats['speed_effect'],
+        'calibration_model': stats.get('calibration_model'),
         'validation': {'rho': stats['validation']['spearman_rho'],
                        'mae': stats['validation']['mae']},
     }
@@ -283,6 +334,10 @@ def execute_aggregate(aggregate_id: int, engine, settings: Settings) -> None:
                                      reference, form10, params)
                       for run_id in run_ids]
             pairs = pd.concat(frames, ignore_index=True)
+            if len(pairs) < MIN_PAIRS:
+                raise AggregateError(
+                    f'замало зіставлених пар у всіх проїздах разом ({len(pairs)}, '
+                    f'потрібно щонайменше {MIN_PAIRS})')
 
             binned = bin_pairs(pairs)
             bins = per_bin_stats(binned)

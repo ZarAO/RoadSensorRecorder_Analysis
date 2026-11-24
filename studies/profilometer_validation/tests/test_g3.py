@@ -155,6 +155,13 @@ def test_quality_warnings_calibration_and_reference_speed():
     assert any('Reference Profiling' in w and '50%' in w for w in ref.warnings)
 
 
+def test_stale_factory_sensitivity_calibration_is_not_a_warning():
+    elevation, iri = _road()
+    info = {**INFO_FAST, 'Accelerometer Calibration Date/Time': '2026-01-29 14:36:21'}
+    ref = g3.build_section_reference([_pass_texts(elevation, iri, 50, 350, 'M', info)])
+    assert not any('калібрування приладу' in w for w in ref.warnings)
+
+
 def test_limits_empty_and_too_many_passes():
     with pytest.raises(ValueError):
         g3.build_section_reference([])
